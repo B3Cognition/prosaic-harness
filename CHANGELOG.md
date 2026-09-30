@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Preserve `tool_choice_not_honored` as a durable block reason when supplied by
+  an updated Runtime. No model output is admitted and no automatic retry occurs.
+  The released Runtime v0.3.0 dependency pin is unchanged.
+
 ## 0.2.0 — 2026-09-30
 
 - Artifact-bound approval, immutable declared evidence, final-output model review

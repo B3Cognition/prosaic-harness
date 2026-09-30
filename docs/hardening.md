@@ -90,3 +90,8 @@ uv pip install --python .venv/bin/python --no-deps -e ../prosaic-runtime
 
 For coordinated releases, publish Runtime first, replace Harness's dependency
 pin with that available immutable revision, and verify in a clean environment.
+
+Unreleased follow-up: the updated companion Runtime rejects omitted/substituted
+explicit first-tool selections itself. Harness preserves `tool_choice_not_honored`
+as a durable block reason, without automatic retry. This needs that development
+Runtime override; it is not included in the v0.3.0 dependency pin.

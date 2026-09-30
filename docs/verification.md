@@ -1,5 +1,23 @@
 # Verification
 
+## Unreleased initial-tool enforcement follow-up (2026-09-30)
+
+Development Runtime now rejects absent, substituted or additional explicit
+first-tool calls before executing them. Harness preserves the distinct
+`tool_choice_not_honored` block reason without retry or accepted output. The
+published v0.3.0 Runtime pin is unchanged; this follow-up needs the development
+Runtime override described in [hardening.md](hardening.md).
+
+Fresh suites passed 99 Runtime tests and 66 Harness tests; both package builds
+passed. Harness's 66 tests also passed with the released v0.3.0 Runtime pin in an
+isolated environment. Eight basic live probes (four TokenProxy model IDs,
+streaming on/off, explicit first-tool selection) still executed native reads
+with matching hashes and complete coverage. The original Qwen reader case now
+blocks after one call, with zero accepted outputs and its reported usage kept:
+`runs/initial-tool-enforcement-20260930-214333` (ignored local evidence).
+This fixes false-success reporting, not the endpoint's omission. Tool-acquisition
+prompt staging and an explicit preloaded-evidence blueprint remain next steps.
+
 ## Version 0.2.0 hardening verification (2026-09-30)
 
 Using the updated local companion Runtime, the full Harness suite passed 65

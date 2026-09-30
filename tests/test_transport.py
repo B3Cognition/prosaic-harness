@@ -117,6 +117,9 @@ def test_required_tool_evidence_rejects_fabricated_read(endpoint, tmp_path):
     path = copy_blueprint(tmp_path, 'read-only.yml', url)
     data = yaml.safe_load(path.read_text())
     data['steps']['evidence']['require_tools'] = ['read_file']
+    # This tests successful-tool admission under automatic choice, separately
+    # from Runtime's explicit initial-tool selection contract.
+    data['steps']['evidence'].pop('require_reads')
     path.write_text(yaml.safe_dump(data))
     fake = {'summary': 'Claimed read', 'facts': ['S1: claimed result'], 'unknowns': ['Cause'],
             'claims': [{'text': 'Claimed', 'source_id': 'S1', 'quote': 'The pilot processed 120 requests on one endpoint.'}]}

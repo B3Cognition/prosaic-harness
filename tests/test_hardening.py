@@ -88,6 +88,21 @@ def test_cancel_before_dispatch_is_durable(tmp_path, monkeypatch):
     assert h.resume()['reason'] == 'cancelled'
 
 
+def test_ignored_initial_tool_choice_blocks_without_output_or_retry(tmp_path, monkeypatch):
+    flow = setup(tmp_path, monkeypatch)
+    class Refused(FakeRuntime):
+        def run(self, *args, **kwargs):
+            return replace(super().run(*args, **kwargs), exit_code=1, stdout='',
+                           metadata={'failure_reason': 'tool_choice_not_honored'})
+    runtime = Refused(['{"approved":true}'])
+    harness = Harness(flow, tmp_path / 'run', runtime=runtime)
+    state = harness.run({})
+    assert state['status'] == 'blocked' and state['reason'] == 'tool_choice_not_honored'
+    assert state['outputs'] == {} and state['calls'] == 1
+    assert harness.resume()['reason'] == 'tool_choice_not_honored'
+    assert len(runtime.calls) == 1
+
+
 def test_whole_run_deadline_survives_pause(tmp_path, monkeypatch):
     setup(tmp_path, monkeypatch, pause=True)
     flow = Workflow.load(edit_flow(tmp_path, lambda d: d['limits'].update(max_run_s=10)))

@@ -183,7 +183,11 @@ class Harness:
         error = None
         output = None
         if result['exit_code'] != 0:
-            return self._block(state, self._resource_reason(state) or ('cancelled' if result['exit_code'] == 130 else 'runtime_timeout' if result['timed_out'] else 'runtime_failure'))
+            reason = ('cancelled' if result['exit_code'] == 130 else
+                      'runtime_timeout' if result['timed_out'] else
+                      'tool_choice_not_honored' if result['metadata'].get('failure_reason') == 'tool_choice_not_honored' else
+                      'runtime_failure')
+            return self._block(state, self._resource_reason(state) or reason)
         else:
             try:
                 output = output_json(result['stdout'])
