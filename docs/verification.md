@@ -1,5 +1,11 @@
 # Verification
 
+## Extended development campaign (2026-09-30)
+
+The subsequent full-suite, edge-case, packaging, and live campaign is recorded in
+[overnight-verification.md](overnight-verification.md). It supersedes the initial
+development test counts below without changing the published dependency pin.
+
 ## Unreleased acquisition staging (2026-09-30)
 
 The opt-in acquisition path and explicit no-tool preloading blueprint are now

@@ -116,6 +116,35 @@ reports admission and native-read counts; run directories preserve receipts and
 validation feedback. Any blocked case makes the program exit 1. This is a live
 diagnostic, not an accuracy benchmark or a tier ranking.
 
+### Explicit JSON response mode
+
+Some endpoints honor native tools but still return explanatory text around the
+final JSON. The Harness rejects that text instead of extracting a convenient
+substring. On the supplied TokenProxy, Ornith's staged example completed with
+streaming both on and off when JSON mode was explicitly enabled (one invocation
+and one native read each). That is a small endpoint-specific observation, not a
+general guarantee.
+
+For JSON-only examples, copy `tokenproxy.yml` to an ignored
+`tokenproxy-json.local.yml` and replace its `ornith` profile with:
+
+```yaml
+  ornith:
+    <<: *endpoint
+    model: ornith-1.5-35b
+    features:
+      streaming: true
+      stream_options: true
+      json_mode: true
+```
+
+Then pass `--config examples/tokenproxy-json.local.yml` to the matrix program
+above. The acquisition request deliberately omits `response_format`; JSON mode
+applies after acquisition and to preloaded analysis. Use it only when your
+endpoint supports `response_format: {type: json_object}` and the final prose
+asks for JSON. Defaults remain unchanged, no automatic retry switches modes,
+and schema/source/quote admission checks still apply.
+
 ## Python embedding
 
 ### Three-document incident review
