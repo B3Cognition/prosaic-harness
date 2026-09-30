@@ -1,5 +1,5 @@
 """Load a small declarative graph; Python owns interpretation and authority."""
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import hashlib
 import json
 from pathlib import Path
@@ -69,10 +69,12 @@ class Workflow:
     artifacts: dict
     schemas: dict
     fingerprint: str
+    acquisitions: dict = field(default_factory=dict)
 
     def current_fingerprint(self):
         return digest({'workflow': self.definition, 'runtime': asdict(self.config) | {'allowed_tools': sorted(self.config.allowed_tools)},
-                       'schemas': self.schemas, 'prose': {name: a.digest for name, a in self.artifacts.items()}})
+                       'schemas': self.schemas, 'prose': {name: a.digest for name, a in self.artifacts.items()},
+                       **({'acquisitions': {name: a.digest for name, a in self.acquisitions.items()}} if self.acquisitions else {})})
 
     def snapshot(self):
         evidence = {}
@@ -123,7 +125,7 @@ class Workflow:
             if Path(value).is_absolute() or '..' in Path(value).parts:
                 raise ValueError('evidence must use confined relative file paths')
             local(root, value)
-        artifacts, schemas = {}, {}
+        artifacts, schemas, acquisitions = {}, {}, {}
         for name, step in steps.items():
             if not isinstance(name, str) or not re.fullmatch(r'[a-zA-Z][a-zA-Z0-9_-]*', name):
                 raise ValueError('step identifiers must be simple names')
@@ -131,7 +133,7 @@ class Workflow:
                 raise ValueError(f'invalid step: {name}')
             kind = step.get('kind')
             allowed = {
-                'agent': {'kind', 'agent', 'schema', 'inputs', 'optional_inputs', 'next', 'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators'},
+                'agent': {'kind', 'agent', 'acquisition', 'schema', 'inputs', 'optional_inputs', 'next', 'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators'},
                 'gate': {'kind', 'from', 'field', 'equals', 'pass', 'fail', 'max_visits'},
                 'check': {'kind', 'from', 'validators', 'pass', 'fail', 'max_visits'},
                 'pause': {'kind', 'question', 'choices', 'max_visits', 'requires'},
@@ -183,6 +185,17 @@ class Workflow:
                 if tier is not None and tier not in config.routes:
                     raise ValueError(f'no runtime route for tier: {tier}')
                 artifacts[name] = artifact
+                if 'acquisition' in step:
+                    if not reads:
+                        raise ValueError('acquisition requires require_reads and scoped read_file access')
+                    acquisition = inspect_artifact(step['acquisition'], source, executable=executable)
+                    acquisition_tools = requested_tools(acquisition.frontmatter.get('tools'))
+                    if 'read_file' not in acquisition_tools or acquisition_tools - requested_tools(artifact.frontmatter.get('tools')):
+                        raise ValueError('acquisition tools must include read_file and cannot broaden final prose tools')
+                    for key in ('model_tier', 'effort'):
+                        if key in acquisition.frontmatter and acquisition.frontmatter[key] != artifact.frontmatter.get(key):
+                            raise ValueError(f'acquisition {key} must match final prose or be omitted')
+                    acquisitions[name] = acquisition
                 schema = parse_json(read_bytes(local(root, step['schema'])).decode())
                 reject_external_refs(schema)
                 Draft202012Validator.check_schema(schema)
@@ -209,7 +222,8 @@ class Workflow:
             if any(not isinstance(t, str) or t not in steps for t in targets):
                 raise ValueError(f'unknown transition target in {name}')
         fingerprint = digest({'workflow': raw, 'runtime': asdict(config) | {'allowed_tools': sorted(config.allowed_tools)},
-                              'schemas': schemas, 'prose': {name: a.digest for name, a in artifacts.items()}})
-        workflow = cls(path, raw, config, artifacts, schemas, fingerprint)
+                              'schemas': schemas, 'prose': {name: a.digest for name, a in artifacts.items()},
+                              **({'acquisitions': {name: a.digest for name, a in acquisitions.items()}} if acquisitions else {})})
+        workflow = cls(path, raw, config, artifacts, schemas, fingerprint, acquisitions)
         workflow.snapshot()
         return workflow

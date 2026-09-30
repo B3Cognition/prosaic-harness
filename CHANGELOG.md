@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Optional acquisition prose on agent steps, sealed in workflow fingerprints;
+  requires read requirements and Runtime `acquisition_v1` before dispatch.
+  Failed acquisition is a durable block without repair/fallback. Shared Runtime
+  invocation retains the existing budgets and final output admission checks.
+- Staged native reading and explicit tool-free preloaded evidence blueprints,
+  step-by-step setup, and an opt-in all-profile HTTP/SSE live comparison program.
+
 - Preserve `tool_choice_not_honored` as a durable block reason when supplied by
   an updated Runtime. No model output is admitted and no automatic retry occurs.
   The released Runtime v0.3.0 dependency pin is unchanged.

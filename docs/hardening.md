@@ -48,6 +48,18 @@ an endpoint ignoring it cannot pass admission. Required-read files are supplied
 as source hashes, not pre-read text. Read ranges can combine within an invocation.
 This proves bytes reached the model, not that its interpretation is correct.
 
+Optional `acquisition` sends its own inspected Prosaic artifact before the full
+assignment. Its digest is sealed with the workflow. Both phases share Runtime's
+model, conversation, tool/byte limits and deadline. Runtime requires one explicit
+granted initial tool; missing/substituted/extra calls block without execution,
+failed tool results block before analysis. These transport failures do not enter
+output repair. Successful acquisition still needs complete matching-byte read
+receipts and final schema/source checks. No automatic preloading fallback exists.
+See the [development setup and two blueprints](../examples/README.md#staged-acquisition-and-no-tool-preloading).
+The published Runtime v0.3.0 pin has no `acquisition_v1`; staging rejects it before
+dispatch. Preloading uses the existing controller snapshots and needs no new
+Runtime capability or tools. Tool-free outputs never satisfy native-read requirements.
+
 ## Recovery, storage and budgets
 
 State format is version 2: old runs must start afresh. State/receipts use content

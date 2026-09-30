@@ -127,3 +127,129 @@ def test_required_tool_evidence_rejects_fabricated_read(endpoint, tmp_path):
     state = Harness(Workflow.load(path), tmp_path / 'run', validators=load_validators(path.parent / 'checks.py')).run({'task': 'Read evidence/pilot.md'})
     assert state['status'] == 'blocked' and state['reason'] == 'attempt_limit'
     assert 'read_file' in state['feedback']
+
+
+def staged_blueprint(tmp_path, url):
+    path = copy_blueprint(tmp_path, 'read-only.yml', url)
+    acquisition = path.parent / '.prosaic/subagents/acquisition.md'
+    acquisition.write_text('---\nname: acquisition\ndescription: Acquire scoped evidence\nexecution: agent\ntools: read\n---\nRead evidence/pilot.md with read_file.\n')
+    data = yaml.safe_load(path.read_text())
+    data['steps']['evidence']['acquisition'] = 'subagents/acquisition.md'
+    path.write_text(yaml.safe_dump(data))
+    return path
+
+
+@pytest.mark.skipif('acquisition_v1' not in ProsaicRuntime.capabilities, reason='staged integration requires development Runtime acquisition_v1')
+def test_staged_step_discloses_final_contract_only_after_receipted_read(endpoint, tmp_path):
+    url, requests, replies = endpoint
+    path = staged_blueprint(tmp_path, url)
+    replies.extend([{'content': '', 'tool_calls': [{'id': 'r', 'type': 'function', 'function': {
+        'name': 'read_file', 'arguments': '{"path":"evidence/pilot.md"}'}}]},
+        text({'summary': 'Read pilot', 'facts': ['S1: 120 requests'], 'unknowns': ['S3: Cause'],
+              'claims': [{'text': '120 requests', 'source_id': 'S1', 'quote': 'The pilot processed 120 requests on one endpoint.'}]})])
+    state = Harness(Workflow.load(path), tmp_path / 'run', validators=load_validators(path.parent / 'checks.py')).run({'task': 'FINAL REQUEST'})
+    assert state['status'] == 'completed' and state['calls'] == 1
+    assert 'FINAL REQUEST' not in json.dumps(requests[0]) and 'claims' not in json.dumps(requests[0]['messages'])
+    assert 'FINAL REQUEST' in requests[1]['messages'][-1]['content']
+    receipt = json.loads(next((tmp_path / 'run/attempts').glob('*.json')).read_text())
+    assert receipt['result']['metadata']['acquisition_sha256']
+    assert any(e['event'] == 'acquisition_completed' for e in receipt['events'])
+
+
+@pytest.mark.skipif('acquisition_v1' not in ProsaicRuntime.capabilities, reason='staged integration requires development Runtime acquisition_v1')
+def test_failed_staged_read_is_durable_block_without_repair(endpoint, tmp_path):
+    url, requests, replies = endpoint
+    path = staged_blueprint(tmp_path, url)
+    replies.append({'content': '', 'tool_calls': [{'id': 'r', 'type': 'function', 'function': {
+        'name': 'read_file', 'arguments': '{"path":"outside.md"}'}}]})
+    h = Harness(Workflow.load(path), tmp_path / 'run', validators=load_validators(path.parent / 'checks.py'))
+    state = h.run({'task': 'Read pilot'})
+    assert state['status'] == 'blocked' and state['reason'] == 'acquisition_failed'
+    assert state['calls'] == 1 and state['outputs'] == {} and len(requests) == 1
+    assert h.resume()['reason'] == 'acquisition_failed' and len(requests) == 1
+
+
+def test_acquisition_is_part_of_workflow_fingerprint(endpoint, tmp_path):
+    from dataclasses import replace
+    url, _, _ = endpoint
+    flow = Workflow.load(staged_blueprint(tmp_path, url))
+    flow.acquisitions['evidence'] = replace(flow.acquisitions['evidence'], body='Different acquisition')
+    assert flow.current_fingerprint() != flow.fingerprint
+
+
+def test_acquisition_requires_capable_runtime_before_run(endpoint, tmp_path):
+    url, requests, _ = endpoint
+    flow = Workflow.load(staged_blueprint(tmp_path, url))
+    class LegacyRuntime:
+        capabilities = {'read_receipts_v1', 'initial_tool_v1'}
+    with pytest.raises(ValueError, match='acquisition_v1'):
+        Harness(flow, tmp_path / 'run', runtime=LegacyRuntime(), validators=load_validators(flow.path.parent / 'checks.py'))
+    assert requests == [] and not (tmp_path / 'run').exists()
+
+
+def test_acquisition_needs_required_reads_at_workflow_load(endpoint, tmp_path):
+    url, _, _ = endpoint
+    path = staged_blueprint(tmp_path, url)
+    data = yaml.safe_load(path.read_text())
+    data['steps']['evidence'].pop('require_reads')
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValueError, match='acquisition.*require_reads'):
+        Workflow.load(path)
+
+
+@pytest.mark.parametrize('filename,staged', [('staged-read.yml', True), ('preloaded-evidence.yml', False)])
+def test_evidence_blueprints_use_declared_acquisition_path(endpoint, tmp_path, filename, staged):
+    if staged and 'acquisition_v1' not in ProsaicRuntime.capabilities:
+        pytest.skip('staged integration requires development Runtime acquisition_v1')
+    url, requests, replies = endpoint
+    path = copy_blueprint(tmp_path, filename, url)
+    if staged:
+        replies.append({'content': '', 'tool_calls': [{'id': 'r', 'type': 'function', 'function': {
+            'name': 'read_file', 'arguments': '{"path":"evidence/pilot.md"}'}}]})
+    replies.append(text({'summary': 'Pilot', 'facts': ['S1: 120 requests'], 'unknowns': ['S3: Cause'],
+                         'claims': [{'text': '120 requests', 'source_id': 'S1', 'quote': 'The pilot processed 120 requests on one endpoint.'}]}))
+    state = Harness(Workflow.load(path), tmp_path / 'run', validators=load_validators(path.parent / 'checks.py')).run({'task': 'Summarize evidence'})
+    assert state['status'] == 'completed'
+    receipt = json.loads(next((tmp_path / 'run/attempts').glob('*.json')).read_text())
+    if staged:
+        assert len(requests) == 2 and 'The pilot processed 120' not in json.dumps(requests[0])
+        assert any(e['event'] == 'tool_completed' for e in receipt['events'])
+    else:
+        assert len(requests) == 1 and 'tools' not in requests[0]
+        assert 'The pilot processed 120' in requests[0]['messages'][0]['content']
+        assert not any(e['event'] == 'tool_completed' for e in receipt['events'])
+        assert receipt['arguments']['sources']['evidence/pilot.md']['text'].startswith('# Fictional pilot evidence')
+
+
+@pytest.mark.skipif('acquisition_v1' not in ProsaicRuntime.capabilities, reason='staged integration requires development Runtime acquisition_v1')
+def test_evidence_matrix_runs_both_paths_through_real_runtime(endpoint, tmp_path):
+    url, requests, replies = endpoint
+    flow = copy_blueprint(tmp_path, 'staged-read.yml', url)
+    brief = {'summary': 'Pilot', 'facts': ['S1: 120 requests'], 'unknowns': ['S3: Cause'],
+             'claims': [{'text': '120 requests', 'source_id': 'S1', 'quote': 'The pilot processed 120 requests on one endpoint.'}]}
+    replies.extend([{'content': '', 'tool_calls': [{'id': 'r', 'type': 'function', 'function': {
+        'name': 'read_file', 'arguments': '{"path":"evidence/pilot.md"}'}}]}, text(brief), text(brief)])
+    # One profile, one stream setting; the script tests staged then preloaded.
+    result = subprocess.run([sys.executable, str(flow.parent / 'evaluate_evidence.py'), '--live',
+        '--config', str(flow.parent / 'runtime.yml'), '--streaming', 'off', '--run-dir', str(tmp_path / 'matrix')],
+        capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    rows = [json.loads(line) for line in result.stdout.splitlines()]
+    assert len(rows) == 2 and all(row['status'] == 'completed' for row in rows)
+    assert [row['mode'] for row in rows] == ['staged', 'preloaded'] and len(requests) == 3
+
+
+def test_evidence_matrix_preflights_capability_before_any_model_request(endpoint, tmp_path, monkeypatch):
+    import importlib.util
+    url, requests, replies = endpoint
+    flow = copy_blueprint(tmp_path, 'staged-read.yml', url)
+    replies.append(text({'summary': 'unused'}))
+    spec = importlib.util.spec_from_file_location('evidence_matrix', flow.parent / 'evaluate_evidence.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(ProsaicRuntime, 'capabilities', frozenset({'read_receipts_v1'}))
+    monkeypatch.setattr(sys, 'argv', ['evaluate_evidence.py', '--live', '--config', str(flow.parent / 'runtime.yml'),
+                                    '--run-dir', str(tmp_path / 'matrix')])
+    with pytest.raises(SystemExit) as exc:
+        module.main()
+    assert exc.value.code == 2 and requests == []

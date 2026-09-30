@@ -66,6 +66,56 @@ The step requires successful read receipts covering the complete declared file
 with its matching path and byte hash, then checks source IDs and supporting quotes.
 This verifies which bytes reached the model, not its interpretation of them.
 
+## Staged acquisition and no-tool preloading
+
+The staged blueprint requires the development Runtime, not the published v0.3.0
+pin. With sibling checkouts, install Harness using the root README, then override
+only its Runtime dependency in the same environment:
+
+```sh
+.venv/bin/python -m pip install --no-deps -e ../prosaic-runtime
+export PATH="$PWD/.venv/bin:$PATH"
+export TOKENPROXY_KEY  # after loading the value from your shell configuration
+.venv/bin/prosaic-harness validate examples/tokenproxy-staged-read.yml --checks examples/checks.py
+.venv/bin/prosaic-harness run examples/tokenproxy-staged-read.yml \
+  --checks examples/checks.py --input examples/read-request.json --run-dir runs/staged-first --events
+.venv/bin/prosaic-harness run examples/tokenproxy-preloaded-evidence.yml \
+  --checks examples/checks.py --input examples/read-request.json --run-dir runs/preloaded-first --events
+```
+
+Use new run directories each time. On uv-created environments without pip, use
+`uv pip install --python .venv/bin/python --no-deps -e ../prosaic-runtime`.
+For another endpoint, configure `runtime.yml` and substitute `staged-read.yml`
+or `preloaded-evidence.yml` respectively. Preloading works with the released
+Runtime pin; staging fails preflight when `acquisition_v1` is unavailable.
+
+Staging sends only `evidence-acquisition.md` at first. The existing granted
+`read_file` must succeed before `evidence-reader.md`, final caller arguments
+and JSON instructions are appended to the same conversation. Both phases count
+as one Harness invocation; output-validation retries start a new bounded
+invocation, including a new acquisition. Missing/failed acquisition never retries
+or changes modes automatically. Full-file/hash receipts and the existing
+schema/source/quote checks remain required. Model reads after acquisition are
+still subject to the same tool budget.
+
+The no-tool blueprint instead passes the controller's immutable evidence
+snapshot to `evidence-analyst.md`. It advertises no tools and produces no native
+read events. Both paths use the same brief schema and source/quote validator.
+Neither path guarantees interpretation accuracy just because bytes arrived.
+
+Run the same validated task across every configured model, streaming on/off:
+
+```sh
+.venv/bin/python examples/evaluate_evidence.py --live --config examples/tokenproxy.yml \
+  --streaming both --jobs 2 --run-dir runs/evidence-matrix-first
+```
+
+`--live` explicitly authorizes requests; `--mode staged`/`preloaded` and
+`--streaming on`/`off` narrow the matrix. Concurrency is capped at two. JSONL
+reports admission and native-read counts; run directories preserve receipts and
+validation feedback. Any blocked case makes the program exit 1. This is a live
+diagnostic, not an accuracy benchmark or a tier ranking.
+
 ## Python embedding
 
 ```sh

@@ -166,7 +166,7 @@ JSON Markdown fence is also accepted. Schema failures do not advance the graph.
 
 | Step kind | Fields and behavior |
 | --- | --- |
-| `agent` | `agent`, `schema`, `next`; optional input IDs, tools/read roots, required successful tools, attempts, visits |
+| `agent` | `agent`, `schema`, `next`; optional `acquisition` prose ID, input IDs, tools/read roots, required successful tools, attempts, visits |
 | `gate` | `from`, `field` (list of keys), `equals`, `pass`, `fail`; missing data blocks |
 | `check` | `from`, trusted `validators`, `pass`, `fail`; no model call |
 | `pause` | `question`, `choices` mapping named answers to next steps |
@@ -188,6 +188,17 @@ and runtime configuration grants. Optional `require_tools: [read_file]` rejects
 an output unless the invocation produced a successful tool event for that name;
 it does not prove which file was read or whether the answer interpreted it correctly.
 Declare `evidence` and `require_reads` for hash-bound complete-file read evidence.
+Development-only `acquisition: subagents/evidence-acquisition.md` sends a short
+Prosaic artifact before the full agent assignment. It requires `require_reads`
+and Runtime `acquisition_v1`; both prose digests are part of the sealed workflow
+fingerprint. One Runtime invocation owns both phases, their shared deadline,
+usage and tool budget. Failed acquisition blocks without automatic repair or
+fallback. Final JSON/schema/source checks still apply after successful reads.
+Acquisition gets no final arguments; its own prose specifies the evidence path.
+For model-independent acquisition, explicitly choose the no-tool
+`preloaded-evidence.yml` blueprint instead: the controller supplies immutable
+evidence text in `sources`. This is snapshot evidence, not a native tool receipt.
+See the [step-by-step examples](examples/README.md#staged-acquisition-and-no-tool-preloading).
 Trusted checks are explicitly supplied by the host through `validators=` or CLI
 `--checks`. They execute Python with host permissions and are not sandboxed.
 V0.2 has no shell checks, agent file writes,

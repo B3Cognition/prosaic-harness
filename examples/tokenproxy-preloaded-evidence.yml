@@ -1,0 +1,16 @@
+version: 1
+name: TokenProxy controller-preloaded evidence without tools
+source: .prosaic
+runtime: tokenproxy.yml
+start: evidence
+evidence: [evidence/pilot.md]
+limits: {max_calls: 2, max_visits: 1, timeout_s: 180}
+steps:
+  evidence:
+    kind: agent
+    agent: subagents/evidence-analyst.md
+    schema: schemas/brief.json
+    validators: [evidence]
+    next: done
+  done:
+    kind: finish

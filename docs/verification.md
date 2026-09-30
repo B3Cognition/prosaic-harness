@@ -1,5 +1,50 @@
 # Verification
 
+## Unreleased acquisition staging (2026-09-30)
+
+The opt-in acquisition path and explicit no-tool preloading blueprint are now
+implemented. Using the local companion Runtime, all 115 Runtime tests and 75
+Harness tests passed with no skips; both sdist/wheel builds passed. Real local
+HTTP/SSE tests verify acquisition-before-final-prose/arguments/resources,
+JSON-format deferral, permission intersection, failed acquisition blocks,
+shared deadlines/tool/input budgets, reported-usage retention, capability
+preflight, workflow fingerprint binding, and runnable examples. The public
+Runtime dependency pin remains v0.3.0; four staged transport integration cases
+require the development override and skip when that capability is absent.
+Preloaded evidence and capability-rejection tests do not require the override.
+An isolated environment using the immutable published Runtime v0.3.0 pin passed
+71 Harness tests and explicitly skipped those four staged integrations. The
+live matrix script also preflights staging capability before starting either
+mode, so a missing capability cannot start unrelated preloaded model requests.
+
+Two live matrices exercised all four TokenProxy models, each with streaming
+on/off and staged/preloaded evidence. In the first matrix all staged cases
+performed native reads, but only Qwen's four outputs passed admission. Other
+models used filenames as source IDs, invented IDs, or violated JSON formatting.
+The example prose was clarified: source_id means the original S1–S4 label,
+not the file path; unlabelled stakeholder text is not a new source. No schema,
+validator, quote rule or retry limit was relaxed.
+
+The second matrix admitted 14/16 cases:
+
+| Model | Staged, nonstream / stream | Preloaded, nonstream / stream |
+| --- | --- | --- |
+| qwen36-35b-a3b | completed / completed (one invocation each) | completed / completed (one each) |
+| ornith-1.5-35b | blocked / blocked | completed / completed (two each) |
+| deepseek-v4-flash | completed / completed (one / two) | completed / completed (one each) |
+| nemotron-3.5-lightning | completed / completed (one each) | completed / completed (two each) |
+
+Every staged case acquired native read receipts. Ornith then prefixed its JSON
+fence with explanatory text and exhausted the two-attempt limit; no output was
+accepted. DeepSeek made additional reads in analysis under the shared grant and
+budget. Every preloaded case produced zero native read events. Full source/path/
+hash/coverage checks still apply to staged admission. Local receipts are ignored
+under `runs/acquisition-matrix-20260930-r1` and `-r2`. Matrix exit 1 is expected
+when any case is blocked. This is a small stochastic diagnostic, not proof of
+general reliability, truth or model-tier rankings. The standalone Runtime
+`run_acquisition.py` also completed both modes on streaming Qwen; it demonstrates
+execution, not Harness admission.
+
 ## Unreleased initial-tool enforcement follow-up (2026-09-30)
 
 Development Runtime now rejects absent, substituted or additional explicit
@@ -15,8 +60,8 @@ streaming on/off, explicit first-tool selection) still executed native reads
 with matching hashes and complete coverage. The original Qwen reader case now
 blocks after one call, with zero accepted outputs and its reported usage kept:
 `runs/initial-tool-enforcement-20260930-214333` (ignored local evidence).
-This fixes false-success reporting, not the endpoint's omission. Tool-acquisition
-prompt staging and an explicit preloaded-evidence blueprint remain next steps.
+This fixes false-success reporting, not the endpoint's omission. The subsequent
+acquisition/preloading implementation and its live results are documented above.
 
 ## Version 0.2.0 hardening verification (2026-09-30)
 

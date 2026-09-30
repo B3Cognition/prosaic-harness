@@ -30,6 +30,8 @@ class Harness:
         self.validator_versions = {name: self.validators[name].version for name in sorted(needed)}
         if any(step.get('require_reads') for step in workflow.definition['steps'].values()) and 'read_receipts_v1' not in getattr(self.runtime, 'capabilities', ()):
             raise ValueError('require_reads needs a Prosaic Runtime with read_receipts_v1 support')
+        if workflow.acquisitions and 'acquisition_v1' not in getattr(self.runtime, 'capabilities', ()):
+            raise ValueError('acquisition needs a Prosaic Runtime with acquisition_v1 support')
 
     def _save(self, state):
         state.update(seal(state))
@@ -186,6 +188,7 @@ class Harness:
             reason = ('cancelled' if result['exit_code'] == 130 else
                       'runtime_timeout' if result['timed_out'] else
                       'tool_choice_not_honored' if result['metadata'].get('failure_reason') == 'tool_choice_not_honored' else
+                      'acquisition_failed' if result['metadata'].get('failure_reason') == 'acquisition_failed' else
                       'runtime_failure')
             return self._block(state, self._resource_reason(state) or reason)
         else:
@@ -326,7 +329,8 @@ class Harness:
                                       'initial_tool_v1' in getattr(self.runtime, 'capabilities', ()) else {}))
                 result = self.runtime.run(self.workflow.artifacts[name], json.dumps(arguments),
                                           cwd=self.workflow.path.parent, policy=policy, on_event=record,
-                                          cancelled=lambda: bool(self._resource_reason(state)))
+                                          cancelled=lambda: bool(self._resource_reason(state)),
+                                          **({'acquisition': self.workflow.acquisitions[name]} if name in self.workflow.acquisitions else {}))
                 receipt = seal({'version': 1, 'run_id': state['run_id'], 'id': attempt_id, 'step': name, 'arguments_sha256': digest(arguments),
                                 'arguments': arguments, 'result': asdict(result), 'events': events})
                 write_json(self.directory / 'attempts' / (attempt_id + '.json'), receipt)
