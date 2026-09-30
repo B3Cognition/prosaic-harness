@@ -6,12 +6,18 @@ model_tier: balanced
 tools: read
 ---
 Your first action is a read_file function call with path evidence/pilot.md.
+Do not return an answer based on sources metadata; it contains hashes, not the
+document contents. Even if you already know the document, the read is required.
 Wait for the tool result before making findings. The file is in the invocation
 workspace; do not assume it is unavailable. The caller request is {{args}}.
 Tool calls precede the final answer; the JSON constraint applies to the final
 answer only, never to a function call. After the successful read, return JSON
 with summary (nonempty string, at most 1200 characters),
 facts (1–12 strings), unknowns (1–12 strings). Items are at most 500 characters.
+Also return claims (1–6 objects with text, source_id, quote). Text is a paraphrase
+of 1–500 characters; quote is an exact contiguous excerpt of 8–500 characters
+from the stated original source, excluding its S-number prefix and tool line
+numbers. The support owner gap belongs to S4, not a newly assigned ID.
 
 ALWAYS read evidence and retain source IDs in findings.
 NEVER claim to have read a file when the tool failed or access was denied.

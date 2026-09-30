@@ -3,6 +3,7 @@ name: Scoped evidence reading
 source: .prosaic
 runtime: runtime.yml
 start: evidence
+evidence: [evidence/pilot.md]
 limits: {max_calls: 2, max_visits: 1, timeout_s: 180}
 steps:
   evidence:
@@ -11,6 +12,8 @@ steps:
     schema: schemas/brief.json
     tools: [read_file]
     require_tools: [read_file]
+    require_reads: [evidence/pilot.md]
+    validators: [evidence]
     read_roots: [evidence]
     next: done
   done:

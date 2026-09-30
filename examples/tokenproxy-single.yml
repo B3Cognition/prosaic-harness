@@ -9,6 +9,7 @@ steps:
     kind: agent
     agent: subagents/briefer.md
     schema: schemas/brief.json
+    validators: [evidence]
     max_attempts: 2
     next: done
   done:

@@ -11,6 +11,7 @@ import yaml
 from prosaic_runtime import RuntimeConfig
 from prosaic_runtime.artifacts import inspect_artifact
 from prosaic_runtime.policy import READ_TOOLS, BUILTIN_TOOLS, requested_tools
+from .store import parse_json, read_bytes
 
 
 def digest(value):
@@ -69,6 +70,19 @@ class Workflow:
     schemas: dict
     fingerprint: str
 
+    def current_fingerprint(self):
+        return digest({'workflow': self.definition, 'runtime': asdict(self.config) | {'allowed_tools': sorted(self.config.allowed_tools)},
+                       'schemas': self.schemas, 'prose': {name: a.digest for name, a in self.artifacts.items()}})
+
+    def snapshot(self):
+        evidence = {}
+        for name in self.definition.get('evidence', []):
+            content = read_bytes(self.path.parent / name, maximum=65_536)
+            evidence[name] = {'sha256': hashlib.sha256(content).hexdigest(), 'text': content.decode('utf-8')}
+        if sum(len(v['text'].encode()) for v in evidence.values()) > 131_072:
+            raise ValueError('declared evidence exceeds total size limit')
+        return evidence
+
     @classmethod
     def load(cls, path, *, executable='prosaic'):
         try:
@@ -82,7 +96,7 @@ class Workflow:
         if path.suffix not in {'.yml', '.yaml'}:
             raise ValueError('workflow must use YAML/YML')
         raw = yaml.load(path.read_text(), Loader=UniqueLoader)
-        if not isinstance(raw, dict) or set(raw) - {'version', 'name', 'source', 'runtime', 'start', 'limits', 'steps'}:
+        if not isinstance(raw, dict) or set(raw) - {'version', 'name', 'source', 'runtime', 'start', 'limits', 'steps', 'evidence'}:
             raise ValueError('invalid workflow keys')
         if type(raw.get('version')) is not int or raw['version'] != 1:
             raise ValueError('workflow version must be 1')
@@ -92,7 +106,7 @@ class Workflow:
         if not all(isinstance(step, dict) for step in steps.values()):
             raise ValueError('every step must be a mapping')
         limits = raw.setdefault('limits', {})
-        if not isinstance(limits, dict) or set(limits) - {'max_calls', 'max_visits', 'timeout_s'}:
+        if not isinstance(limits, dict) or set(limits) - {'max_calls', 'max_visits', 'timeout_s', 'max_tokens', 'max_run_s'}:
             raise ValueError('invalid workflow limits')
         limits.setdefault('max_calls', 12)
         limits.setdefault('max_visits', 4)
@@ -102,6 +116,13 @@ class Workflow:
         root = path.parent
         config = RuntimeConfig.load(local(root, raw['runtime']))
         source = local(root, raw.get('source', '.prosaic'))
+        evidence = raw.get('evidence', [])
+        if not isinstance(evidence, list) or not all(isinstance(v, str) for v in evidence) or len(evidence) > 64 or len(set(evidence)) != len(evidence):
+            raise ValueError('evidence must list at most 64 unique local files')
+        for value in evidence:
+            if Path(value).is_absolute() or '..' in Path(value).parts:
+                raise ValueError('evidence must use confined relative file paths')
+            local(root, value)
         artifacts, schemas = {}, {}
         for name, step in steps.items():
             if not isinstance(name, str) or not re.fullmatch(r'[a-zA-Z][a-zA-Z0-9_-]*', name):
@@ -110,14 +131,21 @@ class Workflow:
                 raise ValueError(f'invalid step: {name}')
             kind = step.get('kind')
             allowed = {
-                'agent': {'kind', 'agent', 'schema', 'inputs', 'optional_inputs', 'next', 'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools'},
+                'agent': {'kind', 'agent', 'schema', 'inputs', 'optional_inputs', 'next', 'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators'},
                 'gate': {'kind', 'from', 'field', 'equals', 'pass', 'fail', 'max_visits'},
-                'pause': {'kind', 'question', 'choices', 'max_visits'},
-                'finish': {'kind', 'outcome', 'max_visits'},
+                'check': {'kind', 'from', 'validators', 'pass', 'fail', 'max_visits'},
+                'pause': {'kind', 'question', 'choices', 'max_visits', 'requires'},
+                'finish': {'kind', 'outcome', 'max_visits', 'requires'},
             }
             if kind not in allowed or set(step) - allowed[kind]:
                 raise ValueError(f'unsupported step or keys: {name}')
             positive(step.get('max_visits', limits['max_visits']), 'max_visits')
+            validators = step.get('validators', [])
+            if not isinstance(validators, list) or any(not isinstance(v, str) or not v for v in validators) or len(set(validators)) != len(validators):
+                raise ValueError('validators must be unique host-registered names')
+            requires = step.get('requires', [])
+            if not isinstance(requires, list) or any(ref not in steps or steps[ref].get('kind') != 'agent' for ref in requires):
+                raise ValueError('requires must reference agent steps')
             targets = []
             if kind == 'agent':
                 positive(step.get('max_attempts', 2), 'max_attempts')
@@ -135,6 +163,11 @@ class Workflow:
                     raise ValueError('read tools require explicit read_roots')
                 for value in roots:
                     local(root, value)
+                reads = step.get('require_reads', [])
+                if not isinstance(reads, list) or any(r not in evidence for r in reads):
+                    raise ValueError('require_reads must reference declared evidence files')
+                if reads and ('read_file' not in tools or any(not any(local(root, r).is_relative_to(local(root, base)) for base in roots) for r in reads)):
+                    raise ValueError('require_reads needs read_file granted within read_roots')
                 for field in ('inputs', 'optional_inputs'):
                     refs = step.get(field, [])
                     if not isinstance(refs, list) or any(ref not in steps or steps[ref].get('kind') != 'agent' for ref in refs):
@@ -144,21 +177,26 @@ class Workflow:
                     raise ValueError('prose requests unsupported runtime tools')
                 if set(required) - requested_tools(artifact.frontmatter.get('tools')):
                     raise ValueError('prose does not request required tools')
+                if reads and 'read_file' not in requested_tools(artifact.frontmatter.get('tools')):
+                    raise ValueError('prose does not request required read_file')
                 tier = artifact.frontmatter.get('model_tier')
                 if tier is not None and tier not in config.routes:
                     raise ValueError(f'no runtime route for tier: {tier}')
                 artifacts[name] = artifact
-                schema = json.loads(local(root, step['schema']).read_text())
+                schema = parse_json(read_bytes(local(root, step['schema'])).decode())
                 reject_external_refs(schema)
                 Draft202012Validator.check_schema(schema)
                 schemas[name] = schema
-            elif kind == 'gate':
+            elif kind in {'gate', 'check'}:
                 if step.get('from') not in steps or steps[step['from']].get('kind') != 'agent':
                     raise ValueError('gate must reference an agent step')
-                if not isinstance(step.get('field'), list) or not step['field'] or not all(isinstance(f, str) for f in step['field']):
-                    raise ValueError('gate field must be a nonempty list of keys')
-                if 'equals' not in step:
-                    raise ValueError('gate requires equals')
+                if kind == 'gate':
+                    if not isinstance(step.get('field'), list) or not step['field'] or not all(isinstance(f, str) for f in step['field']):
+                        raise ValueError('gate field must be a nonempty list of keys')
+                    if 'equals' not in step:
+                        raise ValueError('gate requires equals')
+                elif not validators:
+                    raise ValueError('check steps need validators')
                 targets = [step['pass'], step['fail']]
             elif kind == 'pause':
                 if not isinstance(step.get('question'), str) or not step['question']:
@@ -172,4 +210,6 @@ class Workflow:
                 raise ValueError(f'unknown transition target in {name}')
         fingerprint = digest({'workflow': raw, 'runtime': asdict(config) | {'allowed_tools': sorted(config.allowed_tools)},
                               'schemas': schemas, 'prose': {name: a.digest for name, a in artifacts.items()}})
-        return cls(path, raw, config, artifacts, schemas, fingerprint)
+        workflow = cls(path, raw, config, artifacts, schemas, fingerprint)
+        workflow.snapshot()
+        return workflow

@@ -7,6 +7,10 @@ model_tier: fast
 Read the request in {{args}}. Return only a JSON object with summary (string,
 at most 1200 characters), facts (1–12 strings), unknowns (1–12 strings).
 Each array item must be at most 500 characters. Preserve S-number citations.
+Also return claims (1–6 objects): text (paraphrase, 1–500 characters), source_id
+(original S-number), quote (exact contiguous excerpt, 8–500 characters from that
+source, excluding its S-number prefix). Do not quote the brief or invent IDs.
+Keep the summary descriptive: do not recommend, hold, reject or approve expansion.
 
 ALWAYS distinguish measurements, claims, and proposals.
 NEVER invent approvals, causality, or missing evidence.

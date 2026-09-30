@@ -8,7 +8,7 @@ controller can inspect Markdown with the installed Prosaic CLI.
 
 ```sh
 .venv/bin/prosaic-harness run examples/single.yml \
-  --input examples/request.json --run-dir runs/single
+  --checks examples/checks.py --input examples/request.json --run-dir runs/single
 ```
 
 The `fast` briefer returns a schema-validated summary and source-bound facts.
@@ -22,22 +22,26 @@ brief (fast) → draft (balanced) → review (strong) → gate
                   ↑                                │
                   └──────── rejected ───────────────┤
                                                    ↓ approved
-                                  decision (ultra) → human pause → done/rejected
+                           decision (ultra) → final review (strong) → final check
+                                ↑                  │                     │
+                                └── rejected ──────┘                     ↓
+                                                          human pause → done/rejected
 ```
 
 ```sh
 .venv/bin/prosaic-harness run examples/tokenproxy-review.yml \
-  --input examples/request.json --run-dir runs/review --events
+  --checks examples/checks.py --input examples/request.json --run-dir runs/review --events
 .venv/bin/prosaic-harness status --run-dir runs/review
 .venv/bin/prosaic-harness resume examples/tokenproxy-review.yml \
-  --run-dir runs/review --choice approve
+  --checks examples/checks.py --run-dir runs/review --choice approve
 ```
 
 The author receives the latest review on repair. Each model's response must pass
 its JSON Schema before the next step runs. A valid review with `approved: false`
 follows the repair edge; malformed JSON/schema failure retries the same invocation
-with feedback. Limits are ten calls, three visits per step, and two attempts per
-visit. Limit exhaustion blocks rather than approving by default. `review.yml`
+with feedback. Limits are fourteen calls, three visits per step, two attempts per
+visit and a one-hour whole-run deadline. Exhaustion blocks; it never approves by
+default. `review.yml`
 uses your operator-configured profiles instead of TokenProxy.
 
 Inspect `run.json` for accepted outputs and decisions, and `attempts/*.json`
@@ -50,29 +54,49 @@ separate event. An interruption at the human pause needs no further model call.
 
 ```sh
 .venv/bin/prosaic-harness run examples/tokenproxy-read-only.yml \
-  --input examples/read-request.json --run-dir runs/read --events
+  --checks examples/checks.py --input examples/read-request.json --run-dir runs/read --events
 ```
 
 The balanced reader declares read tools in Markdown, YAML allows only `read_file`,
 and the step grants it only within `examples/evidence`. The source is synthetic,
 including a quoted instruction that the agent should ignore. Use `read-only.yml`
-for another endpoint. The step requires a successful `read_file` event before
-accepting the JSON result, so a schema-valid claim of a read cannot advance alone.
-Inspect the receipt's tool event and answer for correctness; the check verifies
-tool success, not which file was read or the accuracy of the findings.
+for another endpoint. The pinned Runtime v0.3.0 provides read provenance; see
+[hardening setup](../docs/hardening.md).
+The step requires successful read receipts covering the complete declared file
+with its matching path and byte hash, then checks source IDs and supporting quotes.
+This verifies which bytes reached the model, not its interpretation of them.
 
 ## Python embedding
 
 ```sh
 .venv/bin/python examples/run_workflow.py examples/tokenproxy-review.yml \
-  --input examples/request.json --run-dir runs/python-review
+  --checks examples/checks.py --input examples/request.json --run-dir runs/python-review
 .venv/bin/python examples/run_workflow.py examples/tokenproxy-review.yml \
-  --run-dir runs/python-review --resume --choice approve
+  --checks examples/checks.py --run-dir runs/python-review --resume --choice approve
 ```
 
 The public API is `Workflow.load(path)` followed by
-`Harness(workflow, run_dir).run(json_input)` or `.resume(choice=...)`.
+`Harness(workflow, run_dir, validators=...).run(json_input)` or `.resume(choice=...)`.
 Applications may supply `on_event` for progress and a compatible `runtime` object
-for an execution adapter. The default adapter is Prosaic Runtime v0.2.0.
+for an execution adapter. The default adapter is Prosaic Runtime v0.3.0.
 Callbacks should not raise exceptions; a raised callback interrupts the run.
 Blueprints are repository assets; clone the repository to use them.
+
+## Evidence checks and reviewer probe
+
+`--checks examples/checks.py` explicitly trusts and executes that local Python
+file. Never load untrusted code. Its CHECKS registry is versioned by file hash.
+Claims now carry source IDs and exact quotes; decisions carry structured numeric
+calculations. The checker catches unknown IDs, reassigned/invented quotes,
+unsupported metric labels and wrong denominators. Quotes alone do not prove
+paraphrase correctness. Final semantic and human review remain separate safeguards.
+The clean path makes five model calls across all four tiers.
+
+To spend two calls testing the reviewer against intentionally bad drafts:
+
+```sh
+.venv/bin/python examples/evaluate_reviewer.py --config examples/tokenproxy.yml --live
+```
+
+Both drafts must be rejected. Approval or malformed output makes the probe fail;
+schema validity alone is not a passing evaluation.

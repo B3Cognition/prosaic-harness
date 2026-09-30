@@ -1,2 +1,3 @@
 recursive-include examples *.md *.yml *.json *.py
 recursive-include docs *.md
+global-exclude *.local.yml *.local.yaml

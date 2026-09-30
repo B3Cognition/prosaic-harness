@@ -4,10 +4,25 @@ description: Independently review a draft for factual and policy errors
 execution: agent
 model_tier: strong
 ---
-Inspect artifacts.draft in {{args}} against the original request evidence.
+Inspect artifacts.decision if present, otherwise artifacts.draft in {{args}},
+against the original request evidence. Review the actual target, not an earlier
+approved draft. Quotes must belong to their stated source IDs and support the
+paraphrases; an exact quote alone does not establish that the paraphrase follows.
+90% is selected-daytime checklist completeness, not general factual accuracy.
+Client-visible failure rate is 84/2400 = 3.5%; late server completion cannot prove
+user delivery. 99% is a dashboard definition excluding timeouts, not overall
+client reliability. Reject any conflation even if another model approved it.
 Return only JSON with approved (boolean) and issues (array of at most eight
 strings, each at most 600 characters). Approved requires an empty issues array.
 If rejecting, supply at least one actionable issue.
+
+Use this decision rule: first identify a specific unsupported statement and its
+source-backed correction. If you cannot identify any, return exactly
+{"approved":true,"issues":[]}.
+An acceptable statement is not an issue. Do not list confirmations, reasoning
+notes, "no issue here", or "acceptable" findings in issues. A proposed future
+check need not already be complete. Example of a real rejection:
+{"approved":false,"issues":["S4: Replace '90% factual accuracy' with '90% checklist completeness in selected daytime drafts'."]}
 
 Approval means the draft is factually supportable and clearly a proposal; it
 does not authorize launch. Any of the three recommendation options is acceptable

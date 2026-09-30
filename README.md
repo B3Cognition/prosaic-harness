@@ -14,6 +14,11 @@ The initial release supports Linux and macOS with Python 3.11+. It needs an
 existing OpenAI-compatible endpoint and the Prosaic CLI (Node.js 20+). Windows
 users can use WSL. The library imports no Echelon code.
 
+Version 0.2.0 adds versioned approvals, trusted checks and final-output validation,
+and pins Prosaic Runtime 0.3.0 for hash-bound read provenance. State format is
+version 2; existing 0.1 runs must start afresh. See
+[hardening setup and contracts](docs/hardening.md).
+
 ## First run
 
 Install Git, Python 3.11+, and Node.js 20+ before starting. Use an explicit Python
@@ -22,6 +27,7 @@ environment so another application's older runtime cannot be picked up by accide
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
+git checkout v0.2.0
 python3 -m venv .venv
 .venv/bin/python -m pip install .
 
@@ -38,7 +44,7 @@ prosaic --help
 
 Keep `.tools/prosaic` in place; npm links the CLI to that checkout. In a future
 terminal, return to the repository and add its `.venv/bin` to PATH again. The
-dependency pin installs Prosaic Runtime v0.2.0 and PyYAML automatically.
+dependency pin installs Prosaic Runtime v0.3.0 and PyYAML automatically.
 
 ### Configure an endpoint
 
@@ -72,9 +78,9 @@ export TOKENPROXY_KEY
 ### Run one agent with validation
 
 ```sh
-.venv/bin/prosaic-harness validate examples/single.yml
+.venv/bin/prosaic-harness validate examples/single.yml --checks examples/checks.py
 .venv/bin/prosaic-harness run examples/single.yml \
-  --input examples/request.json --run-dir runs/first-note
+  --checks examples/checks.py --input examples/request.json --run-dir runs/first-note
 .venv/bin/prosaic-harness status --run-dir runs/first-note
 ```
 
@@ -87,17 +93,18 @@ prints the accepted object. Use a fresh run directory for another input.
 
 ```sh
 .venv/bin/prosaic-harness run examples/tokenproxy-review.yml \
-  --input examples/request.json --run-dir runs/launch-review
+  --checks examples/checks.py --input examples/request.json --run-dir runs/launch-review
 ```
 
 This exercises four tiers: Ornith briefs the request, Qwen drafts a recommendation,
 DeepSeek reviews it, and Nemotron creates a final decision. A gate routes an
 unapproved review back to the author. The author receives the previous review
-as an identified input artifact. The final decision pauses for human approval:
+as an identified input artifact. The actual final decision gets its own model
+review and deterministic evidence check before pausing for human approval:
 
 ```sh
 .venv/bin/prosaic-harness resume examples/tokenproxy-review.yml \
-  --run-dir runs/launch-review --choice approve
+  --checks examples/checks.py --run-dir runs/launch-review --choice approve
 ```
 
 Choose `reject` to finish with a rejected outcome. Approval records a decision;
@@ -151,21 +158,26 @@ Agent `arguments` are a JSON object with `request` (the run input), `artifacts`
 (the last validation error, if any). `inputs` are required; `optional_inputs`
 include an output only when it exists, allowing first-pass review loops.
 Outputs replace a step's latest accepted value on revisits, while every attempt
-is retained in receipts. Raw transport stdout must be one JSON value; a single
+is retained in receipts and approvals bind to exact required-input versions.
+Optional inputs can carry stale feedback, not required approval dependencies.
+Arguments also include `artifact_bindings` and declared file `sources`.
+Raw transport stdout must be one JSON value; a single
 JSON Markdown fence is also accepted. Schema failures do not advance the graph.
 
 | Step kind | Fields and behavior |
 | --- | --- |
 | `agent` | `agent`, `schema`, `next`; optional input IDs, tools/read roots, required successful tools, attempts, visits |
 | `gate` | `from`, `field` (list of keys), `equals`, `pass`, `fail`; missing data blocks |
+| `check` | `from`, trusted `validators`, `pass`, `fail`; no model call |
 | `pause` | `question`, `choices` mapping named answers to next steps |
 | `finish` | Optional `outcome: completed` or `rejected` |
 
 Each step may override `max_visits`. Agent attempts bound validation/transport
 retries within a visit; visits bound graph loops; `max_calls` bounds invocations
 across the whole run, including authorized interrupted retries. `timeout_s` is
-per invocation. There is no whole-run monetary or token budget in v0.1: missing
-provider accounting is preserved as unavailable. Finite graph visits also bound
+per invocation. Optional `max_tokens` counts all reported tokens and blocks on
+unknown usage; `max_run_s` persists a whole-run deadline including human waiting.
+There is no monetary guarantee. Finite graph visits also bound
 non-agent loops. There is no automatic model escalation.
 
 ## Permissions and evidence
@@ -175,7 +187,10 @@ explicit `read_roots`; the runtime also intersects those with the prose's tools
 and runtime configuration grants. Optional `require_tools: [read_file]` rejects
 an output unless the invocation produced a successful tool event for that name;
 it does not prove which file was read or whether the answer interpreted it correctly.
-V0.1 has no shell checks, agent file writes,
+Declare `evidence` and `require_reads` for hash-bound complete-file read evidence.
+Trusted checks are explicitly supplied by the host through `validators=` or CLI
+`--checks`. They execute Python with host permissions and are not sandboxed.
+V0.2 has no shell checks, agent file writes,
 publication effects, remote workers, or recursive agent dispatch. Application
 integrations can be added through an explicit boundary in a later release.
 
@@ -197,7 +212,7 @@ The harness does not redact arbitrary sensitive information supplied by users.
 ## Resume and interruption
 
 ```sh
-.venv/bin/prosaic-harness resume examples/review.yml --run-dir runs/launch-review
+.venv/bin/prosaic-harness resume examples/review.yml --checks examples/checks.py --run-dir runs/launch-review
 ```
 
 The harness saves a pending invocation before contacting the runtime, then saves
@@ -208,16 +223,19 @@ the request. Explicitly authorize another billable call with:
 
 ```sh
 .venv/bin/prosaic-harness resume examples/review.yml \
-  --run-dir runs/launch-review --retry-interrupted
+  --checks examples/checks.py --run-dir runs/launch-review --retry-interrupted
 ```
 
 This consumes another call slot. There is no exactly-once guarantee for model
 calls or their tool activity. Definitions, schemas, inspected prose, and runtime
-configuration are fingerprinted; changes require a new run. Credential rotation
+configuration and validator versions are fingerprinted; changes require a new
+run. Declared evidence changes also reject resume. Credential rotation
 through the same environment-variable name does not change the fingerprint.
 Limit-exhausted runs remain blocked; start a new run with revised limits rather
 than modifying stored state. State assumes trusted local storage, not adversarial
-tampering. CLI exit codes: 0 completed/waiting, 1 blocked/rejected, 2 configuration
+tampering. Checksums and structural checks detect corruption, not coordinated
+forgery. New checkpoints are version 2; old runs need a new directory.
+CLI exit codes: 0 completed/waiting, 1 blocked/rejected, 2 configuration
 or usage error, 130 interrupted. Waiting is explicit, not final acceptance.
 
 ## Development

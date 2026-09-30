@@ -7,6 +7,8 @@ import sys
 from prosaic_runtime.console import Progress
 from .engine import Harness
 from .workflow import Workflow
+from .store import read_json
+from .validation import load_validators
 
 
 def main(argv=None):
@@ -15,6 +17,7 @@ def main(argv=None):
     for command in ('validate', 'run', 'resume'):
         p = sub.add_parser(command)
         p.add_argument('workflow', type=Path)
+        p.add_argument('--checks', type=Path, help='explicitly execute this trusted Python CHECKS file (not sandboxed)')
         if command != 'validate':
             p.add_argument('--run-dir', type=Path, required=True)
             p.add_argument('--events', action='store_true')
@@ -29,10 +32,12 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == 'status':
-            state = json.loads((args.run_dir / 'run.json').read_text())
+            state = read_json(args.run_dir / 'run.json')
         else:
             workflow = Workflow.load(args.workflow)
+            validators = load_validators(args.checks) if args.checks else {}
             if args.command == 'validate':
+                Harness(workflow, '.', validators=validators)
                 print(f'Validated {len(workflow.definition["steps"])} steps; fingerprint {workflow.fingerprint}')
                 return 0
             with Progress(quiet=args.events) as progress:
@@ -44,9 +49,9 @@ def main(argv=None):
                                              'waiting', 'blocked', 'finished'}:
                         progress.write(f'{value.get("step", "")}: {value["event"]}' +
                                        (f' {value["model"]}' if 'model' in value else ''))
-                harness = Harness(workflow, args.run_dir, on_event=event)
+                harness = Harness(workflow, args.run_dir, on_event=event, validators=validators)
                 if args.command == 'run':
-                    state = harness.run(json.loads(args.input.read_text()))
+                    state = harness.run(read_json(args.input))
                 else:
                     state = harness.resume(choice=args.choice, retry_interrupted=args.retry_interrupted)
         report = {key: state[key] for key in ('status', 'current', 'calls', 'reason', 'outputs')}

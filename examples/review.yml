@@ -3,17 +3,19 @@ name: Reviewed launch recommendation
 source: .prosaic
 runtime: runtime.yml
 start: brief
-limits: {max_calls: 10, max_visits: 3, timeout_s: 180}
+limits: {max_calls: 14, max_visits: 3, timeout_s: 180, max_run_s: 3600}
 steps:
   brief:
     kind: agent
     agent: subagents/briefer.md
     schema: schemas/brief.json
+    validators: [evidence]
     next: draft
   draft:
     kind: agent
     agent: subagents/author.md
     schema: schemas/decision.json
+    validators: [evidence]
     inputs: [brief]
     optional_inputs: [review]
     next: review
@@ -34,14 +36,37 @@ steps:
     kind: agent
     agent: subagents/decision.md
     schema: schemas/decision.json
+    validators: [evidence]
     inputs: [brief, draft, review]
-    next: approval
+    optional_inputs: [final_review]
+    next: final_review
+  final_review:
+    kind: agent
+    agent: subagents/reviewer.md
+    schema: schemas/review.json
+    inputs: [brief, decision]
+    next: final_gate
+  final_gate:
+    kind: gate
+    from: final_review
+    field: [approved]
+    equals: true
+    pass: final_check
+    fail: decision
+  final_check:
+    kind: check
+    from: decision
+    validators: [evidence]
+    pass: approval
+    fail: decision
   approval:
     kind: pause
+    requires: [decision, final_review]
     question: Accept this launch recommendation?
     choices: {approve: done, reject: rejected}
   done:
     kind: finish
+    requires: [decision, final_review]
   rejected:
     kind: finish
     outcome: rejected
