@@ -1,0 +1,28 @@
+name: Tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '${{ matrix.python }}'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Prosaic
+        run: |
+          git clone https://github.com/B3Cognition/prosaic.git /tmp/prosaic
+          git -C /tmp/prosaic checkout 0f7e187
+          npm --prefix /tmp/prosaic ci
+          npm install --global /tmp/prosaic
+      - name: Install harness
+        run: python -m pip install -e '.[test]'
+      - run: python -m pytest -q
+      - run: python -m build

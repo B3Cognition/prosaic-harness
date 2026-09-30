@@ -1,0 +1,2 @@
+recursive-include examples *.md *.yml *.json *.py
+recursive-include docs *.md

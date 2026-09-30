@@ -1,0 +1,19 @@
+default_profile: local
+allowed_tools: [read_file]
+limits:
+  timeout_s: 180
+  max_tool_rounds: 4
+routes:
+  fast: local
+  balanced: local
+  strong: local
+  ultra: local
+profiles:
+  local:
+    base_url: http://127.0.0.1:8000/v1
+    model: your-model
+    api_key_env: LOCAL_LLM_API_KEY
+    max_tokens: 4096
+    features:
+      streaming: true
+      stream_options: true

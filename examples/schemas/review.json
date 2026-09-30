@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["approved", "issues"],
+  "additionalProperties": false,
+  "properties": {
+    "approved": {"type": "boolean"},
+    "issues": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 600}}
+  },
+  "if": {"properties": {"approved": {"const": false}}},
+  "then": {"properties": {"issues": {"minItems": 1}}},
+  "else": {"properties": {"issues": {"maxItems": 0}}}
+}

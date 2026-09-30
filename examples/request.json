@@ -1,0 +1,17 @@
+{
+  "task": "Recommend whether to expand the fictional Harbor handover-note pilot. Return traceable evidence and suggested conditions; you cannot approve launch.",
+  "evidence": [
+    "S1: Six volunteer teams used the pilot for ten days. Four daytime teams used one template; two evening teams participated for three days. Complex tickets were often handled manually. No randomized control group exists.",
+    "S2: There were 2,400 request attempts including retries: 2,316 returned drafts, 60 timed out, and 24 returned explicit server errors. Categories are mutually exclusive. Timeout rate is 2.5%; total client-visible failure rate is 3.5%.",
+    "S3: The sponsor's 99% reliability headline counts only explicit server errors and excludes timeouts. It is a dashboard availability definition, not draft quality. Eighteen timeouts completed on the server after the client deadline; delivery to the user is unverified.",
+    "S4: Reviewers checked 120 selected daytime drafts. 108 preserved required facts, nine omitted actions or owners, and three introduced deadlines. This 90% checklist result excludes evening teams and was not randomly sampled.",
+    "S5: Eight coordinators recalled ten minutes to prepare handovers before the pilot; twelve estimated six minutes during it. Four people overlap but paired observations were not retained. The 40% headline is arithmetic on different group averages, not causal evidence.",
+    "S6: No privacy complaint appeared in the shared mailbox, introduced on day three. An evening coordinator asked a team lead about attachment permissions outside that channel. No actual-submission audit is complete. Logs without ticket bodies do not prove no restricted text entered requests.",
+    "S7: A synthetic restricted-attachment walkthrough showed that automatic attachment loading is absent, but users can paste excerpts. Application drafts expire after seven days. Proxy request-content retention is unanswered; its standard thirty-day diagnostic note may concern a different deployment or content category.",
+    "S8: A test-workspace button-disable check stopped new requests but did not rehearse production access groups, coordinator communication, or recall of already-copied notes. The latest checklist explicitly corrected rollback rehearsed to button disable checked.",
+    "S9: Tomas conditionally offered daytime health review alongside other duties. Leena requested a review-volume cap before accepting work. At the final cutoff, the evening team confirmed that nobody accepted evening support. Mira accepted only the decision-meeting role.",
+    "S10: A forty-minute load check used concurrency eight, short sanitized inputs, and an idle competing service. No long-input or peak-concurrency test was run, and no launch-week service reservation is confirmed. A day-seven contention explanation remains a hypothesis without per-request traces.",
+    "S11: The proposed expansion is six to forty teams in three waves. A smaller two-team addition was offered but not approved, bringing total participation to eight. The daily two-thousand-request estimate assumes fifty requests per team; no peak model exists.",
+    "S12: Operations proposes a support rota, operational rollback rehearsal, and reviews across shifts before expansion. These are proposed gates, not adopted policy. Any recommendation must retain proposal status and explain what new evidence would change it. Human review and the manual template remain available; no automatic sending is implemented."
+  ]
+}

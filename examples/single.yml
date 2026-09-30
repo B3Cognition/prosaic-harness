@@ -1,0 +1,15 @@
+version: 1
+name: Brief a supplied request
+source: .prosaic
+runtime: runtime.yml
+start: brief
+limits: {max_calls: 2, max_visits: 1, timeout_s: 180}
+steps:
+  brief:
+    kind: agent
+    agent: subagents/briefer.md
+    schema: schemas/brief.json
+    max_attempts: 2
+    next: done
+  done:
+    kind: finish

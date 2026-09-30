@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["recommendation", "rationale", "conditions", "citations"],
+  "additionalProperties": false,
+  "properties": {
+    "recommendation": {"enum": ["broad_launch", "restricted_pilot", "hold"]},
+    "rationale": {"type": "string", "minLength": 1, "maxLength": 1800},
+    "conditions": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"type": "string", "maxLength": 500, "pattern": "^Proposed:"}},
+    "citations": {"type": "array", "minItems": 1, "maxItems": 12, "items": {"type": "string", "pattern": "^S[0-9]+$"}}
+  }
+}

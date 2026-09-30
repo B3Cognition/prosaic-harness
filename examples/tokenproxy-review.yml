@@ -1,0 +1,47 @@
+version: 1
+name: Four-model reviewed launch recommendation
+source: .prosaic
+runtime: tokenproxy.yml
+start: brief
+limits: {max_calls: 10, max_visits: 3, timeout_s: 180}
+steps:
+  brief:
+    kind: agent
+    agent: subagents/briefer.md
+    schema: schemas/brief.json
+    next: draft
+  draft:
+    kind: agent
+    agent: subagents/author.md
+    schema: schemas/decision.json
+    inputs: [brief]
+    optional_inputs: [review]
+    next: review
+  review:
+    kind: agent
+    agent: subagents/reviewer.md
+    schema: schemas/review.json
+    inputs: [brief, draft]
+    next: gate
+  gate:
+    kind: gate
+    from: review
+    field: [approved]
+    equals: true
+    pass: decision
+    fail: draft
+  decision:
+    kind: agent
+    agent: subagents/decision.md
+    schema: schemas/decision.json
+    inputs: [brief, draft, review]
+    next: approval
+  approval:
+    kind: pause
+    question: Accept this launch recommendation?
+    choices: {approve: done, reject: rejected}
+  done:
+    kind: finish
+  rejected:
+    kind: finish
+    outcome: rejected

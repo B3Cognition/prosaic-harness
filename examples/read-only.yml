@@ -1,0 +1,17 @@
+version: 1
+name: Scoped evidence reading
+source: .prosaic
+runtime: runtime.yml
+start: evidence
+limits: {max_calls: 2, max_visits: 1, timeout_s: 180}
+steps:
+  evidence:
+    kind: agent
+    agent: subagents/evidence-reader.md
+    schema: schemas/brief.json
+    tools: [read_file]
+    require_tools: [read_file]
+    read_roots: [evidence]
+    next: done
+  done:
+    kind: finish
