@@ -118,6 +118,52 @@ diagnostic, not an accuracy benchmark or a tier ranking.
 
 ## Python embedding
 
+### Three-document incident review
+
+Two larger blueprints use the same synthetic timeline, metrics and investigation
+notes (about 8 KiB total). They test denominator confusion, unscored correctness,
+unconfirmed root cause, missing ownership, and quoted prompt-injection demands.
+All source/quote checks stay enabled.
+
+`incident-staged-review.yml` dispatches three independent bounded fragment
+agents. Each must acquire its one scoped file before receiving full prose.
+The controller then runs a tool-free synthesis, an independent reviewer,
+bounded repair, and a human pause. The native reads have path/hash/full-coverage
+receipts. Multiple required files use separate controller-owned acquisitions:
+the first short phase does not rely on a model voluntarily choosing later reads.
+The clean path is five invocations; repairs revisit synthesis/review, not reads
+of unchanged evidence. The entire run allows ten invocations and two visits.
+
+`incident-preloaded-review.yml` supplies all three immutable file snapshots
+directly to a tool-free analyst, followed by the same independent reviewer and
+human pause. Its clean path is two invocations; it grants no native tools and
+allows at most six calls. A model's approval never authorizes publication.
+
+With the development Runtime installed as above:
+
+```sh
+.venv/bin/python examples/run_workflow.py examples/incident-staged-review.yml \
+  --config examples/tokenproxy.yml --checks examples/checks.py \
+  --input examples/read-request.json --run-dir runs/incident-staged-first
+.venv/bin/python examples/run_workflow.py examples/incident-preloaded-review.yml \
+  --config examples/tokenproxy.yml --checks examples/checks.py \
+  --input examples/read-request.json --run-dir runs/incident-preloaded-first
+```
+
+Inspect the accepted outputs and `run.json` before supplying a human choice.
+Resume with the exact same workflow and config:
+
+```sh
+.venv/bin/python examples/run_workflow.py examples/incident-staged-review.yml \
+  --config examples/tokenproxy.yml --checks examples/checks.py \
+  --run-dir runs/incident-staged-first --resume --choice approve
+```
+
+Choose `reject` instead to reject; that status has exit code 1 in the embedding
+program. No further inference is needed for either human choice. For your own
+endpoint, configure `runtime.yml` and omit the override. `--config` is a host
+choice sealed in the run fingerprint; changing it on resume is rejected.
+
 ```sh
 .venv/bin/python examples/run_workflow.py examples/tokenproxy-review.yml \
   --checks examples/checks.py --input examples/request.json --run-dir runs/python-review

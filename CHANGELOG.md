@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Larger synthetic three-document incident blueprints: staged independent
+  file fragments or no-tool preloading, synthesis, independent review, bounded
+  repair and human approval. Embedding example accepts an explicit Runtime
+  config override and preserves its fingerprint on resume.
+
 - Recheck usage budgets, cancellation and deadlines before admitting a result,
   not only before executing the next graph step.
 

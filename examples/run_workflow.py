@@ -5,11 +5,13 @@ from pathlib import Path
 
 from prosaic_harness import Harness, Workflow
 from prosaic_harness.validation import load_validators
+from prosaic_runtime import RuntimeConfig
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('workflow', type=Path)
+    p.add_argument('--config', type=Path, help='explicit host Runtime config override; use the same config on resume')
     p.add_argument('--input', type=Path)
     p.add_argument('--run-dir', type=Path, required=True)
     p.add_argument('--resume', action='store_true')
@@ -18,7 +20,11 @@ def main():
     args = p.parse_args()
     if not args.resume and args.input is None:
         p.error('--input is required for a new run')
-    h = Harness(Workflow.load(args.workflow), args.run_dir,
+    workflow = Workflow.load(args.workflow)
+    if args.config:
+        workflow.config = RuntimeConfig.load(args.config)
+        workflow.fingerprint = workflow.current_fingerprint()
+    h = Harness(workflow, args.run_dir,
                 validators=load_validators(args.checks) if args.checks else {})
     state = h.resume(choice=args.choice) if args.resume else h.run(json.loads(args.input.read_text()))
     print(json.dumps({'status': state['status'], 'outputs': state['outputs']}, indent=2))

@@ -1,0 +1,70 @@
+version: 1
+name: Three-document incident review with native acquisition
+source: .prosaic
+runtime: runtime.yml
+start: timeline
+evidence: [evidence/incident/timeline.md, evidence/incident/metrics.md, evidence/incident/notes.md]
+limits: {max_calls: 10, max_visits: 2, timeout_s: 180, max_run_s: 1800}
+steps:
+  timeline:
+    kind: agent
+    agent: subagents/incident-fragment.md
+    acquisition: subagents/incident-acquisition.md
+    schema: schemas/brief.json
+    tools: [read_file]
+    read_roots: [evidence/incident/timeline.md]
+    require_reads: [evidence/incident/timeline.md]
+    validators: [evidence]
+    next: metrics
+  metrics:
+    kind: agent
+    agent: subagents/incident-fragment.md
+    acquisition: subagents/incident-metrics-acquisition.md
+    schema: schemas/brief.json
+    tools: [read_file]
+    read_roots: [evidence/incident/metrics.md]
+    require_reads: [evidence/incident/metrics.md]
+    validators: [evidence]
+    next: notes
+  notes:
+    kind: agent
+    agent: subagents/incident-fragment.md
+    acquisition: subagents/incident-notes-acquisition.md
+    schema: schemas/brief.json
+    tools: [read_file]
+    read_roots: [evidence/incident/notes.md]
+    require_reads: [evidence/incident/notes.md]
+    validators: [evidence]
+    next: analysis
+  analysis:
+    kind: agent
+    agent: subagents/incident-analyst.md
+    schema: schemas/brief.json
+    inputs: [timeline, metrics, notes]
+    validators: [evidence]
+    optional_inputs: [review]
+    next: review
+  review:
+    kind: agent
+    agent: subagents/incident-reviewer.md
+    schema: schemas/review.json
+    inputs: [analysis]
+    next: gate
+  gate:
+    kind: gate
+    from: review
+    field: [approved]
+    equals: true
+    pass: approval
+    fail: analysis
+  approval:
+    kind: pause
+    requires: [analysis, review]
+    question: Accept this fictional incident brief? No external publication occurs.
+    choices: {approve: done, reject: rejected}
+  done:
+    kind: finish
+    requires: [analysis, review]
+  rejected:
+    kind: finish
+    outcome: rejected
