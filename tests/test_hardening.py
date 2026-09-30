@@ -81,6 +81,31 @@ def test_unknown_usage_is_not_zero_with_finite_budget(tmp_path, monkeypatch):
     assert state['status'] == 'blocked' and state['reason'] == 'usage_unknown'
 
 
+@pytest.mark.parametrize('limit,want', [('tokens', 'token_limit'), ('cancel', 'cancelled'), ('deadline', 'run_deadline')])
+def test_limits_crossed_during_inference_block_before_output_admission(tmp_path, monkeypatch, limit, want):
+    setup(tmp_path, monkeypatch)
+    flow = Workflow.load(edit_flow(tmp_path, lambda d: d['limits'].update(
+        {'max_tokens': 4} if limit == 'tokens' else {'max_run_s': 5})))
+    now = [0]
+    stop = []
+    class Crossing(FakeRuntime):
+        def run(self, *args, **kwargs):
+            result = super().run(*args, **kwargs)
+            if limit == 'deadline':
+                now[0] = 10
+            if limit == 'cancel':
+                stop.append(True)
+            return result
+    runtime = Crossing(['{"approved":true}'])
+    h = Harness(flow, tmp_path / 'run', runtime=runtime, cancelled=lambda: bool(stop), clock=lambda: now[0])
+    state = h.run({})
+    assert state['status'] == 'blocked' and state['reason'] == want
+    assert state['outputs'] == {} and state['bindings'] == {}
+    assert state['calls'] == 1 and len(runtime.calls) == 1
+    assert not any(e['event'] == 'accepted' for e in state['history'])
+    assert h.resume()['reason'] == want and len(runtime.calls) == 1
+
+
 def test_cancel_before_dispatch_is_durable(tmp_path, monkeypatch):
     flow = setup(tmp_path, monkeypatch)
     h = Harness(flow, tmp_path / 'run', runtime=FakeRuntime([]), cancelled=lambda: True)

@@ -62,6 +62,13 @@ Runtime capability or tools. Tool-free outputs never satisfy native-read require
 
 ## Recovery, storage and budgets
 
+Development hardening rechecks budgets, cancellation and the run deadline
+immediately after recording completed usage and before admitting output. A
+response cannot become accepted merely because it arrived before the next-step
+guard. The updated companion Runtime also distinguishes missing/invalid usage
+from a genuine reported zero across every HTTP/SSE turn. Use the documented
+development override for these fixes; the published v0.3.0 pin is unchanged.
+
 State format is version 2: old runs must start afresh. State/receipts use content
 checksums, identity/ledger/output binding checks, bounded strict JSON, and reject
 duplicate keys/nonfinite values. Resume checks completed receipts and the pending
