@@ -25,8 +25,9 @@ def endpoint():
         def do_POST(self):
             requests.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
             message = replies.pop(0)
+            usage = message.pop('_usage', {'total_tokens': 7})
             body = json.dumps({'choices': [{'message': message, 'finish_reason': 'tool_calls' if message.get('tool_calls') else 'stop'}],
-                               'usage': {'total_tokens': 7}}).encode()
+                               'usage': usage}).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
@@ -253,3 +254,19 @@ def test_evidence_matrix_preflights_capability_before_any_model_request(endpoint
     with pytest.raises(SystemExit) as exc:
         module.main()
     assert exc.value.code == 2 and requests == []
+
+
+@pytest.mark.skipif('acquisition_v1' not in ProsaicRuntime.capabilities, reason='usage integrity test requires development Runtime')
+def test_real_unknown_usage_blocks_finite_token_budget(endpoint, tmp_path):
+    url, requests, replies = endpoint
+    path = copy_blueprint(tmp_path, 'preloaded-evidence.yml', url)
+    data = yaml.safe_load(path.read_text())
+    data['limits']['max_tokens'] = 100
+    path.write_text(yaml.safe_dump(data))
+    replies.append({**text({'summary': 'Pilot', 'facts': ['S1: 120 requests'], 'unknowns': ['S3: Cause'],
+        'claims': [{'text': '120 requests', 'source_id': 'S1', 'quote': 'The pilot processed 120 requests on one endpoint.'}]}), '_usage': None})
+    h = Harness(Workflow.load(path), tmp_path / 'run', validators=load_validators(path.parent / 'checks.py'))
+    state = h.run({'task': 'Summarize'})
+    assert state['status'] == 'blocked' and state['reason'] == 'usage_unknown'
+    assert state['outputs'] == {} and len(requests) == 1
+    assert h.resume()['reason'] == 'usage_unknown' and len(requests) == 1

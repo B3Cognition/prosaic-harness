@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Recheck usage budgets, cancellation and deadlines before admitting a result,
+  not only before executing the next graph step.
+
 - Optional acquisition prose on agent steps, sealed in workflow fingerprints;
   requires read requirements and Runtime `acquisition_v1` before dispatch.
   Failed acquisition is a durable block without repair/fallback. Shared Runtime

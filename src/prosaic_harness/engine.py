@@ -180,6 +180,9 @@ class Harness:
         self._evidence_unchanged(state)
         state['invocations'][-1].update(status='complete', token_usage=receipt['result']['token_usage'], receipt_sha256=receipt['sha256'])
         state['pending'] = None
+        reason = self._resource_reason(state)
+        if reason:
+            return self._block(state, reason)
         step = self.workflow.definition['steps'][state['current']]
         result = receipt['result']
         error = None
