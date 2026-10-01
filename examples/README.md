@@ -60,7 +60,7 @@ separate event. An interruption at the human pause needs no further model call.
 The balanced reader declares read tools in Markdown, YAML allows only `read_file`,
 and the step grants it only within `examples/evidence`. The source is synthetic,
 including a quoted instruction that the agent should ignore. Use `read-only.yml`
-for another endpoint. The pinned Runtime v0.3.0 provides read provenance; see
+for another endpoint. The pinned Runtime v0.4.0 provides read provenance; see
 [hardening setup](../docs/hardening.md).
 The step requires successful read receipts covering the complete declared file
 with its matching path and byte hash, then checks source IDs and supporting quotes.
@@ -68,12 +68,11 @@ This verifies which bytes reached the model, not its interpretation of them.
 
 ## Staged acquisition and no-tool preloading
 
-The staged blueprint requires the development Runtime, not the published v0.3.0
-pin. With sibling checkouts, install Harness using the root README, then override
-only its Runtime dependency in the same environment:
+Harness v0.3.0 pins Runtime v0.4.0, which includes acquisition support. Install
+Harness using the root README; no sibling checkout or dependency override is
+needed. In the same environment:
 
 ```sh
-.venv/bin/python -m pip install --no-deps -e ../prosaic-runtime
 export PATH="$PWD/.venv/bin:$PATH"
 export TOKENPROXY_KEY  # after loading the value from your shell configuration
 .venv/bin/prosaic-harness validate examples/tokenproxy-staged-read.yml --checks examples/checks.py
@@ -83,11 +82,10 @@ export TOKENPROXY_KEY  # after loading the value from your shell configuration
   --checks examples/checks.py --input examples/read-request.json --run-dir runs/preloaded-first --events
 ```
 
-Use new run directories each time. On uv-created environments without pip, use
-`uv pip install --python .venv/bin/python --no-deps -e ../prosaic-runtime`.
+Use new run directories each time.
 For another endpoint, configure `runtime.yml` and substitute `staged-read.yml`
-or `preloaded-evidence.yml` respectively. Preloading works with the released
-Runtime pin; staging fails preflight when `acquisition_v1` is unavailable.
+or `preloaded-evidence.yml` respectively. Staging fails preflight when
+`acquisition_v1` is unavailable, for example with an older Runtime override.
 
 Staging sends only `evidence-acquisition.md` at first. The existing granted
 `read_file` must succeed before `evidence-reader.md`, final caller arguments
@@ -168,7 +166,7 @@ directly to a tool-free analyst, followed by the same independent reviewer and
 human pause. Its clean path is two invocations; it grants no native tools and
 allows at most six calls. A model's approval never authorizes publication.
 
-With the development Runtime installed as above:
+With Harness installed as above:
 
 ```sh
 .venv/bin/python examples/run_workflow.py examples/incident-staged-review.yml \
@@ -203,7 +201,7 @@ choice sealed in the run fingerprint; changing it on resume is rejected.
 The public API is `Workflow.load(path)` followed by
 `Harness(workflow, run_dir, validators=...).run(json_input)` or `.resume(choice=...)`.
 Applications may supply `on_event` for progress and a compatible `runtime` object
-for an execution adapter. The default adapter is Prosaic Runtime v0.3.0.
+for an execution adapter. The default adapter is Prosaic Runtime v0.4.0.
 Callbacks should not raise exceptions; a raised callback interrupts the run.
 Blueprints are repository assets; clone the repository to use them.
 

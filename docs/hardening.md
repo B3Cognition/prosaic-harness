@@ -55,19 +55,19 @@ granted initial tool; missing/substituted/extra calls block without execution,
 failed tool results block before analysis. These transport failures do not enter
 output repair. Successful acquisition still needs complete matching-byte read
 receipts and final schema/source checks. No automatic preloading fallback exists.
-See the [development setup and two blueprints](../examples/README.md#staged-acquisition-and-no-tool-preloading).
-The published Runtime v0.3.0 pin has no `acquisition_v1`; staging rejects it before
-dispatch. Preloading uses the existing controller snapshots and needs no new
+See the [released setup and two blueprints](../examples/README.md#staged-acquisition-and-no-tool-preloading).
+Harness v0.3.0 pins Runtime v0.4.0 with `acquisition_v1`; older Runtime overrides
+without it are rejected before dispatch. Preloading uses the controller snapshots and needs no new
 Runtime capability or tools. Tool-free outputs never satisfy native-read requirements.
 
 ## Recovery, storage and budgets
 
-Development hardening rechecks budgets, cancellation and the run deadline
+Harness v0.3.0 rechecks budgets, cancellation and the run deadline
 immediately after recording completed usage and before admitting output. A
 response cannot become accepted merely because it arrived before the next-step
 guard. The updated companion Runtime also distinguishes missing/invalid usage
-from a genuine reported zero across every HTTP/SSE turn. Use the documented
-development override for these fixes; the published v0.3.0 pin is unchanged.
+from a genuine reported zero across every HTTP/SSE turn. These fixes are included
+in the pinned Runtime v0.4.0; no development override is needed.
 
 State format is version 2: old runs must start afresh. State/receipts use content
 checksums, identity/ledger/output binding checks, bounded strict JSON, and reject
@@ -96,8 +96,9 @@ Model calls and their tool activity have no exactly-once guarantee.
 
 ## Coordinated Runtime dependency
 
-Harness 0.2.0 pins the immutable Runtime v0.3.0 revision, including
-`read_receipts_v1` and `initial_tool_v1`. A missing read capability fails before
+Harness 0.3.0 pins the immutable Runtime v0.4.0 revision, including
+`read_receipts_v1`, `initial_tool_v1`, `initial_tool_enforcement_v1` and
+`acquisition_v1`. A missing required capability fails before
 model dispatch. Normal installation needs no sibling checkout. For development
 against unreleased Runtime changes, explicitly install the sibling checkout:
 
@@ -110,7 +111,7 @@ uv pip install --python .venv/bin/python --no-deps -e ../prosaic-runtime
 For coordinated releases, publish Runtime first, replace Harness's dependency
 pin with that available immutable revision, and verify in a clean environment.
 
-Unreleased follow-up: the updated companion Runtime rejects omitted/substituted
+The pinned companion Runtime rejects omitted/substituted
 explicit first-tool selections itself. Harness preserves `tool_choice_not_honored`
-as a durable block reason, without automatic retry. This needs that development
-Runtime override; it is not included in the v0.3.0 dependency pin.
+as a durable block reason, without automatic retry. Neither behavior requires
+the optional development Runtime override.

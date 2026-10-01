@@ -1,5 +1,22 @@
 # Verification
 
+## Coordinated releases (2026-10-01)
+
+Harness v0.3.0 pins Runtime v0.4.0. Acquisition, initial-tool enforcement and the
+extended campaign fixes below are now included in a normal released install.
+The following development sections describe their historical verification;
+their older dependency pins and override instructions do not describe v0.3.0.
+
+Release verification reran all 138 Runtime tests and 85 Harness tests with no
+skips, built both source archives and wheels, and checked packaged examples and
+Apache-2.0 metadata. Runtime's release wheel also passed all 138 tests with source
+imports disabled. A clean Harness wheel installation resolved Runtime directly
+from the published immutable commit
+`f2e870fa5f02e99125539428972c40bc42996e1a`; both installed import paths were checked
+under `site-packages`. All 85 Harness tests passed there without editable
+overrides or skipped acquisition integrations. Both incident blueprints validated
+through the installed CLI. Runtime release CI passed on Python 3.11–3.13.
+
 ## Extended development campaign (2026-09-30)
 
 The subsequent full-suite, edge-case, packaging, and live campaign is recorded in

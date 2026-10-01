@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-01
+
+- Pin the immutable Runtime v0.4.0 release: acquisition, strict initial-tool
+  enforcement, accurate unknown usage, input bounds, redirect rejection and
+  bounded inspection timeouts work without a sibling development override.
 
 - Larger synthetic three-document incident blueprints: staged independent
   file fragments or no-tool preloading, synthesis, independent review, bounded
@@ -19,7 +23,6 @@
 
 - Preserve `tool_choice_not_honored` as a durable block reason when supplied by
   an updated Runtime. No model output is admitted and no automatic retry occurs.
-  The released Runtime v0.3.0 dependency pin is unchanged.
 
 ## 0.2.0 — 2026-09-30
 

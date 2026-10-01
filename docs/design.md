@@ -2,7 +2,7 @@
 
 The working-tree revision supersedes the initial limitations below. See
 [hardening.md](hardening.md) for v2 recovery, validators, bindings, budgets and
-the companion Runtime development setup.
+the coordinated Runtime release setup.
 
 Prosaic defines agents; Prosaic Runtime executes one invocation; this harness
 owns sequencing, validation, limits, evidence, and recovery. Echelon inspired

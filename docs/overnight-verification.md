@@ -1,5 +1,9 @@
 # Extended development verification — 2026-09-30
 
+Release follow-up: Harness v0.3.0 and Runtime v0.4.0 include this campaign's
+changes. Normal installation no longer needs a sibling Runtime override. This
+report preserves the pre-release commits, results and publication status below.
+
 This campaign tests the unpushed development branches, not a new release.
 Runtime code: `16047e9af51e46ff163ef4ea969427b49b52ee91`.
 Harness code: `e024b0c9c65c8522f5bbe0bfd044e61967400f2c`.

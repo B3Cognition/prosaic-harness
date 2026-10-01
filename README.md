@@ -15,7 +15,9 @@ existing OpenAI-compatible endpoint and the Prosaic CLI (Node.js 20+). Windows
 users can use WSL. The library imports no Echelon code.
 
 Version 0.2.0 adds versioned approvals, trusted checks and final-output validation,
-and pins Prosaic Runtime 0.3.0 for hash-bound read provenance. State format is
+and hash-bound read provenance. Version 0.3.0 pins Prosaic Runtime 0.4.0, adding
+opt-in acquisition, strict initial-tool enforcement, admission-time resource
+checks and larger incident-review examples. State format is
 version 2; existing 0.1 runs must start afresh. See
 [hardening setup and contracts](docs/hardening.md).
 
@@ -27,7 +29,7 @@ environment so another application's older runtime cannot be picked up by accide
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.2.0
+git checkout v0.3.0
 python3 -m venv .venv
 .venv/bin/python -m pip install .
 
@@ -44,7 +46,7 @@ prosaic --help
 
 Keep `.tools/prosaic` in place; npm links the CLI to that checkout. In a future
 terminal, return to the repository and add its `.venv/bin` to PATH again. The
-dependency pin installs Prosaic Runtime v0.3.0 and PyYAML automatically.
+dependency pin installs Prosaic Runtime v0.4.0 and PyYAML automatically.
 
 ### Configure an endpoint
 
