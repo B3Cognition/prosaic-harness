@@ -47,6 +47,35 @@ no further calls. Runtime transport success alone does not establish final-answe
 truth. Receipts are ignored in runs/custom-tools-20261001 in both repositories.
 This small stochastic matrix is not a reliability benchmark or tier ranking.
 
+The fresh whole-change review found two minimum-contract defects, repaired
+independently with reproduced RED→GREEN public transport tests and both full
+suites after each: HTTP normalization could turn malformed arguments/type into
+a valid empty custom call; callback Cancelled exception text could leak captures.
+Custom raw shape now survives HTTP/SSE compatibility parsing, including invalid
+SSE fragments, while builtin compatibility defaults remain unchanged. Public
+cancellation uses a fixed safe message with exit 130 and known usage preserved.
+Final source and refreshed installed-wheel suites pass **220 Runtime / 101 Harness
+tests**, with no skips and installed-wheel pytest source paths disabled. The
+post-fix Runtime source archive/wheel also rebuilt successfully.
+
+A second full 16-case live matrix on the fixed code retained all admission rules:
+
+| Model | Runtime HTTP / SSE | Harness HTTP / SSE |
+| --- | --- | --- |
+| qwen36-35b-a3b | tool_choice_not_honored / tool_choice_not_honored | blocked / blocked |
+| ornith-1.5-35b | success / success | waiting / waiting |
+| deepseek-v4-flash | success / success | waiting / waiting |
+| nemotron-3.5-lightning | tool_choice_not_honored / success | waiting / waiting |
+
+All three Runtime failures observed zero native calls, not a successful callback
+discarded by the new validation. All five successful Runtime cases executed a
+versioned lookup. All six Harness waiting cases passed exact catalogue admission,
+then real reject without new inference; Ornith HTTP needed its bounded second
+attempt. Qwen again fabricated schema-invalid records without a lookup. Receipts
+for this second run are under runs/custom-tools-20261001/post-review in Harness
+and matrix-post-review.jsonl in Runtime. Model/transport outcomes vary between
+runs; these results do not justify weakening initial-tool or admission rules.
+
 Trusted callbacks are synchronous in-process code: no sandbox, forced preemption,
 rollback or exactly-once guarantee. A round cap is not an individual-call cap.
 Versions identify host-declared semantics/data; they cannot detect a dishonest
