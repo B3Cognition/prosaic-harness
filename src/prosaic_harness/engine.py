@@ -19,7 +19,8 @@ class Harness:
         self.workflow = workflow
         self.directory = Path(run_dir).absolute()
         self.file = self.directory / 'run.json'
-        self.runtime = runtime or ProsaicRuntime(workflow.config)
+        self.runtime = runtime or (ProsaicRuntime(workflow.config, custom_tools=workflow.custom_tools)
+                                   if workflow.custom_tools else ProsaicRuntime(workflow.config))
         self.on_event = on_event
         self.validators = dict(validators or {})
         self.cancelled = cancelled or (lambda: False)
@@ -32,6 +33,16 @@ class Harness:
             raise ValueError('require_reads needs a Prosaic Runtime with read_receipts_v1 support')
         if workflow.acquisitions and 'acquisition_v1' not in getattr(self.runtime, 'capabilities', ()):
             raise ValueError('acquisition needs a Prosaic Runtime with acquisition_v1 support')
+        self._check_custom_tools()
+
+    def _check_custom_tools(self):
+        expected = self.workflow.tool_descriptors
+        if expected:
+            if 'custom_tools_v1' not in getattr(self.runtime, 'capabilities', ()):
+                raise ValueError('custom tools require custom_tools_v1 support')
+            actual = getattr(self.runtime, 'tool_descriptors', {})
+            if any(actual.get(name) != descriptor for name, descriptor in expected.items()):
+                raise ValueError('custom tool adapter descriptors do not match workflow')
 
     def _save(self, state):
         state.update(seal(state))
@@ -50,6 +61,7 @@ class Harness:
         return state
 
     def run(self, inputs):
+        self._check_custom_tools()
         digest(inputs)  # JSON-serializable and finite before creating a run.
         with locked(self.directory):
             if self.file.exists():
@@ -66,6 +78,7 @@ class Harness:
             return self._drive(state)
 
     def resume(self, *, choice=None, retry_interrupted=False):
+        self._check_custom_tools()
         with locked(self.directory):
             state = read_json(self.file)
             validate_state(state, self.workflow)
@@ -204,7 +217,9 @@ class Harness:
                 error = 'response must be one JSON value, optionally in a JSON code fence'
         if error is None:
             successful = {event.get('name') for event in receipt['events']
-                          if event.get('event') == 'tool_completed' and event.get('status') == 'ok'}
+                          if event.get('event') == 'tool_completed' and event.get('status') == 'ok'
+                          and (event.get('name') not in self.workflow.tool_descriptors or
+                               event.get('tool_version') == self.workflow.tool_descriptors[event['name']]['version'])}
             missing = set(step.get('require_tools', [])) - successful
             if missing:
                 error = f'execute required granted tools successfully before returning JSON: {sorted(missing)}'

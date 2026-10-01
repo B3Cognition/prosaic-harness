@@ -1,5 +1,7 @@
 """Load a small declarative graph; Python owns interpretation and authority."""
 from dataclasses import asdict, dataclass, field
+from copy import deepcopy
+from types import MappingProxyType
 import hashlib
 import json
 from pathlib import Path
@@ -8,7 +10,7 @@ import re
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 import yaml
-from prosaic_runtime import RuntimeConfig
+from prosaic_runtime import RuntimeConfig, ProsaicRuntime
 from prosaic_runtime.artifacts import inspect_artifact
 from prosaic_runtime.policy import READ_TOOLS, BUILTIN_TOOLS, requested_tools
 from .store import parse_json, read_bytes
@@ -70,11 +72,18 @@ class Workflow:
     schemas: dict
     fingerprint: str
     acquisitions: dict = field(default_factory=dict)
+    custom_tools: dict = field(default_factory=dict)
+    _tool_descriptors: dict = field(default_factory=dict, repr=False)
+
+    @property
+    def tool_descriptors(self):
+        return deepcopy(self._tool_descriptors)
 
     def current_fingerprint(self):
         return digest({'workflow': self.definition, 'runtime': asdict(self.config) | {'allowed_tools': sorted(self.config.allowed_tools)},
                        'schemas': self.schemas, 'prose': {name: a.digest for name, a in self.artifacts.items()},
-                       **({'acquisitions': {name: a.digest for name, a in self.acquisitions.items()}} if self.acquisitions else {})})
+                       **({'acquisitions': {name: a.digest for name, a in self.acquisitions.items()}} if self.acquisitions else {}),
+                       **({'custom_tools': self.tool_descriptors} if self._tool_descriptors else {})})
 
     def snapshot(self):
         evidence = {}
@@ -86,14 +95,14 @@ class Workflow:
         return evidence
 
     @classmethod
-    def load(cls, path, *, executable='prosaic'):
+    def load(cls, path, *, executable='prosaic', custom_tools=None):
         try:
-            return cls._load(path, executable=executable)
+            return cls._load(path, executable=executable, custom_tools=custom_tools)
         except (yaml.YAMLError, SchemaError, KeyError, TypeError, AttributeError) as exc:
             raise ValueError(f'invalid workflow definition: {type(exc).__name__}') from exc
 
     @classmethod
-    def _load(cls, path, *, executable):
+    def _load(cls, path, *, executable, custom_tools):
         path = Path(path).resolve()
         if path.suffix not in {'.yml', '.yaml'}:
             raise ValueError('workflow must use YAML/YML')
@@ -117,6 +126,11 @@ class Workflow:
             positive(limits[key], key)
         root = path.parent
         config = RuntimeConfig.load(local(root, raw['runtime']))
+        registry = dict(custom_tools or {})
+        # Preserve compatibility with the released Runtime for no-custom flows.
+        adapter = ProsaicRuntime(config, custom_tools=registry) if registry else ProsaicRuntime(config)
+        registered = dict(getattr(adapter, 'tool_descriptors', {}))
+        descriptors = {}
         source = local(root, raw.get('source', '.prosaic'))
         evidence = raw.get('evidence', [])
         if not isinstance(evidence, list) or not all(isinstance(v, str) for v in evidence) or len(evidence) > 64 or len(set(evidence)) != len(evidence):
@@ -154,14 +168,14 @@ class Workflow:
                 targets = [step['next']]
                 tools = step.get('tools', [])
                 roots = step.get('read_roots', [])
-                if not isinstance(tools, list) or not all(isinstance(t, str) for t in tools) or set(tools) - READ_TOOLS:
-                    raise ValueError('v0.1 agent steps support read tools only')
+                if not isinstance(tools, list) or not all(isinstance(t, str) for t in tools) or set(tools) - READ_TOOLS - registered.keys():
+                    raise ValueError('agent steps support builtin read tools or host-registered custom tools only')
                 if set(tools) - config.allowed_tools:
                     raise ValueError('step requests tools missing from runtime allowed_tools')
                 required = step.get('require_tools', [])
                 if not isinstance(required, list) or not all(isinstance(t, str) for t in required) or set(required) - set(tools):
                     raise ValueError('require_tools must be a subset of granted step tools')
-                if not isinstance(roots, list) or (tools and not roots):
+                if not isinstance(roots, list) or (set(tools) & READ_TOOLS and not roots):
                     raise ValueError('read tools require explicit read_roots')
                 for value in roots:
                     local(root, value)
@@ -175,8 +189,10 @@ class Workflow:
                     if not isinstance(refs, list) or any(ref not in steps or steps[ref].get('kind') != 'agent' for ref in refs):
                         raise ValueError('agent inputs must reference agent steps')
                 artifact = inspect_artifact(step['agent'], source, executable=executable)
-                if requested_tools(artifact.frontmatter.get('tools')) - BUILTIN_TOOLS:
+                requested = requested_tools(artifact.frontmatter.get('tools'))
+                if requested - BUILTIN_TOOLS - registered.keys():
                     raise ValueError('prose requests unsupported runtime tools')
+                descriptors.update({tool: registered[tool] for tool in requested & registered.keys()})
                 if set(required) - requested_tools(artifact.frontmatter.get('tools')):
                     raise ValueError('prose does not request required tools')
                 if reads and 'read_file' not in requested_tools(artifact.frontmatter.get('tools')):
@@ -223,7 +239,9 @@ class Workflow:
                 raise ValueError(f'unknown transition target in {name}')
         fingerprint = digest({'workflow': raw, 'runtime': asdict(config) | {'allowed_tools': sorted(config.allowed_tools)},
                               'schemas': schemas, 'prose': {name: a.digest for name, a in artifacts.items()},
-                              **({'acquisitions': {name: a.digest for name, a in acquisitions.items()}} if acquisitions else {})})
-        workflow = cls(path, raw, config, artifacts, schemas, fingerprint, acquisitions)
+                              **({'acquisitions': {name: a.digest for name, a in acquisitions.items()}} if acquisitions else {}),
+                              **({'custom_tools': descriptors} if descriptors else {})})
+        workflow = cls(path, raw, config, artifacts, schemas, fingerprint, acquisitions,
+                       MappingProxyType(registry), deepcopy(descriptors))
         workflow.snapshot()
         return workflow
