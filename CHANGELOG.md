@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Python-embedded host custom-tool registry, versioned required-tool admission,
+  capability/descriptor preflight and optional descriptor-bound workflow identity.
+  No-custom fingerprints and checkpoint v2 are unchanged; builtin writes stay denied.
+- Self-contained synthetic catalogue example: native lookup → closed-schema and
+  deterministic record checks → bound human choice → finish without external effects.
+- Requires a development Runtime override until a separately authorized release;
+  published Runtime dependency pin and release versions remain unchanged.
+
 ## 0.3.0 — 2026-10-01
 
 - Pin the immutable Runtime v0.4.0 release: acquisition, strict initial-tool

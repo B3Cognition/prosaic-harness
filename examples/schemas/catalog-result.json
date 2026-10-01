@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "required": ["found", "item"],
+  "properties": {
+    "found": {"type": "boolean"},
+    "item": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "object", "required": ["sku", "name", "price_cents", "currency"],
+          "properties": {
+            "sku": {"type": "string", "pattern": "^SKU-[0-9]{3}$"},
+            "name": {"type": "string"}, "price_cents": {"type": "integer", "minimum": 0},
+            "currency": {"type": "string"}
+          }, "additionalProperties": false}
+      ]
+    }
+  },
+  "additionalProperties": false
+}

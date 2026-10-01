@@ -1,5 +1,10 @@
 # Prosaic Harness
 
+Development-only: the [custom-tool embedding example](examples/README.md#host-registered-custom-tools)
+adds catalogue lookup, version-bound native execution evidence, deterministic
+answer admission and a human pause. Install both feature checkouts; released
+Harness v0.3.0/Runtime v0.4.0 do not contain this API yet.
+
 A small Python harness for durable workflows built from neutral Prosaic agents.
 Define a graph in YAML, execute agents through Prosaic Runtime, validate their
 JSON outputs, and resume from local checkpoints. Apache-2.0.

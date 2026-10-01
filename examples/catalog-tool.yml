@@ -1,0 +1,27 @@
+version: 1
+name: Host-registered catalogue lookup
+source: .prosaic
+runtime: custom-tools-runtime.yml
+start: lookup
+limits: {max_calls: 2, max_visits: 1, timeout_s: 180}
+steps:
+  lookup:
+    kind: agent
+    agent: subagents/catalog-reader.md
+    schema: schemas/catalog-result.json
+    tools: [lookup_catalog]
+    require_tools: [lookup_catalog]
+    validators: [catalog]
+    max_attempts: 2
+    next: approval
+  approval:
+    kind: pause
+    question: Accept this verified synthetic catalogue result? No external action is performed.
+    requires: [lookup]
+    choices: {approve: done, reject: rejected}
+  done:
+    kind: finish
+    requires: [lookup]
+  rejected:
+    kind: finish
+    outcome: rejected

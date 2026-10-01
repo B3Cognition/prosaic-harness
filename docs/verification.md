@@ -1,5 +1,59 @@
 # Verification
 
+## Host-registered tools development verification (2026-10-01)
+
+Stage 1 only: Runtime's public CustomTool registration, native execution and
+Harness embedding/admission are implemented. Broader prompt-injection hardening
+and MCP evaluation remain queued. Release versions and the immutable Runtime
+dependency pin are unchanged; these checks use an explicit development override.
+
+Source suites passed **207 Runtime tests and 101 Harness tests**, with Prosaic
+on PATH and no skips. New tests exercise strict registration/argument/result
+validation, schema snapshots, separate authorization copies, all permission
+intersections, native HTTP/SSE tools, mixed denied builtin writes, acquisition
+ordering, callback cancellation/deadlines and usage retention, redacted tool
+diagnostics, adapter identity, matching-version admission, legacy fingerprints,
+changed required versions and unused registrations on resume. Both shipped
+programs run through real Prosaic inspection and a deterministic local server.
+The Harness example rejects a schema-valid invented price and stops after the
+two-attempt bound; a successful human rejection uses no additional inference.
+
+Both source archives/wheels built into fresh temporary output directories, not
+release assets. Archives contain catalogue data, trusted code, YAML, Markdown
+and entrypoints, without local settings/run receipts. Development wheels were
+explicitly installed together (Harness with --no-deps to avoid restoring its
+published pin) into a fresh Python 3.12 environment. Both module import paths
+were checked under site-packages; **207 Runtime / 101 Harness tests passed**
+with pytest source paths disabled (`-o pythonpath=''`), without skips. This is a coordinated development check, not verification
+that a normal released Harness can load custom tools yet.
+
+The supplied TokenProxy returned HTTP 200 for discovery. Each model was tested
+once per streaming mode in each companion, without changing mode or relaxing
+admission following a failure:
+
+| Model | Runtime HTTP / SSE | Harness HTTP / SSE |
+| --- | --- | --- |
+| qwen36-35b-a3b | success / tool_choice_not_honored | blocked / blocked |
+| ornith-1.5-35b | success / success | waiting / waiting |
+| deepseek-v4-flash | success / success | waiting / waiting |
+| nemotron-3.5-lightning | success / tool_choice_not_honored | waiting / waiting |
+
+Runtime successful cases each executed one native versioned lookup; the two
+explicit-first-tool failures executed none. Qwen's Harness cases returned invented
+Widget A records without a native lookup, exhausting two attempts; no output was
+admitted. All six waiting cases had matching catalogue-version success events
+and exact source/schema admission, then resumed with a real reject choice and
+no further calls. Runtime transport success alone does not establish final-answer
+truth. Receipts are ignored in runs/custom-tools-20261001 in both repositories.
+This small stochastic matrix is not a reliability benchmark or tier ranking.
+
+Trusted callbacks are synchronous in-process code: no sandbox, forced preemption,
+rollback or exactly-once guarantee. A round cap is not an individual-call cap.
+Versions identify host-declared semantics/data; they cannot detect a dishonest
+host swapping callback code under the same version. Human approval is controller
+input, never a model-supplied approved field. These are documented boundaries,
+not a claim to eliminate prompt injection or protect against malicious host code.
+
 ## Coordinated releases (2026-10-01)
 
 Harness v0.3.0 pins Runtime v0.4.0. Acquisition, initial-tool enforcement and the

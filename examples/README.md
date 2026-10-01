@@ -223,3 +223,54 @@ To spend two calls testing the reviewer against intentionally bad drafts:
 
 Both drafts must be rejected. Approval or malformed output makes the probe fail;
 schema validity alone is not a passing evaluation.
+## Host-registered custom tools
+
+This example requires the feature checkout of both companions, not the release
+tags. Follow the root guide for Python/Prosaic prerequisites. From this Harness
+repository root, with the Runtime checkout beside it:
+
+```sh
+source .venv/bin/activate
+python -m pip install -e .
+python -m pip install -e ../prosaic-runtime
+source ~/.zshrc
+export TOKENPROXY_KEY
+python examples/run_custom_tool.py --live --run-dir runs/catalog-demo --sku SKU-001
+python -m json.tool runs/catalog-demo/run.json
+ls runs/catalog-demo/attempts
+python examples/run_custom_tool.py --live --run-dir runs/catalog-demo --resume --choice reject
+```
+
+Use `approve` instead of `reject` to finish as completed. Neither choice performs
+an external action. Use a fresh run directory for every new run. The pending
+choice binds the admitted lookup output; a model/tool cannot create human approval.
+To use another model/endpoint, copy `custom-tools-runtime.yml` to an ignored
+`catalog.local.yml`, change `routes.fast` to `ornith`, `deepseek` or `nemotron`
+(and `features.streaming` if needed), then supply the same `--config
+catalog.local.yml` on both run and resume. Credentials stay in the named
+environment variable. Do not mutate a run's configuration to repair it.
+
+The [Python embedding](run_custom_tool.py) explicitly imports trusted
+[catalog_tools.py](catalog_tools.py); YAML/prose never load modules. Registration
+grants nothing: neutral prose must request lookup_catalog, Runtime YAML must
+allow it, and the workflow step's tools become the host policy grant. Builtin
+reads still require read_roots; this fixed-data callback does not. Builtin writes
+remain unsupported. Generic `prosaic-harness run` does not import custom code;
+use this embedding entrypoint for the example.
+
+The lookup step requires a successful version-matched native tool event, a closed
+[JSON schema](schemas/catalog-result.json), and the deterministic catalogue check.
+A schema-valid invented price/record is rejected, with at most two invocations.
+The version hashes exact catalogue bytes. Required descriptor/version changes
+block resume before dispatch; unrelated registrations do not change identity.
+Existing workflows without custom tools preserve their fingerprints/checkpoint v2.
+An injected Runtime must advertise custom_tools_v1 and matching descriptors.
+
+`--live` is required for new runs and conservatively for all resumes, since a
+resume can dispatch inference; resolving an ordinary waiting choice uses no model
+call. Final Runtime success/tool evidence does not itself prove answer truth.
+Callbacks are trusted synchronous Python, not sandboxed or forcibly preemptible;
+they cannot be rolled back or promised exactly-once. A consequential tool needs
+an authorization predicate checking real host approval, never model-supplied fields.
+Tool versions are honest host assertions, not automatic callback-source hashing.
+Broader prompt-injection hardening and MCP evaluation remain separate queued work.
