@@ -1,0 +1,27 @@
+version: 1
+name: Custom CLI analysis with verified execution and human approval
+source: .prosaic
+runtime: cli-tools-runtime.yml
+start: analysis
+limits: {max_calls: 2, max_visits: 1, timeout_s: 180}
+steps:
+  analysis:
+    kind: agent
+    agent: subagents/cli-spec-reviewer.md
+    schema: schemas/cli-analysis.json
+    tools: [analyze_spec]
+    read_roots: [evidence]
+    require_tools: [analyze_spec]
+    max_attempts: 1
+    next: approval
+  approval:
+    kind: pause
+    question: Accept this synthetic wording-check report? This is not production approval.
+    requires: [analysis]
+    choices: {approve: done, reject: rejected}
+  done:
+    kind: finish
+    requires: [analysis]
+  rejected:
+    kind: finish
+    outcome: rejected

@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requirements", "vague_ids", "passed"],
+  "properties": {
+    "requirements": {"const": 2},
+    "vague_ids": {"const": ["REQ-002"]},
+    "passed": {"const": false}
+  }
+}

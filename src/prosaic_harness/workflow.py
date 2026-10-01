@@ -1,5 +1,5 @@
 """Load a small declarative graph; Python owns interpretation and authority."""
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from copy import deepcopy
 from types import MappingProxyType
 import hashlib
@@ -10,7 +10,7 @@ import re
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 import yaml
-from prosaic_runtime import RuntimeConfig, ProsaicRuntime
+from prosaic_runtime import RuntimeConfig, ProsaicRuntime, RunPolicy
 from prosaic_runtime.artifacts import inspect_artifact
 from prosaic_runtime.policy import READ_TOOLS, BUILTIN_TOOLS, requested_tools
 from .store import parse_json, read_bytes
@@ -18,6 +18,13 @@ from .store import parse_json, read_bytes
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False).encode()).hexdigest()
+
+
+def runtime_identity(config):
+    value = asdict(config) | {'allowed_tools': sorted(config.allowed_tools)}
+    if not value.get('tool_directories'):
+        value.pop('tool_directories', None)
+    return value
 
 
 class UniqueLoader(yaml.SafeLoader):
@@ -80,7 +87,7 @@ class Workflow:
         return deepcopy(self._tool_descriptors)
 
     def current_fingerprint(self):
-        return digest({'workflow': self.definition, 'runtime': asdict(self.config) | {'allowed_tools': sorted(self.config.allowed_tools)},
+        return digest({'workflow': self.definition, 'runtime': runtime_identity(self.config),
                        'schemas': self.schemas, 'prose': {name: a.digest for name, a in self.artifacts.items()},
                        **({'acquisitions': {name: a.digest for name, a in self.acquisitions.items()}} if self.acquisitions else {}),
                        **({'custom_tools': self.tool_descriptors} if self._tool_descriptors else {})})
@@ -192,6 +199,14 @@ class Workflow:
                 requested = requested_tools(artifact.frontmatter.get('tools'))
                 if requested - BUILTIN_TOOLS - registered.keys():
                     raise ValueError('prose requests unsupported runtime tools')
+                cli_requested = requested & getattr(adapter, 'cli_tool_names', frozenset())
+                if cli_requested:
+                    selected = replace(artifact, frontmatter={**artifact.frontmatter, 'tools': sorted(cli_requested)})
+                    report = adapter.preflight(selected, cwd=root, policy=RunPolicy(
+                        allowed_tools=frozenset(tools), read_roots=tuple(roots), timeout_s=limits['timeout_s']))
+                    if not report['ok']:
+                        failed = {tool: check['message'] for tool, check in report['checks'].items() if check['status'] != 'ok'}
+                        raise ValueError(f'CLI tool preflight failed in step {name}: {failed}')
                 descriptors.update({tool: registered[tool] for tool in requested & registered.keys()})
                 if set(required) - requested_tools(artifact.frontmatter.get('tools')):
                     raise ValueError('prose does not request required tools')
@@ -237,7 +252,7 @@ class Workflow:
                 raise ValueError('finish outcome must be completed or rejected')
             if any(not isinstance(t, str) or t not in steps for t in targets):
                 raise ValueError(f'unknown transition target in {name}')
-        fingerprint = digest({'workflow': raw, 'runtime': asdict(config) | {'allowed_tools': sorted(config.allowed_tools)},
+        fingerprint = digest({'workflow': raw, 'runtime': runtime_identity(config),
                               'schemas': schemas, 'prose': {name: a.digest for name, a in artifacts.items()},
                               **({'acquisitions': {name: a.digest for name, a in acquisitions.items()}} if acquisitions else {}),
                               **({'custom_tools': descriptors} if descriptors else {})})

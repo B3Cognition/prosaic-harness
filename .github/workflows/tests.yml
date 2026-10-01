@@ -19,7 +19,7 @@ jobs:
       - name: Install Prosaic
         run: |
           git clone https://github.com/B3Cognition/prosaic.git /tmp/prosaic
-          git -C /tmp/prosaic checkout 0f7e187
+          git -C /tmp/prosaic checkout 5e0423a289342547d1666db484330ac6adb4743a
           npm --prefix /tmp/prosaic ci
           npm install --global /tmp/prosaic
       - name: Install harness

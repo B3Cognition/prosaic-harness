@@ -1,9 +1,12 @@
 # Prosaic Harness
 
-Development-only: the [custom-tool embedding example](examples/README.md#host-registered-custom-tools)
+Version 0.4.0 adds [manifest-defined CLI tools](examples/README.md#custom-command-line-tools)
+through the normal workflow CLI, with offline availability checks and required
+native execution evidence. The immutable dependency pin installs Runtime v0.5.0.
+
+The [custom-tool embedding example](examples/README.md#host-registered-custom-tools)
 adds catalogue lookup, version-bound native execution evidence, deterministic
-answer admission and a human pause. Install both feature checkouts; released
-Harness v0.3.0/Runtime v0.4.0 do not contain this API yet.
+answer admission and a human pause. It requires Harness v0.4.0+ / Runtime v0.5.0+.
 
 A small Python harness for durable workflows built from neutral Prosaic agents.
 Define a graph in YAML, execute agents through Prosaic Runtime, validate their
@@ -34,14 +37,14 @@ environment so another application's older runtime cannot be picked up by accide
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.3.0
+git checkout v0.4.0
 python3 -m venv .venv
 .venv/bin/python -m pip install .
 
 # Install the tested Prosaic revision inside this checkout.
 mkdir -p .tools
 git clone https://github.com/B3Cognition/prosaic.git .tools/prosaic
-git -C .tools/prosaic checkout 0f7e187
+git -C .tools/prosaic checkout v0.2.0
 npm --prefix .tools/prosaic ci
 npm install --global --prefix "$PWD/.venv" "$PWD/.tools/prosaic"
 export PATH="$PWD/.venv/bin:$PATH"
@@ -51,7 +54,7 @@ prosaic --help
 
 Keep `.tools/prosaic` in place; npm links the CLI to that checkout. In a future
 terminal, return to the repository and add its `.venv/bin` to PATH again. The
-dependency pin installs Prosaic Runtime v0.4.0 and PyYAML automatically.
+dependency pin installs Prosaic Runtime v0.5.0 and PyYAML automatically.
 
 ### Configure an endpoint
 
@@ -206,6 +209,9 @@ For model-independent acquisition, explicitly choose the no-tool
 `preloaded-evidence.yml` blueprint instead: the controller supplies immutable
 evidence text in `sources`. This is snapshot evidence, not a native tool receipt.
 See the [step-by-step examples](examples/README.md#staged-acquisition-and-no-tool-preloading).
+The [direct-read problem and staged-acquisition resolution](examples/tool-acquisition.md)
+show how to keep a detailed answer contract out of the initial read phase and
+verify the native receipt before analysis.
 Trusted checks are explicitly supplied by the host through `validators=` or CLI
 `--checks`. They execute Python with host permissions and are not sandboxed.
 V0.2 has no shell checks, agent file writes,

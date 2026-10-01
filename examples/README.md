@@ -1,5 +1,64 @@
 # Reusable workflow blueprints
 
+## Custom command-line tools
+
+This example connects a normal installed executable to neutral prose,
+then requires successful native execution before an explicit human pause. It does
+not import a Python callback or install Echelon. Follow the root README to install
+Harness v0.4.0+ and Prosaic v0.2.0+. Keep a sibling Runtime v0.5.0 checkout only
+to install the standalone example executable. From the Harness repository root:
+
+```sh
+source .venv/bin/activate
+# The Harness dependency pin already installs Runtime v0.5.0.
+git clone --branch v0.5.0 https://github.com/B3Cognition/prosaic-runtime.git ../prosaic-runtime
+python -m pip install -e ../prosaic-runtime/examples/cli-tool
+
+prosaic-example-analyzer examples/evidence/requirements.md --json
+prosaic tools --source examples/.prosaic   # requires updated Prosaic CLI
+prosaic-harness validate examples/cli-tool.yml
+```
+
+For a uv environment without pip, use `uv pip install --python .venv/bin/python`
+with the same install arguments. `validate` performs offline CLI preflight and
+workflow validation; no endpoint key or inference is needed. Runtime loads only
+the operator-trusted `tool_directories` in `cli-tools-runtime.yml`. Tool availability
+does not grant permissions: the prose, Runtime config and workflow step must all
+request/grant `analyze_spec`, with explicit read roots for its file argument.
+
+Run the workflow against TokenProxy (real requests, may incur charges):
+
+```sh
+source ~/.zshrc
+export TOKENPROXY_KEY
+prosaic-harness run examples/cli-tool.yml \
+  --input examples/cli-tool-input.json --run-dir runs/cli-tool-demo --events
+
+# After reviewing the report, choose approve or reject; no additional model call.
+prosaic-harness resume examples/cli-tool.yml \
+  --run-dir runs/cli-tool-demo --choice approve --events
+```
+
+Choose a fresh run directory for each new run. The sample analyzes two synthetic
+requirements and reports vague wording in REQ-002. `passed:false` concerns the
+wording check, not whether execution succeeded. The workflow accepts only the
+known synthetic report and requires a successful matching-version tool event;
+fabricated JSON without execution is rejected. It then waits for the controller's
+human choice. Approval acknowledges the demo report, not production readiness.
+
+To compare models, copy the complete examples directory into an ignored
+workspace, preserving source, schema and evidence paths, then change
+`routes.balanced` to `ornith`, `deepseek` or `nemotron`. There is no automatic
+fallback or retry after transport interruption. Custom CLI events are not builtin
+read receipts and do not independently certify which source bytes were read.
+
+See Runtime's
+[complete CLI-tool contract](https://github.com/B3Cognition/prosaic-runtime/blob/main/docs/cli-tools.md)
+for environment isolation, manifest versions, exit codes, timeout/output limits,
+an optional Understanding adapter and security boundaries. CLI tools execute
+trusted host code, not sandboxed code. Fixed argv is not complete prompt-injection
+prevention; consequential tools require separate approval/isolation.
+
 Start with the installation and endpoint setup in the [root README](../README.md).
 Run commands below from the repository root. `.venv/bin` must be on PATH so the
 controller can inspect Markdown with the installed Prosaic CLI.
@@ -60,7 +119,7 @@ separate event. An interruption at the human pause needs no further model call.
 The balanced reader declares read tools in Markdown, YAML allows only `read_file`,
 and the step grants it only within `examples/evidence`. The source is synthetic,
 including a quoted instruction that the agent should ignore. Use `read-only.yml`
-for another endpoint. The pinned Runtime v0.4.0 provides read provenance; see
+for another endpoint. The pinned Runtime v0.5.0 provides read provenance; see
 [hardening setup](../docs/hardening.md).
 The step requires successful read receipts covering the complete declared file
 with its matching path and byte hash, then checks source IDs and supporting quotes.
@@ -68,7 +127,12 @@ This verifies which bytes reached the model, not its interpretation of them.
 
 ## Staged acquisition and no-tool preloading
 
-Harness v0.3.0 pins Runtime v0.4.0, which includes acquisition support. Install
+For a runnable problem/resolution pair, see
+[read evidence before producing a structured answer](tool-acquisition.md).
+It contrasts premature JSON answers in direct mode with verified staged
+acquisition, including expected receipts and deterministic assertions.
+
+Harness v0.4.0 pins Runtime v0.5.0, which includes acquisition support. Install
 Harness using the root README; no sibling checkout or dependency override is
 needed. In the same environment:
 
@@ -201,7 +265,7 @@ choice sealed in the run fingerprint; changing it on resume is rejected.
 The public API is `Workflow.load(path)` followed by
 `Harness(workflow, run_dir, validators=...).run(json_input)` or `.resume(choice=...)`.
 Applications may supply `on_event` for progress and a compatible `runtime` object
-for an execution adapter. The default adapter is Prosaic Runtime v0.4.0.
+for an execution adapter. The default adapter is Prosaic Runtime v0.5.0.
 Callbacks should not raise exceptions; a raised callback interrupts the run.
 Blueprints are repository assets; clone the repository to use them.
 
@@ -225,14 +289,12 @@ Both drafts must be rejected. Approval or malformed output makes the probe fail;
 schema validity alone is not a passing evaluation.
 ## Host-registered custom tools
 
-This example requires the feature checkout of both companions, not the release
-tags. Follow the root guide for Python/Prosaic prerequisites. From this Harness
-repository root, with the Runtime checkout beside it:
+This example requires Harness v0.4.0+ and its pinned Runtime v0.5.0. Follow the
+root guide for Python/Prosaic prerequisites. From this Harness repository root:
 
 ```sh
 source .venv/bin/activate
 python -m pip install -e .
-python -m pip install -e ../prosaic-runtime
 source ~/.zshrc
 export TOKENPROXY_KEY
 python examples/run_custom_tool.py --live --run-dir runs/catalog-demo --sku SKU-001

@@ -2,13 +2,23 @@
 
 ## Unreleased
 
+## 0.4.0 — 2026-10-01
+
+- Pin the immutable Runtime v0.5.0 release for host callbacks and manifest-defined
+  CLI tools; no sibling Runtime override is needed after normal installation.
+- Workflow load checks declared CLI availability and permissions offline. Required
+  tool events retain matching-version admission and descriptor-bound resume identity.
+- Runnable CLI-analysis workflow: install executable → discover → preflight → native
+  execution → closed-schema report → explicit human choice, with synthetic evidence.
+- Staged tool-acquisition walkthrough and executable example verification.
+- Release verification: 107 tests pass, including the installed CLI workflow's
+  native execution, report admission and no-inference human-choice resume.
+
 - Python-embedded host custom-tool registry, versioned required-tool admission,
   capability/descriptor preflight and optional descriptor-bound workflow identity.
   No-custom fingerprints and checkpoint v2 are unchanged; builtin writes stay denied.
 - Self-contained synthetic catalogue example: native lookup → closed-schema and
   deterministic record checks → bound human choice → finish without external effects.
-- Requires a development Runtime override until a separately authorized release;
-  published Runtime dependency pin and release versions remain unchanged.
 
 ## 0.3.0 — 2026-10-01
 
