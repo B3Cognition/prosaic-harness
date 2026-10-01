@@ -1,8 +1,11 @@
 # Prosaic Harness
 
+Version 0.4.1 pins Runtime v0.5.1 and automatically installs Python Prosaic
+v0.3.0. Installation and CI no longer require Node.js or npm.
+
 Version 0.4.0 adds [manifest-defined CLI tools](examples/README.md#custom-command-line-tools)
 through the normal workflow CLI, with offline availability checks and required
-native execution evidence. The immutable dependency pin installs Runtime v0.5.0.
+native execution evidence. The current immutable dependency pin installs Runtime v0.5.1.
 
 The [custom-tool embedding example](examples/README.md#host-registered-custom-tools)
 adds catalogue lookup, version-bound native execution evidence, deterministic
@@ -19,7 +22,7 @@ JSON outputs, and resume from local checkpoints. Apache-2.0.
 | Prosaic Harness | Steps, validation, transitions, review loops, human pauses, run evidence |
 
 The initial release supports Linux and macOS with Python 3.11+. It needs an
-existing OpenAI-compatible endpoint and the Prosaic CLI (Node.js 20+). Windows
+existing OpenAI-compatible endpoint and the Python Prosaic CLI. Windows
 users can use WSL. The library imports no Echelon code.
 
 Version 0.2.0 adds versioned approvals, trusted checks and final-output validation,
@@ -31,30 +34,26 @@ version 2; existing 0.1 runs must start afresh. See
 
 ## First run
 
-Install Git, Python 3.11+, and Node.js 20+ before starting. Use an explicit Python
+Install Git and Python 3.11+ before starting. Use an explicit Python
 environment so another application's older runtime cannot be picked up by accident.
 
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.4.0
+git checkout v0.4.1
 python3 -m venv .venv
 .venv/bin/python -m pip install .
 
-# Install the tested Prosaic revision inside this checkout.
-mkdir -p .tools
-git clone https://github.com/B3Cognition/prosaic.git .tools/prosaic
-git -C .tools/prosaic checkout v0.2.0
-npm --prefix .tools/prosaic ci
-npm install --global --prefix "$PWD/.venv" "$PWD/.tools/prosaic"
 export PATH="$PWD/.venv/bin:$PATH"
 prosaic --help
 .venv/bin/prosaic-harness --help
 ```
 
-Keep `.tools/prosaic` in place; npm links the CLI to that checkout. In a future
-terminal, return to the repository and add its `.venv/bin` to PATH again. The
-dependency pin installs Prosaic Runtime v0.5.0 and PyYAML automatically.
+In a future terminal, return to the repository and add its `.venv/bin` to PATH
+again. Node.js and npm are not required. The dependency pin installs Prosaic
+Runtime v0.5.1, Python Prosaic v0.3.0, PyYAML and jsonschema automatically.
+No sibling checkout or manual Prosaic installation is needed. Older Harness
+tags retain their historical installation docs.
 
 ### Configure an endpoint
 

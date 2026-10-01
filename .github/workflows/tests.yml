@@ -13,16 +13,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '${{ matrix.python }}'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Install Prosaic
-        run: |
-          git clone https://github.com/B3Cognition/prosaic.git /tmp/prosaic
-          git -C /tmp/prosaic checkout 5e0423a289342547d1666db484330ac6adb4743a
-          npm --prefix /tmp/prosaic ci
-          npm install --global /tmp/prosaic
-      - name: Install harness
+      - name: Install Harness and its pinned Python dependencies
         run: python -m pip install -e '.[test]'
+      - run: prosaic --version
       - run: python -m pytest -q
       - run: python -m build

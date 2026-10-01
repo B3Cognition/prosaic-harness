@@ -5,13 +5,14 @@
 This example connects a normal installed executable to neutral prose,
 then requires successful native execution before an explicit human pause. It does
 not import a Python callback or install Echelon. Follow the root README to install
-Harness v0.4.0+ and Prosaic v0.2.0+. Keep a sibling Runtime v0.5.0 checkout only
-to install the standalone example executable. From the Harness repository root:
+Harness v0.4.1+ (automatically installs Python Prosaic v0.3.0). Keep a sibling
+Runtime v0.5.1 checkout only to install the standalone example executable. From
+the Harness repository root:
 
 ```sh
 source .venv/bin/activate
-# The Harness dependency pin already installs Runtime v0.5.0.
-git clone --branch v0.5.0 https://github.com/B3Cognition/prosaic-runtime.git ../prosaic-runtime
+# The Harness dependency pin already installs Runtime v0.5.1.
+git clone --branch v0.5.1 https://github.com/B3Cognition/prosaic-runtime.git ../prosaic-runtime
 python -m pip install -e ../prosaic-runtime/examples/cli-tool
 
 prosaic-example-analyzer examples/evidence/requirements.md --json
@@ -132,7 +133,7 @@ For a runnable problem/resolution pair, see
 It contrasts premature JSON answers in direct mode with verified staged
 acquisition, including expected receipts and deterministic assertions.
 
-Harness v0.4.0 pins Runtime v0.5.0, which includes acquisition support. Install
+Harness v0.4.1 pins Runtime v0.5.1, which includes acquisition support. Install
 Harness using the root README; no sibling checkout or dependency override is
 needed. In the same environment:
 

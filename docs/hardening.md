@@ -1,5 +1,20 @@
 # Hardening contracts and setup
 
+## Prompt injection
+
+The first adversarial boundary pass is in `tests/test_prompt_injection.py`.
+These six tests simulate a model following malicious evidence or claimed
+operator instructions. Forged controller fields fail schema admission; valid
+model approval does not satisfy a human pause; builtin write grants are rejected;
+the real Runtime/Prosaic path denies evidence-induced writes to run state.
+
+This is containment testing, not proof that arbitrary prose is trustworthy.
+Custom tools and `--checks` still execute trusted host code. Their filesystem and
+network permissions require separate OS isolation. Schema-valid semantic poison
+needs domain/provenance checks and human review. See the companion Runtime
+[audit and threat model](https://github.com/B3Cognition/prosaic-runtime/blob/main/docs/security.md)
+included with Runtime v0.5.1.
+
 The harness owns state and admission; models supply data, not controller policy.
 No Echelon imports, delivery gates or shell execution were added.
 
@@ -96,7 +111,7 @@ Model calls and their tool activity have no exactly-once guarantee.
 
 ## Coordinated Runtime dependency
 
-Harness 0.3.0 pins the immutable Runtime v0.4.0 revision, including
+Harness 0.4.1 pins the immutable Runtime v0.5.1 revision, including
 `read_receipts_v1`, `initial_tool_v1`, `initial_tool_enforcement_v1` and
 `acquisition_v1`. A missing required capability fails before
 model dispatch. Normal installation needs no sibling checkout. For development
