@@ -1,6 +1,6 @@
 # Prosaic Harness
 
-Version 0.4.1 pins Runtime v0.5.1 and automatically installs Python Prosaic
+Version 0.4.2 pins Runtime v0.5.1 and automatically installs Python Prosaic
 v0.3.0. Installation and CI no longer require Node.js or npm.
 
 Version 0.4.0 adds [manifest-defined CLI tools](examples/README.md#custom-command-line-tools)
@@ -272,3 +272,12 @@ or usage error, 130 interrupted. Waiting is explicit, not final acceptance.
 Tests cover schema retries, branching/repair, human choices, bounds, interrupted
 calls, receipt recovery, definition changes, locking, tool scope, and transport
 integration. Live runs are opt-in examples, not part of the offline suite.
+
+## Structured JSON tools
+
+This revision pins Prosaic Runtime 0.5.2, which supplies `StructuredToolLoop` for
+explicit JSON tool-request transport. Product adapters can yield one Runtime
+turn per Harness invocation while retaining application-owned result validators.
+Register the same `CustomTool` descriptors with the workflow and adapter so
+Harness fingerprints and checks their contracts. Harness retains routing and
+checkpoint ownership; Runtime owns parsing, dispatch, bounds and repeat detection.
