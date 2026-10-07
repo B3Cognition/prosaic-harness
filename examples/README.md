@@ -1,31 +1,29 @@
 # Reusable workflow blueprints
 
-## Sandboxed CLI workflow (development)
+## Sandboxed CLI workflow (Harness 0.4.2)
 
 Use [cli-tool-sandboxed.yml](cli-tool-sandboxed.yml) with
 [cli-tools-sandboxed-runtime.yml](cli-tools-sandboxed-runtime.yml) for required
-CLI OS isolation. It needs development Harness/Runtime checkouts containing
-`cli_sandbox_v1`; the released Harness 0.4.1 pin installs Runtime 0.5.1 without
-this feature. Upgrading Prosaic or changing agent Markdown alone does not enable it.
+CLI OS isolation. Harness 0.4.2 pins Runtime 0.5.2 with `cli_sandbox_v1`;
+Harness 0.4.1 and earlier do not include this feature. Upgrading Prosaic or
+changing agent Markdown alone does not enable it.
 
-### 1. Install the development pair deliberately
+### 1. Install the coordinated release
 
-Assume sibling `prosaic-harness` and `prosaic-runtime` development checkouts and an
+Assume sibling Harness v0.4.2 and Runtime v0.5.2 checkouts and an
 existing Harness virtual environment. From the Harness repository root:
 
 ```sh
 source .venv/bin/activate
 python -m pip install -e .
-# Override the released Runtime pin in THIS environment, after installing Harness:
-python -m pip install --no-deps -e ../prosaic-runtime
+# Harness installs its immutable Runtime v0.5.2 dependency automatically.
 python -m pip install ../prosaic-runtime/examples/cli-tool
 ```
 
 For uv without pip, use `uv pip install --python .venv/bin/python` with each
-corresponding set of install arguments, in the same order. Do not subsequently
-reinstall Harness and assume the Runtime override survives: reapply the explicit
-development Runtime install if its released dependency is restored. No dependency
-pin or global application installation is changed by this example.
+corresponding set of install arguments. No sibling Runtime override is needed;
+the sibling checkout supplies only the example executable. No global application
+installation is changed by this example.
 
 Install the analyzer into the **same environment** as Harness, without `-e`.
 Editable CLI implementations or tools from another virtualenv need additional
@@ -36,7 +34,7 @@ Do not grant a whole repository, HOME or `/` as a workaround.
 
 The environment's `prosaic` must be on PATH. macOS needs `/usr/bin/sandbox-exec`;
 Linux (including ARM64) needs `/usr/bin/bwrap` >= 0.12.0 and permitted unprivileged
-user namespaces. See the [Runtime setup](https://github.com/B3Cognition/prosaic-runtime/blob/main/docs/cli-tools.md#development-opt-in-cli-sandbox).
+user namespaces. See the [Runtime setup](https://github.com/B3Cognition/prosaic-runtime/blob/main/docs/cli-tools.md#opt-in-cli-sandbox).
 Do not disable host security or fall back to off mode to bypass a setup failure.
 
 ### 2. Review all permission layers
@@ -114,17 +112,17 @@ See [Runtime's troubleshooting](https://github.com/B3Cognition/prosaic-runtime/b
 This example connects a normal installed executable to neutral prose,
 then requires successful native execution before an explicit human pause. It does
 not import a Python callback or install Echelon. Follow the root README to install
-Harness v0.4.1+ (automatically installs Python Prosaic v0.3.0). Keep a sibling
-Runtime v0.5.1 checkout only to install the standalone example executable. From
+Harness v0.4.2+ (automatically installs Python Prosaic v0.3.0). Keep a sibling
+Runtime v0.5.2 checkout only to install the standalone example executable. From
 the Harness repository root:
 
 **Compatibility mode:** this section uses `cli-tools-runtime.yml`, whose sandbox
-defaults to off. Use the development sandboxed workflow above for CLI isolation.
+defaults to off. Use the sandboxed workflow above for CLI isolation.
 
 ```sh
 source .venv/bin/activate
-# The Harness dependency pin already installs Runtime v0.5.1.
-git clone --branch v0.5.1 https://github.com/B3Cognition/prosaic-runtime.git ../prosaic-runtime
+# The Harness dependency pin already installs Runtime v0.5.2.
+git clone --branch v0.5.2 https://github.com/B3Cognition/prosaic-runtime.git ../prosaic-runtime
 python -m pip install -e ../prosaic-runtime/examples/cli-tool
 
 prosaic-example-analyzer examples/evidence/requirements.md --json
@@ -245,7 +243,7 @@ For a runnable problem/resolution pair, see
 It contrasts premature JSON answers in direct mode with verified staged
 acquisition, including expected receipts and deterministic assertions.
 
-Harness v0.4.1 pins Runtime v0.5.1, which includes acquisition support. Install
+Harness v0.4.2 pins Runtime v0.5.2, which includes acquisition support. Install
 Harness using the root README; no sibling checkout or dependency override is
 needed. In the same environment:
 

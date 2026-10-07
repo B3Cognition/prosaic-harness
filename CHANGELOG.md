@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.4.2 — 2026-10-07
+
+- Pin the immutable Runtime 0.5.2 release, combining structured JSON tool
+  transport and optional CLI OS sandboxing without a sibling dependency override.
+- Bind non-default CLI sandbox configuration to workflow identity and verify
+  exact adapter policy/capability before execution and resume. Default-off
+  fingerprints remain compatible; policy changes invalidate approvals.
+- Offline CLI sandbox preflight, complete sandboxed analyzer blueprint,
+  installation/grant guidance and matching-version native tool admission.
+- Workflow routing, validators, checkpoint format and explicit human choices
+  remain unchanged; no automatic native-to-structured transport fallback.
+
+## 0.4.1 — 2026-10-01
+
+- Pin Runtime 0.5.1 and Python Prosaic 0.3.0; remove Node/npm installation needs.
+
 ## 0.4.0 — 2026-10-01
 
 - Pin the immutable Runtime v0.5.0 release for host callbacks and manifest-defined

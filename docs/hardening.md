@@ -2,16 +2,14 @@
 
 ## Prompt injection
 
-The working tree also supports the unreleased Runtime `cli_sandbox_v1` policy.
+Harness 0.4.2 pins Runtime 0.5.2 with the `cli_sandbox_v1` policy.
 Set `cli_sandbox: {mode: required}` in Runtime YAML for macOS or Linux CLI subprocess
 isolation. Workflow load preflights it; Harness rejects missing capabilities or
 an injected adapter whose sandbox policy differs, including downgrade after
 construction. Policy changes invalidate pending approvals. The absent/default-off
 policy preserves old fingerprints. This does not sandbox Python checks/callbacks.
-Use an explicitly installed development Runtime; the current immutable released
-dependency does not include this capability. New sandbox tests are skipped with
-that older dependency and run against the sibling working tree during development.
-Follow the [complete sandboxed workflow walkthrough](../examples/README.md#sandboxed-cli-workflow-development)
+Normal installation includes this capability; no development override is needed.
+Follow the [complete sandboxed workflow walkthrough](../examples/README.md#sandboxed-cli-workflow-harness-042)
 for installation order, declarations versus grants, OS prerequisites, offline
 validation, live execution, human approval and failure handling.
 
@@ -124,9 +122,10 @@ Model calls and their tool activity have no exactly-once guarantee.
 
 ## Coordinated Runtime dependency
 
-Harness 0.4.1 pins the immutable Runtime v0.5.1 revision, including
+Harness 0.4.2 pins the immutable Runtime v0.5.2 revision, including
 `read_receipts_v1`, `initial_tool_v1`, `initial_tool_enforcement_v1` and
-`acquisition_v1`. A missing required capability fails before
+`acquisition_v1`, `custom_tools_v1` and `cli_sandbox_v1`, plus the public
+`StructuredToolLoop` API. A missing required capability fails before
 model dispatch. Normal installation needs no sibling checkout. For development
 against unreleased Runtime changes, explicitly install the sibling checkout:
 

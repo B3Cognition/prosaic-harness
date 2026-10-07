@@ -1,19 +1,18 @@
 # Prosaic Harness
 
-Version 0.4.2 pins Runtime v0.5.1 and automatically installs Python Prosaic
+Version 0.4.2 pins Runtime v0.5.2 and automatically installs Python Prosaic
 v0.3.0. Installation and CI no longer require Node.js or npm.
 
 Version 0.4.0 adds [manifest-defined CLI tools](examples/README.md#custom-command-line-tools)
 through the normal workflow CLI, with offline availability checks and required
-native execution evidence. The current immutable dependency pin installs Runtime v0.5.1.
+native execution evidence. The current immutable dependency pin installs Runtime v0.5.2.
 
-## Development: CLI permissions and sandboxing
+## CLI permissions and sandboxing
 
-**Unreleased:** CLI sandbox support requires both the development Harness and a
-development Runtime containing `cli_sandbox_v1`. The current released dependency
-pin does not include this feature. Follow the
-[sandboxed workflow walkthrough](examples/README.md#sandboxed-cli-workflow-development)
-for the explicit development install order, offline validation and live execution.
+Harness **0.4.2** includes CLI sandbox policy enforcement and pins Runtime
+**0.5.2**, which provides `cli_sandbox_v1`. Follow the
+[sandboxed workflow walkthrough](examples/README.md#sandboxed-cli-workflow-harness-042)
+for installation, offline validation and live execution.
 The complete blueprint is [cli-tool-sandboxed.yml](examples/cli-tool-sandboxed.yml).
 
 Permissions are operator-owned, not granted by prose:
@@ -76,7 +75,7 @@ environment so another application's older runtime cannot be picked up by accide
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.4.1
+git checkout v0.4.2
 python3 -m venv .venv
 .venv/bin/python -m pip install .
 
@@ -87,7 +86,7 @@ prosaic --help
 
 In a future terminal, return to the repository and add its `.venv/bin` to PATH
 again. Node.js and npm are not required. The dependency pin installs Prosaic
-Runtime v0.5.1, Python Prosaic v0.3.0, PyYAML and jsonschema automatically.
+Runtime v0.5.2, Python Prosaic v0.3.0, PyYAML and jsonschema automatically.
 No sibling checkout or manual Prosaic installation is needed. Older Harness
 tags retain their historical installation docs.
 

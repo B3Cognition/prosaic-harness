@@ -1,4 +1,4 @@
-# DEVELOPMENT ONLY: install the unreleased Runtime explicitly (see README).
+# Requires Harness 0.4.2 / Runtime 0.5.2 and an operational OS sandbox backend.
 # Operator-owned trust and allowlist, independent of Markdown requests.
 tool_directories: [.prosaic/tools]
 allowed_tools: [analyze_spec]

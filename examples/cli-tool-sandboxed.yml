@@ -1,4 +1,4 @@
-# DEVELOPMENT ONLY: sandboxed counterpart of cli-tool.yml.
+# Harness 0.4.2+: sandboxed counterpart of cli-tool.yml.
 version: 1
 name: Sandboxed CLI analysis with verified execution and human approval
 source: .prosaic
