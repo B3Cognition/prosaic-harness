@@ -2,6 +2,19 @@
 
 ## Prompt injection
 
+The working tree also supports the unreleased Runtime `cli_sandbox_v1` policy.
+Set `cli_sandbox: {mode: required}` in Runtime YAML for macOS or Linux CLI subprocess
+isolation. Workflow load preflights it; Harness rejects missing capabilities or
+an injected adapter whose sandbox policy differs, including downgrade after
+construction. Policy changes invalidate pending approvals. The absent/default-off
+policy preserves old fingerprints. This does not sandbox Python checks/callbacks.
+Use an explicitly installed development Runtime; the current immutable released
+dependency does not include this capability. New sandbox tests are skipped with
+that older dependency and run against the sibling working tree during development.
+Follow the [complete sandboxed workflow walkthrough](../examples/README.md#sandboxed-cli-workflow-development)
+for installation order, declarations versus grants, OS prerequisites, offline
+validation, live execution, human approval and failure handling.
+
 The first adversarial boundary pass is in `tests/test_prompt_injection.py`.
 These six tests simulate a model following malicious evidence or claimed
 operator instructions. Forged controller fields fail schema admission; valid

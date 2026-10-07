@@ -7,6 +7,42 @@ Version 0.4.0 adds [manifest-defined CLI tools](examples/README.md#custom-comman
 through the normal workflow CLI, with offline availability checks and required
 native execution evidence. The current immutable dependency pin installs Runtime v0.5.1.
 
+## Development: CLI permissions and sandboxing
+
+**Unreleased:** CLI sandbox support requires both the development Harness and a
+development Runtime containing `cli_sandbox_v1`. The current released dependency
+pin does not include this feature. Follow the
+[sandboxed workflow walkthrough](examples/README.md#sandboxed-cli-workflow-development)
+for the explicit development install order, offline validation and live execution.
+The complete blueprint is [cli-tool-sandboxed.yml](examples/cli-tool-sandboxed.yml).
+
+Permissions are operator-owned, not granted by prose:
+
+| Location | Setting | Meaning |
+| --- | --- | --- |
+| Agent Markdown | `tools: [analyze_spec]` | Request the tool; not authorization |
+| Runtime YAML | `allowed_tools: [analyze_spec]` and reviewed `tool_directories` | Allow the tool and trust its manifest/executable |
+| Workflow agent step | `tools: [analyze_spec]`, `read_roots: [evidence]` | Grant that step the tool and narrow readable inputs |
+| Runtime YAML | `cli_sandbox: {mode: required}` | Enforce OS isolation for CLI execution and probes |
+| Workflow agent step | `require_tools: [analyze_spec]` | Require observed successful execution; grants nothing extra |
+
+All tool permission layers must agree. `validate` loads the workflow and runs
+offline CLI preflight; it does not contact a model or need an endpoint key.
+The sandbox is off by default. Required mode fails closed if unavailable;
+Linux needs Bubblewrap >= 0.12.0 and permitted user namespaces, while macOS needs
+Seatbelt's `sandbox-exec`. See [Runtime's setup](https://github.com/B3Cognition/prosaic-runtime/blob/main/docs/cli-tools.md).
+
+Sandboxed CLIs can read granted evidence and write private scratch, but cannot
+write the workspace or reach the host IP network. Keep host Unix sockets outside
+granted directories. Extra dependencies need narrow `runtime_roots`, not HOME or
+`/`. This does not sandbox Python callbacks, validators or native coding providers;
+builtin read tools retain their existing path checks. Harness itself still writes
+durable run state on the host. Required-mode policy is sealed into workflow
+identity: changes invalidate existing approvals/resume, and injected adapters
+cannot silently downgrade it. Use a fresh run directory when changing policy.
+
+## Overview
+
 The [custom-tool embedding example](examples/README.md#host-registered-custom-tools)
 adds catalogue lookup, version-bound native execution evidence, deterministic
 answer admission and a human pause. It requires Harness v0.4.0+ / Runtime v0.5.0+.

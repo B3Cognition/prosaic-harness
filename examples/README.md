@@ -1,5 +1,114 @@
 # Reusable workflow blueprints
 
+## Sandboxed CLI workflow (development)
+
+Use [cli-tool-sandboxed.yml](cli-tool-sandboxed.yml) with
+[cli-tools-sandboxed-runtime.yml](cli-tools-sandboxed-runtime.yml) for required
+CLI OS isolation. It needs development Harness/Runtime checkouts containing
+`cli_sandbox_v1`; the released Harness 0.4.1 pin installs Runtime 0.5.1 without
+this feature. Upgrading Prosaic or changing agent Markdown alone does not enable it.
+
+### 1. Install the development pair deliberately
+
+Assume sibling `prosaic-harness` and `prosaic-runtime` development checkouts and an
+existing Harness virtual environment. From the Harness repository root:
+
+```sh
+source .venv/bin/activate
+python -m pip install -e .
+# Override the released Runtime pin in THIS environment, after installing Harness:
+python -m pip install --no-deps -e ../prosaic-runtime
+python -m pip install ../prosaic-runtime/examples/cli-tool
+```
+
+For uv without pip, use `uv pip install --python .venv/bin/python` with each
+corresponding set of install arguments, in the same order. Do not subsequently
+reinstall Harness and assume the Runtime override survives: reapply the explicit
+development Runtime install if its released dependency is restored. No dependency
+pin or global application installation is changed by this example.
+
+Install the analyzer into the **same environment** as Harness, without `-e`.
+Editable CLI implementations or tools from another virtualenv need additional
+narrow dependency/interpreter grants; the standard package install above avoids
+those extra grants. For this sample's optional editable install, the config-relative
+source grant would be `runtime_roots: [../../prosaic-runtime/examples/cli-tool]`.
+Do not grant a whole repository, HOME or `/` as a workaround.
+
+The environment's `prosaic` must be on PATH. macOS needs `/usr/bin/sandbox-exec`;
+Linux (including ARM64) needs `/usr/bin/bwrap` >= 0.12.0 and permitted unprivileged
+user namespaces. See the [Runtime setup](https://github.com/B3Cognition/prosaic-runtime/blob/main/docs/cli-tools.md#development-opt-in-cli-sandbox).
+Do not disable host security or fall back to off mode to bypass a setup failure.
+
+### 2. Review all permission layers
+
+The example uses the same neutral [agent](.prosaic/subagents/cli-spec-reviewer.md)
+and operator-reviewed [manifest](.prosaic/tools/analyze-spec.yml) as the ordinary
+CLI example. The agent frontmatter declares `tools: [analyze_spec]`; no Markdown
+sandbox or filesystem permission fields are added.
+
+| Location | Sample setting | What it does |
+| --- | --- | --- |
+| Runtime YAML | `tool_directories: [.prosaic/tools]` | Trust reviewed CLI manifests/executables |
+| Runtime YAML | `allowed_tools: [analyze_spec]` | Operator allowlist |
+| Agent step | `tools: [analyze_spec]`, `read_roots: [evidence]` | This step's tool/input grants |
+| Runtime YAML | `cli_sandbox: {mode: required}` | Enforce OS confinement for CLI calls and probes |
+| Agent step | `require_tools: [analyze_spec]` | Reject results without observed successful execution |
+| Next step | `kind: pause` | Require an explicit human choice, not model approval |
+
+Agent declaration, config allowlist and step grants must all agree. Installing a
+tool grants nothing. Evidence roots are relative to the workflow directory;
+manifest/dependency roots are relative to Runtime YAML. The CLI cannot write the
+workspace or access the host IP network. It can write private HOME/scratch.
+Harness itself, outside the CLI sandbox, remains the sole writer of durable run state.
+
+### 3. Validate offline before any live run
+
+```sh
+prosaic-harness validate examples/cli-tool-sandboxed.yml
+```
+
+Expect exit code 0 and successful validation. This performs workflow validation
+and sandboxed CLI version preflight without contacting the placeholder endpoint
+or needing an endpoint credential. It does not execute the analysis task.
+Missing grants/executable or unavailable confinement stop loading before inference.
+
+Before running, replace `base_url` and `model` in
+`examples/cli-tools-sandboxed-runtime.yml` with your tool-calling endpoint/model.
+Load `LOCAL_LLM_API_KEY` securely if needed; never put keys in YAML/Git. Use a new
+run directory for every new demo (the name below must not already contain a run):
+
+```sh
+prosaic-harness run examples/cli-tool-sandboxed.yml \
+  --input examples/cli-tool-input.json --run-dir runs/cli-tool-sandboxed-demo --events
+
+# Only after reviewing the admitted report, explicitly approve or reject:
+prosaic-harness resume examples/cli-tool-sandboxed.yml \
+  --run-dir runs/cli-tool-sandboxed-demo --choice approve --events
+```
+
+`run` contacts your model and may incur charges. A valid result has the synthetic
+report `{"requirements":2,"vague_ids":["REQ-002"],"passed":false}`, observed
+successful native tool execution, and workflow status `waiting` at the human
+pause. `passed:false` describes the wording check, not an execution failure.
+Resume without a choice keeps waiting; approval completes without another model
+call. Approval acknowledges this demo report, not production readiness.
+
+### Limits and failure behavior
+
+Do not add HOME, `/`, or host Unix-socket directories to `read_roots` or
+`runtime_roots`; add only narrowly reviewed extra dependencies. The model client's
+credential stays with Runtime; CLI `pass_env` is a deliberate operator grant.
+Builtin reads retain path checks, but Python callbacks/checks and native coding
+providers are not isolated by this setting. Successful execution does not prove
+answer truth. `require_tools` is not a builtin complete-file read receipt.
+
+Required-mode policy is bound to workflow identity. Changing it invalidates
+existing approvals/resume; start a fresh run rather than editing saved state.
+Injected adapters cannot downgrade it. For `cli_sandbox_unavailable`, check the
+OS backend/version/namespace restrictions. For missing grants or dependencies,
+correct the narrow configuration; never broaden access just to pass validation.
+See [Runtime's troubleshooting](https://github.com/B3Cognition/prosaic-runtime/blob/main/examples/README.md#scope-and-troubleshooting).
+
 ## Custom command-line tools
 
 This example connects a normal installed executable to neutral prose,
@@ -8,6 +117,9 @@ not import a Python callback or install Echelon. Follow the root README to insta
 Harness v0.4.1+ (automatically installs Python Prosaic v0.3.0). Keep a sibling
 Runtime v0.5.1 checkout only to install the standalone example executable. From
 the Harness repository root:
+
+**Compatibility mode:** this section uses `cli-tools-runtime.yml`, whose sandbox
+defaults to off. Use the development sandboxed workflow above for CLI isolation.
 
 ```sh
 source .venv/bin/activate
@@ -57,7 +169,7 @@ See Runtime's
 [complete CLI-tool contract](https://github.com/B3Cognition/prosaic-runtime/blob/main/docs/cli-tools.md)
 for environment isolation, manifest versions, exit codes, timeout/output limits,
 an optional Understanding adapter and security boundaries. CLI tools execute
-trusted host code, not sandboxed code. Fixed argv is not complete prompt-injection
+trusted host code with sandboxing off in this compatibility example. Fixed argv is not complete prompt-injection
 prevention; consequential tools require separate approval/isolation.
 
 Start with the installation and endpoint setup in the [root README](../README.md).

@@ -1,4 +1,5 @@
 # Explicit operator trust, independent of agent tool permissions.
+# Compatibility example: sandbox defaults to off. For required isolation use cli-tools-sandboxed-runtime.yml.
 tool_directories: [.prosaic/tools]
 allowed_tools: [analyze_spec]
 default_profile: qwen

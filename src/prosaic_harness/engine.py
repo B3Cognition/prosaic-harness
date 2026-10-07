@@ -37,6 +37,13 @@ class Harness:
 
     def _check_custom_tools(self):
         expected = self.workflow.tool_descriptors
+        sandbox = getattr(self.workflow.config, 'cli_sandbox', None)
+        if (getattr(sandbox, 'mode', 'off') == 'required' and
+                self.workflow.config.tool_directories and expected):
+            if 'cli_sandbox_v1' not in getattr(self.runtime, 'capabilities', ()):
+                raise ValueError('required CLI sandbox needs cli_sandbox_v1 support')
+            if getattr(getattr(self.runtime, 'config', None), 'cli_sandbox', None) != sandbox:
+                raise ValueError('required CLI sandbox adapter policy does not match workflow')
         if expected:
             if 'custom_tools_v1' not in getattr(self.runtime, 'capabilities', ()):
                 raise ValueError('custom tools require custom_tools_v1 support')

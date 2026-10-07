@@ -133,6 +133,9 @@ def test_legacy_fingerprint_unchanged(endpoint, tmp_path):
     # Older Runtime snapshots had no tool_directories field. Empty opt-in must
     # not invalidate existing no-manifest checkpoints.
     legacy_runtime.pop('tool_directories', None)
+    # Legacy snapshots also predate CLI sandbox configuration. Default-off is
+    # deliberately omitted; enabling it must change the sealed identity.
+    legacy_runtime.pop('cli_sandbox', None)
     expected = digest({'workflow': workflow.definition, 'runtime': legacy_runtime,
                        'schemas': workflow.schemas, 'prose': {name: a.digest for name, a in workflow.artifacts.items()}})
     assert workflow.fingerprint == expected and workflow.current_fingerprint() == expected

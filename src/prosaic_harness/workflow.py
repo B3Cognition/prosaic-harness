@@ -24,6 +24,10 @@ def runtime_identity(config):
     value = asdict(config) | {'allowed_tools': sorted(config.allowed_tools)}
     if not value.get('tool_directories'):
         value.pop('tool_directories', None)
+    # Preserve existing checkpoints when the newly added sandbox policy is
+    # absent/default-off. Required mode or trusted runtime roots are sealed.
+    if value.get('cli_sandbox') == {'mode': 'off', 'runtime_roots': ()}:
+        value.pop('cli_sandbox')
     return value
 
 
