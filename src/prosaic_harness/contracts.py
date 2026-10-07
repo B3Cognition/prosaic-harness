@@ -1,5 +1,6 @@
 """Admission for controller-owned checkpoints and invocation receipts."""
 import re
+from jsonschema import Draft202012Validator
 from .store import parse_json
 from .workflow import digest
 
@@ -77,6 +78,15 @@ def validate_state(state, workflow):
                 or event.get('step') not in workflow.definition['steps'] or not isinstance(event.get('event'), str)
                 or type(event.get('time')) not in (int, float)):
             raise ValueError('invalid checkpoint history')
+        if event['event'] == 'human_decision':
+            step = workflow.definition['steps'][event['step']]
+            if step['kind'] != 'pause' or event.get('choice') not in step['choices']:
+                raise ValueError('invalid human decision')
+            if 'response_schema' in step:
+                if 'response' not in event or not Draft202012Validator(workflow.schemas[event['step']]).is_valid(event['response']):
+                    raise ValueError('invalid human response')
+            elif 'response' in event:
+                raise ValueError('unexpected human response')
     ids = set()
     for invocation in state['invocations']:
         if (not isinstance(invocation, dict) or set(invocation) != {'id', 'step', 'arguments_sha256', 'status', 'token_usage', 'receipt_sha256'}

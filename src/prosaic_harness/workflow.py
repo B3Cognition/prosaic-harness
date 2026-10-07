@@ -161,7 +161,7 @@ class Workflow:
                 'agent': {'kind', 'agent', 'acquisition', 'schema', 'inputs', 'optional_inputs', 'next', 'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators'},
                 'gate': {'kind', 'from', 'field', 'equals', 'pass', 'fail', 'max_visits'},
                 'check': {'kind', 'from', 'validators', 'pass', 'fail', 'max_visits'},
-                'pause': {'kind', 'question', 'choices', 'max_visits', 'requires'},
+                'pause': {'kind', 'question', 'choices', 'max_visits', 'requires', 'response_schema', 'validators'},
                 'finish': {'kind', 'outcome', 'max_visits', 'requires'},
             }
             if kind not in allowed or set(step) - allowed[kind]:
@@ -247,6 +247,13 @@ class Workflow:
                     raise ValueError('check steps need validators')
                 targets = [step['pass'], step['fail']]
             elif kind == 'pause':
+                if 'response_schema' in step:
+                    schema = parse_json(read_bytes(local(root, step['response_schema'])).decode())
+                    reject_external_refs(schema)
+                    Draft202012Validator.check_schema(schema)
+                    schemas[name] = schema
+                elif validators:
+                    raise ValueError('pause validators require response_schema')
                 if not isinstance(step.get('question'), str) or not step['question']:
                     raise ValueError('pause needs a question')
                 if not isinstance(step.get('choices'), dict) or not step['choices'] or not all(isinstance(k, str) and k for k in step['choices']):

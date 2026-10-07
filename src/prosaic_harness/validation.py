@@ -1,5 +1,5 @@
 """Host-supplied deterministic checks; workflow YAML never imports code."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 from pathlib import Path
 from .store import read_bytes
@@ -22,6 +22,7 @@ class CheckContext:
     artifacts: dict
     evidence: dict
     bindings: dict
+    human_responses: dict = field(default_factory=dict)
 
 
 def load_validators(path):

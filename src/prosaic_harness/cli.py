@@ -26,6 +26,7 @@ def main(argv=None):
         elif command == 'resume':
             p.add_argument('--choice', help='named answer to a pending human pause')
             p.add_argument('--retry-interrupted', action='store_true', help='authorize another request when no receipt survived')
+            p.add_argument('--response', type=Path, help='JSON payload validated by the pending pause response_schema')
     p = sub.add_parser('status')
     p.add_argument('--run-dir', type=Path, required=True)
     p.add_argument('--json', action='store_true')
@@ -53,7 +54,8 @@ def main(argv=None):
                 if args.command == 'run':
                     state = harness.run(read_json(args.input))
                 else:
-                    state = harness.resume(choice=args.choice, retry_interrupted=args.retry_interrupted)
+                    state = harness.resume(choice=args.choice, response=read_json(args.response) if args.response else None,
+                                           retry_interrupted=args.retry_interrupted)
         report = {key: state[key] for key in ('status', 'current', 'calls', 'reason', 'outputs')}
         if state['status'] == 'waiting':
             report.update(question=state['question'], choices=state['choices'])

@@ -84,7 +84,7 @@ class Harness:
             self._save(state)
             return self._drive(state)
 
-    def resume(self, *, choice=None, retry_interrupted=False):
+    def resume(self, *, choice=None, response=None, retry_interrupted=False):
         self._check_custom_tools()
         with locked(self.directory):
             state = read_json(self.file)
@@ -94,7 +94,7 @@ class Harness:
             self._evidence_unchanged(state)
             self._verify_ledger(state)
             if state['status'] in {'completed', 'rejected'}:
-                if choice:
+                if choice is not None or response is not None:
                     raise ValueError('completed run has no pending choice')
                 return state
             if state['status'] == 'blocked' and state['reason'] != 'interrupted_call':
@@ -105,12 +105,24 @@ class Harness:
             if state['status'] == 'waiting':
                 step = self.workflow.definition['steps'][state['current']]
                 if choice is None:
+                    if response is not None:
+                        raise ValueError('response requires a declared choice')
                     return state
                 if choice not in step['choices']:
                     raise ValueError('choice is not declared by the pending pause')
-                self._event(state, 'human_decision', choice=choice)
+                if 'response_schema' in step:
+                    response = output_json(json.dumps(response, allow_nan=False))
+                    errors = list(Draft202012Validator(self.workflow.schemas[state['current']]).iter_errors(response))
+                    if errors:
+                        raise ValueError('human response failed schema validation')
+                    error = self._checks(state, state['current'], {'choice': choice, 'response': response}, step.get('validators', []))
+                    if error:
+                        raise ValueError('human response failed validation: ' + error)
+                elif response is not None:
+                    raise ValueError('pause has no response schema')
+                self._event(state, 'human_decision', choice=choice, **({'response': response} if 'response_schema' in step else {}))
                 self._advance(state, step['choices'][choice])
-            elif choice is not None:
+            elif choice is not None or response is not None:
                 raise ValueError('run has no pending human choice')
             pending = state['pending']
             if pending is not None:
@@ -178,7 +190,7 @@ class Harness:
 
     def _checks(self, state, name, output, names):
         context = CheckContext(name, deepcopy(state['inputs']), deepcopy(state['outputs']),
-                               deepcopy(state['evidence']), deepcopy(state['bindings']))
+                               deepcopy(state['evidence']), deepcopy(state['bindings']), self._human_responses(state))
         issues = []
         for validator in names:
             try:
@@ -189,6 +201,10 @@ class Harness:
                 raise ValueError(f'trusted validator {validator} failed ({type(exc).__name__})') from exc
             issues.extend(result[:8])
         return '; '.join(issues)[:2048] or None
+
+    def _human_responses(self, state):
+        return deepcopy({event['step']: {'choice': event['choice'], 'response': event['response']}
+                         for event in state['history'] if event['event'] == 'human_decision' and 'response' in event})
 
     def _advance(self, state, target, *, feedback=None):
         self._event(state, 'transition', target=target)
@@ -330,6 +346,9 @@ class Harness:
                              'artifact_bindings': {ref: state['bindings'][ref] for ref in refs if ref in state['outputs']},
                              'sources': {path: {'sha256': item['sha256']} if path in step.get('require_reads', []) else item
                                          for path, item in state['evidence'].items()}, 'validation_feedback': state['feedback']}
+                responses = self._human_responses(state)
+                if responses:
+                    arguments['human_responses'] = responses
                 attempt_id = uuid.uuid4().hex
                 state['calls'] += 1
                 state['attempt'] += 1

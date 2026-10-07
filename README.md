@@ -1,16 +1,18 @@
 # Prosaic Harness
 
-Version 0.4.2 pins Runtime v0.5.2 and automatically installs Python Prosaic
-v0.3.0. Installation and CI no longer require Node.js or npm.
+Version 0.5.0 adds schema-validated human responses at durable workflow pauses,
+with trusted validators and retained feedback for downstream agents and checks.
+It pins Runtime v0.5.3 and automatically installs Python Prosaic v0.3.1.
+Installation and CI no longer require Node.js or npm.
 
 Version 0.4.0 adds [manifest-defined CLI tools](examples/README.md#custom-command-line-tools)
 through the normal workflow CLI, with offline availability checks and required
-native execution evidence. The current immutable dependency pin installs Runtime v0.5.2.
+native execution evidence. The current immutable dependency pin installs Runtime v0.5.3.
 
 ## CLI permissions and sandboxing
 
-Harness **0.4.2** includes CLI sandbox policy enforcement and pins Runtime
-**0.5.2**, which provides `cli_sandbox_v1`. Follow the
+Harness **0.5.0** retains CLI sandbox policy enforcement and pins Runtime
+**0.5.3**, which provides `cli_sandbox_v1`. Follow the
 [sandboxed workflow walkthrough](examples/README.md#sandboxed-cli-workflow-harness-042)
 for installation, offline validation and live execution.
 The complete blueprint is [cli-tool-sandboxed.yml](examples/cli-tool-sandboxed.yml).
@@ -75,7 +77,7 @@ environment so another application's older runtime cannot be picked up by accide
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.4.2
+git checkout v0.5.0
 python3 -m venv .venv
 .venv/bin/python -m pip install .
 
@@ -86,7 +88,7 @@ prosaic --help
 
 In a future terminal, return to the repository and add its `.venv/bin` to PATH
 again. Node.js and npm are not required. The dependency pin installs Prosaic
-Runtime v0.5.2, Python Prosaic v0.3.0, PyYAML and jsonschema automatically.
+Runtime v0.5.3, Python Prosaic v0.3.1, PyYAML and jsonschema automatically.
 No sibling checkout or manual Prosaic installation is needed. Older Harness
 tags retain their historical installation docs.
 
@@ -216,6 +218,25 @@ JSON Markdown fence is also accepted. Schema failures do not advance the graph.
 | `pause` | `question`, `choices` mapping named answers to next steps |
 | `finish` | Optional `outcome: completed` or `rejected` |
 
+A pause can optionally declare `response_schema: schemas/feedback.json` and
+host-registered `validators`. Submit `resume(choice="refine", response={"text": "..."})`
+or CLI `resume ... --choice refine --response feedback.json`. The schema validates
+the payload; trusted pause validators receive `{"choice": ..., "response": ...}`
+with the original request and accepted artifacts in their check context. Applications
+can verify dynamic candidate membership there without encoding product IDs into the
+workflow graph. Invalid responses leave the pause untouched. Accepted responses are
+sealed into history and subsequent agent arguments include `human_responses`, keyed
+by pause step with its latest `choice` and `response`. They are user data, never tool
+permissions. Existing choice-only pauses retain their original behavior and reject
+payloads. A completed response cannot be submitted again.
+Trusted downstream validators also receive these accepted values through
+`CheckContext.human_responses`; they can enforce that a proposal matches the user's
+selection rather than trusting a model's account of that selection.
+
+`max_run_s` includes human waiting. Interactive applications should use an explicit
+human expiry for a decision workflow and a separate bounded workflow for each model
+turn; do not reuse a short model request timeout as a human response deadline.
+
 Each step may override `max_visits`. Agent attempts bound validation/transport
 retries within a visit; visits bound graph loops; `max_calls` bounds invocations
 across the whole run, including authorized interrupted retries. `timeout_s` is
@@ -310,7 +331,7 @@ integration. Live runs are opt-in examples, not part of the offline suite.
 
 ## Structured JSON tools
 
-This revision pins Prosaic Runtime 0.5.2, which supplies `StructuredToolLoop` for
+This revision pins Prosaic Runtime 0.5.3, which supplies `StructuredToolLoop` for
 explicit JSON tool-request transport. Product adapters can yield one Runtime
 turn per Harness invocation while retaining application-owned result validators.
 Register the same `CustomTool` descriptors with the workflow and adapter so
