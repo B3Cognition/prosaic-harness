@@ -1,0 +1,8 @@
+default_profile: synthetic
+allowed_tools: []
+routes: {fast: synthetic}
+profiles:
+  synthetic:
+    base_url: http://127.0.0.1:8000/v1
+    model: synthetic
+    features: {streaming: false}

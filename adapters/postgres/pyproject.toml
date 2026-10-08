@@ -14,5 +14,8 @@ dependencies = ["prosaic-harness>=0.6,<0.7", "psycopg[binary]>=3.2,<4", "psycopg
 [project.optional-dependencies]
 test = ["pytest>=8", "build>=1"]
 
+[project.scripts]
+prosaic-harness-postgres = "prosaic_harness_postgres.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]

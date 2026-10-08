@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from datetime import timedelta
 import hashlib
 import os
+import re
 import threading
 import time
 
@@ -17,6 +18,15 @@ from .leases import PostgresLease
 
 
 class PostgresRunStore:
+    @classmethod
+    def from_env(cls, name, *, namespace, **kwargs):
+        if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}', name):
+            raise ValueError('dsn environment name must be a bounded identifier')
+        dsn = os.environ.get(name)
+        if not dsn:
+            raise StoreUnavailable('required database environment variable is missing')
+        return cls(dsn, namespace=namespace, **kwargs)
+
     def __init__(self, dsn, *, namespace, lease_s=60, renew_s=15,
                  operation_timeout_s=10, pool_timeout_s=5, connect_timeout_s=5,
                  lock_timeout_s=1, statement_timeout_s=5, pool_size=8, max_active_leases=4):

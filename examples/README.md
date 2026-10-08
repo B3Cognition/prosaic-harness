@@ -1,5 +1,14 @@
 # Reusable workflow blueprints
 
+## Cross-worker PostgreSQL storage (development Harness 0.6.0)
+
+The [PostgreSQL walkthrough](postgres/README.md) starts a human-only workflow in
+one process and resumes it in another with a fresh revision. No model endpoint
+is needed. A synthetic-agent fixture separately exercises real Runtime inference.
+Install/initialize the optional adapter and apply the exact runtime grants in
+the [setup guide](../adapters/postgres/README.md); database permissions do not
+belong in Markdown. These development versions are not published releases.
+
 ## Sandboxed CLI workflow (Harness 0.4.2)
 
 Use [cli-tool-sandboxed.yml](cli-tool-sandboxed.yml) with

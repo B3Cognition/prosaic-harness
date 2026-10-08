@@ -1,0 +1,12 @@
+version: 1
+runtime: runtime.yml
+source: .
+start: approval
+limits: {max_calls: 1, timeout_s: 10}
+steps:
+  approval:
+    kind: pause
+    question: Approve this synthetic request?
+    choices: {approve: done, reject: rejected}
+  done: {kind: finish}
+  rejected: {kind: finish, outcome: rejected}

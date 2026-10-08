@@ -1,0 +1,17 @@
+version: 1
+runtime: runtime.yml
+source: .
+start: author
+limits: {max_calls: 3, timeout_s: 10, max_run_s: 120}
+steps:
+  author:
+    kind: agent
+    agent: subagents/author.md
+    schema: schemas/result.json
+    next: approval
+  approval:
+    kind: pause
+    question: Approve this synthetic result?
+    choices: {approve: done, reject: rejected}
+  done: {kind: finish}
+  rejected: {kind: finish, outcome: rejected}

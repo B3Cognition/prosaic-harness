@@ -1,5 +1,13 @@
 # Prosaic Harness
 
+Development **0.6.0** adds RunStore and a separately installed PostgreSQL adapter
+(development **0.1.0**) for cross-worker durable workflows. Neither is published
+yet. Core remains database-free; filesystem constructors/CLI remain supported.
+See [explicit database setup/grants](adapters/postgres/README.md) and the
+[zero-model-call two-worker example](examples/postgres/README.md). Prose tools
+do not grant database access; applications retain tenant authorization and
+filter private run state.
+
 Version 0.5.0 adds schema-validated human responses at durable workflow pauses,
 with trusted validators and retained feedback for downstream agents and checks.
 It pins Runtime v0.5.3 and automatically installs Python Prosaic v0.3.1.
