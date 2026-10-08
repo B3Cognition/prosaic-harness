@@ -19,7 +19,7 @@ psycopg-pool >=3.2,<4 and libpq >=17 for the adapter only; pytest; PostgreSQL
 
 **Spec:** [Approved design](../specs/2026-10-08-run-store-postgres-design.md).
 
-Status: implementation plan awaiting review and execution-method selection.
+Status: approved for Native execution on 2026-10-08.
 The internal nonblocking-I/O clarification is included in this plan for review;
 it changes no consumer API and introduces no application asyncio requirement.
 

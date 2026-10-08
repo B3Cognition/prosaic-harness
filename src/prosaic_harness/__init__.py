@@ -2,5 +2,12 @@
 from .engine import Harness
 from .workflow import Workflow
 from .validation import Validator, CheckContext
+from .file_store import FileRunStore
+from .run_store import (RunStore, RunSnapshot, LeaseSession, StoreError, StoreUninitialized,
+                        StoreIncompatible, StoreUnavailable, StoreBusy, RunBusy, LeaseLost,
+                        RevisionConflict, ReceiptConflict, RunNotFound, RunAlreadyExists, StoreCorrupt)
 
-__all__ = ['Harness', 'Workflow', 'Validator', 'CheckContext']
+__all__ = ['Harness', 'Workflow', 'Validator', 'CheckContext', 'FileRunStore', 'RunStore',
+           'RunSnapshot', 'LeaseSession', 'StoreError', 'StoreUninitialized', 'StoreIncompatible',
+           'StoreUnavailable', 'StoreBusy', 'RunBusy', 'LeaseLost', 'RevisionConflict',
+           'ReceiptConflict', 'RunNotFound', 'RunAlreadyExists', 'StoreCorrupt']
