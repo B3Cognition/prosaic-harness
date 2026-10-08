@@ -53,6 +53,10 @@ relaxed. A subsequent complete PostgreSQL 16 lane passed all 77 tests.
 
 ## Implementation/review decisions
 
+The durable [ruling register](decisions/2026-10-08-run-store-postgres-rulings.md)
+assigns stable IDs to all twelve decisions and records each reason and cost if
+wrong. The summary below is retained as the original acceptance snapshot.
+
 - Keep the approved dedicated branch checkout; no additional worktree isolation.
 - libpq rejects readonly routing before SQL inspection: report unavailable rather
   than incompatible, with less precise operator guidance but no admitted work.

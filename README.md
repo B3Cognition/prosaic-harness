@@ -8,6 +8,9 @@ See [explicit database setup/grants](adapters/postgres/README.md) and the
 do not grant database access; applications retain tenant authorization and
 filter private run state.
 
+The [RunStore ruling register](docs/decisions/2026-10-08-run-store-postgres-rulings.md)
+preserves implementation/review decisions, reasons and risks with stable IDs.
+
 Version 0.5.0 adds schema-validated human responses at durable workflow pauses,
 with trusted validators and retained feedback for downstream agents and checks.
 It pins Runtime v0.5.3 and automatically installs Python Prosaic v0.3.1.
