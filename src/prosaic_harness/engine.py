@@ -1,24 +1,37 @@
 """A deterministic controller around one-agent invocations and validated results."""
 from dataclasses import asdict
 from copy import deepcopy
+from contextlib import contextmanager
 import json
 from pathlib import Path
 import uuid
 import time
+import threading
 
 from jsonschema import Draft202012Validator
 from prosaic_runtime import ProsaicRuntime, RunPolicy
-from .store import locked, write_json, read_json
+from .file_store import FileRunStore
+from .run_store import (LeaseLost, StoreError, StoreBusy, StoreCorrupt, RevisionConflict,
+                        validate_id, validate_revision)
 from .workflow import digest
 from .contracts import seal, validate_state, validate_receipt, output_json
 from .validation import Validator, CheckContext
 
 
 class Harness:
-    def __init__(self, workflow, run_dir, *, runtime=None, on_event=None, validators=None, cancelled=None, clock=time.time):
+    def __init__(self, workflow, run_dir=None, *, store=None, run_id=None, runtime=None, on_event=None, validators=None, cancelled=None, clock=time.time):
         self.workflow = workflow
-        self.directory = Path(run_dir).absolute()
-        self.file = self.directory / 'run.json'
+        if (run_dir is None) == (store is None) or (run_dir is not None and run_id is not None):
+            raise ValueError('supply either run_dir or store with run_id')
+        self._legacy_file_mode = run_dir is not None
+        self.directory = Path(run_dir).absolute() if self._legacy_file_mode else None
+        self.file = self.directory / 'run.json' if self.directory is not None else None
+        self.store = FileRunStore.for_run_dir(self.directory) if self._legacy_file_mode else store
+        self._storage_run_id = 'legacy' if self._legacy_file_mode else validate_id(run_id)
+        self._lease = None
+        self._revision = None
+        self._ownership_failure = None
+        self._execution_lock = threading.Lock()
         self.runtime = runtime or (ProsaicRuntime(workflow.config, custom_tools=workflow.custom_tools)
                                    if workflow.custom_tools else ProsaicRuntime(workflow.config))
         self.on_event = on_event
@@ -52,8 +65,71 @@ class Harness:
                 raise ValueError('custom tool adapter descriptors do not match workflow')
 
     def _save(self, state):
+        self._check_ownership()
         state.update(seal(state))
-        write_json(self.file, state)
+        if self._revision is None:
+            self._revision = self.store.create_run(self._storage_run_id, state, self._lease)
+        else:
+            self._revision = self.store.save_run(self._storage_run_id, state, self._revision, self._lease)
+
+    @contextmanager
+    def _execution(self):
+        if not self._execution_lock.acquire(blocking=False):
+            raise StoreBusy('do not share a Harness instance between executions')
+        context = None
+        try:
+            self.store.check_ready()
+            context = self.store.lease(self._storage_run_id)
+            self._lease = context.__enter__()
+            self._ownership_failure = None
+            self._revision = None
+            try:
+                yield
+            except BaseException as exc:
+                try:
+                    context.__exit__(type(exc), exc, exc.__traceback__)
+                except Exception:
+                    exc.add_note('storage session cleanup failed; reconcile before retrying')
+                raise
+            else:
+                context.__exit__(None, None, None)
+        finally:
+            self._lease = None
+            self._execution_lock.release()
+
+    def _check_ownership(self):
+        if self._ownership_failure is not None:
+            raise self._ownership_failure
+        if self._lease is None:
+            raise LeaseLost('no active execution session')
+        self._lease.check_valid()
+
+    def _runtime_cancelled(self, state):
+        try:
+            self._check_ownership()
+        except StoreError as exc:
+            self._ownership_failure = exc
+            return True
+        return bool(self._resource_reason(state))
+
+    def status(self):
+        snapshot = self.store.load_run(self._storage_run_id)
+        validate_state(snapshot.state, self.workflow)
+        self._validate_address(snapshot.state)
+        self._verify_ledger(snapshot.state)
+        return snapshot
+
+    def _validate_address(self, state):
+        if not self._legacy_file_mode and state['run_id'] != self._storage_run_id:
+            raise StoreCorrupt('checkpoint identity does not match its storage address')
+
+    def _check_expected_revision(self, expected_revision, *, human_action):
+        if human_action and not self._legacy_file_mode and expected_revision is None:
+            raise ValueError('expected_revision is required for this response')
+        if expected_revision is not None:
+            validate_revision(expected_revision)
+            if expected_revision != self._revision:
+                raise RevisionConflict('checkpoint changed; refresh status')
 
     def _event(self, state, event_type, **data):
         event = {'event': event_type, 'step': state['current'], 'sequence': len(state['history']) + 1, 'time': self.clock(), **data}
@@ -70,11 +146,9 @@ class Harness:
     def run(self, inputs):
         self._check_custom_tools()
         digest(inputs)  # JSON-serializable and finite before creating a run.
-        with locked(self.directory):
-            if self.file.exists():
-                raise ValueError('run already exists; use resume or a new directory')
+        with self._execution():
             now = self.clock()
-            state = {'version': 2, 'run_id': uuid.uuid4().hex, 'fingerprint': self.workflow.fingerprint,
+            state = {'version': 2, 'run_id': uuid.uuid4().hex if self._legacy_file_mode else self._storage_run_id, 'fingerprint': self.workflow.fingerprint,
                      'validators': self.validator_versions, 'inputs': inputs,
                      'status': 'running', 'reason': None, 'current': self.workflow.definition['start'],
                      'calls': 0, 'visits': {}, 'outputs': {}, 'history': [], 'pending': None,
@@ -84,11 +158,14 @@ class Harness:
             self._save(state)
             return self._drive(state)
 
-    def resume(self, *, choice=None, response=None, retry_interrupted=False):
+    def resume(self, *, choice=None, response=None, retry_interrupted=False, expected_revision=None):
         self._check_custom_tools()
-        with locked(self.directory):
-            state = read_json(self.file)
+        with self._execution():
+            snapshot = self.store.load_run(self._storage_run_id)
+            state, self._revision = snapshot.state, snapshot.revision
             validate_state(state, self.workflow)
+            self._validate_address(state)
+            self._check_expected_revision(expected_revision, human_action=choice is not None or response is not None or retry_interrupted)
             if state['fingerprint'] != self.workflow.fingerprint or state['validators'] != self.validator_versions:
                 raise ValueError('workflow, prose, schema, or runtime configuration changed; start a new run')
             self._evidence_unchanged(state)
@@ -126,9 +203,8 @@ class Harness:
                 raise ValueError('run has no pending human choice')
             pending = state['pending']
             if pending is not None:
-                path = self.directory / 'attempts' / (pending['id'] + '.json')
-                if path.exists() or path.is_symlink():
-                    receipt = read_json(path)
+                receipt = self.store.load_receipt(self._storage_run_id, pending['id'])
+                if receipt is not None:
                     validate_receipt(receipt, state, pending)
                     self._accept(state, receipt)
                 elif not retry_interrupted:
@@ -154,7 +230,9 @@ class Harness:
     def _verify_ledger(self, state):
         for invocation in state['invocations']:
             if invocation['status'] == 'complete':
-                receipt = read_json(self.directory / 'attempts' / (invocation['id'] + '.json'))
+                receipt = self.store.load_receipt(self._storage_run_id, invocation['id'])
+                if receipt is None:
+                    raise StoreCorrupt('completed invocation is missing its receipt')
                 validate_receipt(receipt, state, invocation)
                 if receipt['sha256'] != invocation['receipt_sha256'] or receipt['result']['token_usage'] != invocation['token_usage']:
                     raise ValueError('invocation ledger receipt mismatch')
@@ -197,6 +275,8 @@ class Harness:
                 result = self.validators[validator].check(deepcopy(output), context)
                 if not isinstance(result, list) or any(not isinstance(i, str) or not i for i in result):
                     raise ValueError('validators must return a list of nonempty issue strings')
+            except StoreError:
+                raise
             except Exception as exc:
                 raise ValueError(f'trusted validator {validator} failed ({type(exc).__name__})') from exc
             issues.extend(result[:8])
@@ -212,6 +292,7 @@ class Harness:
         self._save(state)
 
     def _accept(self, state, receipt):
+        self._check_ownership()
         validate_receipt(receipt, state, state['pending'])
         self._evidence_unchanged(state)
         state['invocations'][-1].update(status='complete', token_usage=receipt['result']['token_usage'], receipt_sha256=receipt['sha256'])
@@ -263,8 +344,11 @@ class Harness:
         if error is None:
             try:
                 error = self._checks(state, state['current'], output, step.get('validators', []))
+            except StoreError:
+                raise
             except ValueError:
                 return self._block(state, 'validator_error')
+        self._check_ownership()
         if error is None and any(not self._fresh(state, ref) for ref in step.get('inputs', [])):
             return self._block(state, 'stale_artifact')
         if error:
@@ -285,6 +369,7 @@ class Harness:
         steps = self.workflow.definition['steps']
         limits = self.workflow.definition['limits']
         while state['status'] == 'running':
+            self._check_ownership()
             self._evidence_unchanged(state)
             reason = self._resource_reason(state)
             if reason:
@@ -316,6 +401,8 @@ class Harness:
                 if kind == 'check':
                     try:
                         error = self._checks(state, step['from'], state['outputs'][step['from']], step['validators'])
+                    except StoreError:
+                        raise
                     except ValueError:
                         return self._block(state, 'validator_error')
                     state['feedback'] = error
@@ -371,12 +458,14 @@ class Harness:
                                    timeout_s=timeout, max_tool_rounds=self.workflow.config.limits.max_tool_rounds,
                                    **({'initial_tool': 'read_file'} if step.get('require_reads') and
                                       'initial_tool_v1' in getattr(self.runtime, 'capabilities', ()) else {}))
+                self._check_ownership()
                 result = self.runtime.run(self.workflow.artifacts[name], json.dumps(arguments),
                                           cwd=self.workflow.path.parent, policy=policy, on_event=record,
-                                          cancelled=lambda: bool(self._resource_reason(state)),
+                                          cancelled=lambda: self._runtime_cancelled(state),
                                           **({'acquisition': self.workflow.acquisitions[name]} if name in self.workflow.acquisitions else {}))
+                self._check_ownership()
                 receipt = seal({'version': 1, 'run_id': state['run_id'], 'id': attempt_id, 'step': name, 'arguments_sha256': digest(arguments),
                                 'arguments': arguments, 'result': asdict(result), 'events': events})
-                write_json(self.directory / 'attempts' / (attempt_id + '.json'), receipt)
+                self.store.save_receipt(self._storage_run_id, attempt_id, receipt, self._lease)
                 self._accept(state, receipt)
         return state
