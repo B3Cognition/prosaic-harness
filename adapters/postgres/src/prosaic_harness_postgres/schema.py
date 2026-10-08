@@ -79,14 +79,18 @@ async def ready_on_connection(conn):
     if actual != COLUMNS:
         raise StoreIncompatible('adapter schema columns are incompatible')
     constraints = await (await conn.execute("""SELECT c.relname,
-        pg_catalog.pg_get_constraintdef(k.oid), k.convalidated
+        pg_catalog.pg_get_constraintdef(k.oid), k.convalidated, k.contype
         FROM pg_catalog.pg_constraint k JOIN pg_catalog.pg_class c ON c.oid=k.conrelid
         JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
         WHERE n.nspname='prosaic_harness' AND c.relname = ANY(%s)""", (list(COLUMNS),))).fetchall()
     actual_constraints = {name: set() for name in COLUMNS}
-    for table, definition, validated in constraints:
+    for table, definition, validated, kind in constraints:
         if not validated:
             raise StoreIncompatible('adapter schema constraints must be validated')
+        # PostgreSQL 18 catalogs NOT NULL separately; attnotnull above checks
+        # the identical contract on both supported major versions.
+        if kind == 'n':
+            continue
         actual_constraints[table].add(definition)
     if actual_constraints != CONSTRAINTS:
         raise StoreIncompatible('adapter schema constraints are incompatible')

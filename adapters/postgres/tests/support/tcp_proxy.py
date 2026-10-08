@@ -13,6 +13,8 @@ class TcpProxy:
         self.backend = (host, int(options.get('port', 5432)))
         self.stopped = threading.Event()
         self.blocked = threading.Event()
+        self.commit_armed = threading.Event()
+        self.commit_sent = threading.Event()
         self.sockets = []
         self.threads = []
         self.listener = socket.socket()
@@ -30,6 +32,11 @@ class TcpProxy:
                     continue
                 if not data:
                     break
+                if (not replies and self.commit_armed.is_set()
+                        and (b'COMMIT\x00' in data or b'COMMIT;\x00' in data)):
+                    self.blocked.set()
+                    self.commit_sent.set()
+                    self.commit_armed.clear()
                 if not (replies and self.blocked.is_set()):
                     target.sendall(data)
         except OSError:
@@ -61,6 +68,9 @@ class TcpProxy:
 
     def block_server_replies(self):
         self.blocked.set()
+
+    def block_next_commit_reply(self):
+        self.commit_armed.set()
 
     def __enter__(self):
         thread = threading.Thread(target=self._accept, daemon=True)
