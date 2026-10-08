@@ -21,6 +21,8 @@ def main(argv=None):
         if command != 'validate':
             p.add_argument('--run-dir', type=Path, required=True)
             p.add_argument('--events', action='store_true')
+            for field in ('application', 'tenant', 'billing-account', 'actor', 'project', 'request'):
+                p.add_argument('--' + field + '-id', help='trusted host attribution/correlation identifier')
         if command == 'run':
             p.add_argument('--input', type=Path, required=True, help='JSON request file')
         elif command == 'resume':
@@ -50,7 +52,14 @@ def main(argv=None):
                                              'waiting', 'blocked', 'finished'}:
                         progress.write(f'{value.get("step", "")}: {value["event"]}' +
                                        (f' {value["model"]}' if 'model' in value else ''))
-                harness = Harness(workflow, args.run_dir, on_event=event, validators=validators)
+                context_fields = {name: getattr(args, name) for name in
+                                  ('application_id', 'tenant_id', 'billing_account_id', 'actor_id', 'project_id', 'request_id')
+                                  if getattr(args, name) is not None}
+                context = None
+                if context_fields:
+                    from prosaic_runtime.accounting import ExecutionContext
+                    context = ExecutionContext(**context_fields)
+                harness = Harness(workflow, args.run_dir, on_event=event, validators=validators, context=context)
                 if args.command == 'run':
                     state = harness.run(read_json(args.input))
                 else:

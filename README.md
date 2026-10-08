@@ -1,5 +1,9 @@
 # Prosaic Harness
 
+Optional [customer accounting context](docs/accounting.md) preserves attribution
+through workflow retries and resume. Existing callers and saved runs remain supported;
+durable usage recording is explicitly enabled through Prosaic Runtime.
+
 Development **0.6.0** adds RunStore and a separately installed PostgreSQL adapter
 (development **0.1.0**) for cross-worker durable workflows. Neither is published
 yet. Core remains database-free; filesystem constructors/CLI remain supported.

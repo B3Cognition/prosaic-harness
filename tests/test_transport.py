@@ -270,3 +270,39 @@ def test_real_unknown_usage_blocks_finite_token_budget(endpoint, tmp_path):
     assert state['status'] == 'blocked' and state['reason'] == 'usage_unknown'
     assert state['outputs'] == {} and len(requests) == 1
     assert h.resume()['reason'] == 'usage_unknown' and len(requests) == 1
+
+
+def test_real_runtime_accounting_context_and_receipt(endpoint, tmp_path):
+    from prosaic_runtime.accounting import ExecutionContext, MemoryRecorder
+    url, requests, replies = endpoint
+    path = copy_blueprint(tmp_path, 'single.yml', url)
+    replies.append(text({'summary': 'Pilot', 'facts': ['S2: 60 timeouts'], 'unknowns': ['Cause'],
+                         'claims': [{'text': '60 timeouts', 'source_id': 'S2', 'quote': '60 timed out'}]}))
+    recorder = MemoryRecorder(defaults=ExecutionContext(tenant_id='trusted-tenant'))
+    h = Harness(Workflow.load(path), tmp_path / 'run', accounting=recorder,
+                validators=load_validators(path.parent / 'checks.py'))
+    state = h.run(json.loads((path.parent / 'request.json').read_text()))
+    assert state['status'] == 'completed'
+    assert len(recorder.intents) == len(recorder.observations) == len(requests) == 1
+    assert 'trusted-tenant' not in json.dumps(requests)
+    receipt = json.loads(next((tmp_path / 'run/attempts').glob('*.json')).read_text())
+    context = receipt['result']['metadata']['accounting_v1']['context']
+    assert context['tenant_id'] == 'trusted-tenant'
+    assert context['invocation_id'] == state['invocations'][0]['id']
+    assert h.resume()['status'] == 'completed'
+    assert len(requests) == 1
+
+
+def test_cli_optional_context_flags(endpoint, tmp_path):
+    url, requests, replies = endpoint
+    path = copy_blueprint(tmp_path, 'single.yml', url)
+    replies.append(text({'summary': 'Pilot', 'facts': ['S2: 60 timeouts'], 'unknowns': ['Cause'],
+                         'claims': [{'text': '60 timeouts', 'source_id': 'S2', 'quote': '60 timed out'}]}))
+    result = subprocess.run([sys.executable, '-m', 'prosaic_harness.cli', 'run', str(path),
+        '--input', str(path.parent / 'request.json'), '--run-dir', str(tmp_path / 'run'), '--events',
+        '--tenant-id', 'cli-tenant', '--checks', str(path.parent / 'checks.py')],
+        capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    state = json.loads((tmp_path / 'run/run.json').read_text())
+    assert state['accounting_context']['tenant_id'] == 'cli-tenant'
+    assert 'cli-tenant' not in json.dumps(requests)

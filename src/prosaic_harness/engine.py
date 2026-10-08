@@ -19,7 +19,7 @@ from .validation import Validator, CheckContext
 
 
 class Harness:
-    def __init__(self, workflow, run_dir=None, *, store=None, run_id=None, runtime=None, on_event=None, validators=None, cancelled=None, clock=time.time):
+    def __init__(self, workflow, run_dir=None, *, store=None, run_id=None, runtime=None, on_event=None, validators=None, cancelled=None, clock=time.time, context=None, accounting=None):
         self.workflow = workflow
         if (run_dir is None) == (store is None) or (run_dir is not None and run_id is not None):
             raise ValueError('supply either run_dir or store with run_id')
@@ -34,6 +34,13 @@ class Harness:
         self._execution_lock = threading.Lock()
         self.runtime = runtime or (ProsaicRuntime(workflow.config, custom_tools=workflow.custom_tools)
                                    if workflow.custom_tools else ProsaicRuntime(workflow.config))
+        self.context = context
+        self.accounting = accounting
+        self._accounting_enabled = (context is not None or accounting is not None
+                                    or getattr(self.runtime, 'accounting', None) is not None
+                                    or getattr(self.runtime, 'context_defaults', None) is not None)
+        if self._accounting_enabled and 'accounting_v1' not in getattr(self.runtime, 'capabilities', ()):
+            raise ValueError('accounting/context needs a Prosaic Runtime with accounting_v1 support')
         self.on_event = on_event
         self.validators = dict(validators or {})
         self.cancelled = cancelled or (lambda: False)
@@ -47,6 +54,65 @@ class Harness:
         if workflow.acquisitions and 'acquisition_v1' not in getattr(self.runtime, 'capabilities', ()):
             raise ValueError('acquisition needs a Prosaic Runtime with acquisition_v1 support')
         self._check_custom_tools()
+
+    def _accounting_scope(self):
+        recorder = self.accounting if self.accounting is not None else getattr(self.runtime, 'accounting', None)
+        if recorder is None:
+            return None
+        from prosaic_runtime.accounting import identifier
+        return {name: identifier(getattr(recorder, name)) for name in ('namespace', 'environment')}
+
+    def _resolved_accounting_context(self, run_id):
+        from dataclasses import replace
+        from prosaic_runtime.accounting import resolve_context
+        recorder = self.accounting if self.accounting is not None else getattr(self.runtime, 'accounting', None)
+        defaults = getattr(recorder, 'defaults', None) or getattr(self.runtime, 'context_defaults', None)
+        context = resolve_context(self.context, defaults)
+        if context.run_id is not None and context.run_id != run_id:
+            raise ValueError('accounting context run_id conflicts with run identity')
+        return replace(context, run_id=run_id)
+
+    def _resume_accounting(self, state):
+        if 'accounting_context' not in state and not self._accounting_enabled:
+            return
+        scope = self._accounting_scope()
+        if 'accounting_scope' in state and scope is not None and scope != state['accounting_scope']:
+            raise ValueError('accounting scope conflicts with saved scope')
+        from prosaic_runtime.accounting import ATTRIBUTION, ResolvedContext
+        if 'accounting_context' not in state:
+            if not self._accounting_enabled:
+                return
+            state['accounting_context'] = self._resolved_accounting_context(state['run_id']).to_dict()
+            state['accounting_migration'] = {'source': 'legacy_checkpoint', 'time': self.clock()}
+            if scope is not None:
+                state['accounting_scope'] = scope
+            self._save(state)
+        else:
+            saved = ResolvedContext.from_dict(state['accounting_context'])
+            if self.context is not None:
+                for name in (*ATTRIBUTION, 'actor_id', 'project_id', 'run_id', 'request_id'):
+                    provided = getattr(self.context, name)
+                    if provided is not None and provided != getattr(saved, name):
+                        raise ValueError('supplied accounting context conflicts with saved context')
+            if scope is not None and 'accounting_scope' not in state:
+                state['accounting_scope'] = scope
+                self._save(state)
+
+    def _invocation_accounting(self, state, attempt_id, step):
+        if 'accounting_context' not in state:
+            return {}
+        scope = self._accounting_scope()
+        if 'accounting_scope' in state and scope != state['accounting_scope']:
+            raise ValueError('saved accounting scope requires its configured recorder')
+        if 'accounting_v1' not in getattr(self.runtime, 'capabilities', ()):
+            raise ValueError('saved accounting context needs accounting_v1 support')
+        from prosaic_runtime.accounting import ResolvedContext
+        child = ResolvedContext.from_dict(state['accounting_context']).child(
+            invocation_id=attempt_id, run_id=state['run_id'], step_id=step)
+        options = {'context': child}
+        if self.accounting is not None:
+            options['accounting'] = self.accounting
+        return options
 
     def _check_custom_tools(self):
         expected = self.workflow.tool_descriptors
@@ -155,6 +221,11 @@ class Harness:
                      'entered': False, 'attempt': 0, 'feedback': None, 'bindings': {}, 'invocations': [],
                      'evidence': self.workflow.snapshot(), 'started_at': now,
                      'deadline': now + self.workflow.definition['limits']['max_run_s'] if 'max_run_s' in self.workflow.definition['limits'] else None}
+            if self._accounting_enabled:
+                state['accounting_context'] = self._resolved_accounting_context(state['run_id']).to_dict()
+                scope = self._accounting_scope()
+                if scope is not None:
+                    state['accounting_scope'] = scope
             self._save(state)
             return self._drive(state)
 
@@ -170,6 +241,7 @@ class Harness:
                 raise ValueError('workflow, prose, schema, or runtime configuration changed; start a new run')
             self._evidence_unchanged(state)
             self._verify_ledger(state)
+            self._resume_accounting(state)
             if state['status'] in {'completed', 'rejected'}:
                 if choice is not None or response is not None:
                     raise ValueError('completed run has no pending choice')
@@ -437,6 +509,7 @@ class Harness:
                 if responses:
                     arguments['human_responses'] = responses
                 attempt_id = uuid.uuid4().hex
+                accounting_options = self._invocation_accounting(state, attempt_id, name)
                 state['calls'] += 1
                 state['attempt'] += 1
                 state['pending'] = {'id': attempt_id, 'step': name, 'arguments_sha256': digest(arguments), 'arguments': arguments}
@@ -462,7 +535,8 @@ class Harness:
                 result = self.runtime.run(self.workflow.artifacts[name], json.dumps(arguments),
                                           cwd=self.workflow.path.parent, policy=policy, on_event=record,
                                           cancelled=lambda: self._runtime_cancelled(state),
-                                          **({'acquisition': self.workflow.acquisitions[name]} if name in self.workflow.acquisitions else {}))
+                                          **({'acquisition': self.workflow.acquisitions[name]} if name in self.workflow.acquisitions else {}),
+                                          **accounting_options)
                 self._check_ownership()
                 receipt = seal({'version': 1, 'run_id': state['run_id'], 'id': attempt_id, 'step': name, 'arguments_sha256': digest(arguments),
                                 'arguments': arguments, 'result': asdict(result), 'events': events})

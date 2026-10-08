@@ -45,6 +45,19 @@ def validate_receipt(receipt, state, pending):
             or not isinstance(receipt['events'], list) or len(receipt['events']) > 2048
             or any(not isinstance(e, dict) for e in receipt['events'])):
         raise ValueError('invalid invocation result schema')
+    accounting = result['metadata'].get('accounting_v1')
+    if 'accounting_v1' in result['metadata']:
+        from prosaic_runtime.accounting import ResolvedContext
+        if type(accounting) is not dict or 'context' not in accounting or 'accounting_context' not in state:
+            raise ValueError('invalid receipt accounting metadata')
+        actual = ResolvedContext.from_dict(accounting['context'])
+        expected = ResolvedContext.from_dict(state['accounting_context']).child(
+            invocation_id=pending['id'], run_id=state['run_id'], step_id=pending['step'])
+        if actual != expected:
+            raise ValueError('receipt accounting context mismatch')
+        if ('accounting_scope' in state and (accounting.get('namespace') is not None or accounting.get('environment') is not None)
+                and any(accounting.get(name) != value for name, value in state['accounting_scope'].items())):
+            raise ValueError('receipt accounting scope mismatch')
 
 
 def validate_state(state, workflow):
@@ -52,8 +65,26 @@ def validate_state(state, workflow):
     required = {'version', 'run_id', 'fingerprint', 'validators', 'inputs', 'status', 'reason', 'current',
                 'calls', 'visits', 'outputs', 'bindings', 'history', 'pending', 'entered', 'attempt',
                 'feedback', 'invocations', 'evidence', 'started_at', 'deadline', 'sha256'}
-    if set(state) - (required | {'question', 'choices', 'pause_bindings'}) or required - set(state) or state['version'] != 2:
+    if set(state) - (required | {'question', 'choices', 'pause_bindings', 'accounting_context', 'accounting_migration', 'accounting_scope'}) or required - set(state) or state['version'] != 2:
         raise ValueError('invalid checkpoint schema; start a new run')
+    if 'accounting_context' in state:
+        from prosaic_runtime.accounting import ResolvedContext
+        context = ResolvedContext.from_dict(state['accounting_context'])
+        if context.run_id != state['run_id']:
+            raise ValueError('accounting context run identity mismatch')
+    if 'accounting_scope' in state:
+        from prosaic_runtime.accounting import identifier
+        scope = state['accounting_scope']
+        if 'accounting_context' not in state or type(scope) is not dict or set(scope) != {'namespace', 'environment'}:
+            raise ValueError('invalid accounting scope')
+        for value in scope.values():
+            identifier(value)
+    if 'accounting_migration' in state:
+        migration = state['accounting_migration']
+        if ('accounting_context' not in state or type(migration) is not dict
+                or set(migration) != {'source', 'time'} or migration['source'] != 'legacy_checkpoint'
+                or type(migration['time']) not in (int, float)):
+            raise ValueError('invalid accounting migration provenance')
     if (not isinstance(state['run_id'], str) or not IDENTIFIER.fullmatch(state['run_id'])
             or state['current'] not in workflow.definition['steps']
             or state['status'] not in {'running', 'waiting', 'blocked', 'completed', 'rejected'}
