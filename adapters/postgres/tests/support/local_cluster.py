@@ -92,6 +92,10 @@ class LocalCluster:
         self._validate_container(self.primary)
         self._run('kill', '--signal', 'KILL', self.primary['id'])
         self._run('start', self.primary['id'])
+        # Docker may reallocate an ephemeral published host port on restart.
+        port = self._run('port', self.primary['id'], '5432/tcp').rsplit(':', 1)[1]
+        self.dsn = self.primary['dsn'] = f'postgresql://postgres@127.0.0.1:{port}/postgres'
+        self._write_manifest()
         try:
             self._wait(self.dsn)
         except RuntimeError as error:
