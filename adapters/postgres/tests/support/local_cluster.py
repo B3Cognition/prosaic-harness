@@ -92,7 +92,12 @@ class LocalCluster:
         self._validate_container(self.primary)
         self._run('kill', '--signal', 'KILL', self.primary['id'])
         self._run('start', self.primary['id'])
-        self._wait(self.dsn)
+        try:
+            self._wait(self.dsn)
+        except RuntimeError as error:
+            port = self._run('port', self.primary['id'], '5432/tcp')
+            logs = self._run('logs', '--tail', '20', self.primary['id'])
+            raise RuntimeError(f'{error}; original DSN={self.dsn}; current port={port}; logs={logs}') from error
 
     def set_setting(self, name, value):
         if name not in {'fsync', 'full_page_writes'} or value not in {'on', 'off'}:
