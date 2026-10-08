@@ -6,9 +6,9 @@ No consumer migration, remote push, package publication or database provisioning
 
 | Gate | Observed result |
 | --- | --- |
-| Core/full legacy suite | 153 passed, 36.04s, no PostgreSQL dependency |
-| Real PostgreSQL 16 adapter lane | 76 passed, 81.35s, no skipped cases |
-| Real PostgreSQL 18 adapter lane | 76 passed, 81.61s, no skipped cases |
+| Core/full legacy suite | 153 passed, 37.71s after review fix, no PostgreSQL dependency |
+| Real PostgreSQL 16 adapter lane | 77 passed, 90.44s after review fix, no skipped cases |
+| Real PostgreSQL 18 adapter lane | 77 passed, 88.77s after review fix, no skipped cases |
 | Worker/recovery/routing repeatability | Full lane, focused 17-test run and full lane passed before operator/packaging additions |
 | Clean macOS/arm64 wheel environments | Core-only import without psycopg/adapter; both-wheel CLI/SDK init/doctor/write test and restricted-role cross-process pause/resume passed |
 | Native Linux/arm64 clean wheels | Linux aarch64, psycopg 3.3.6, libpq 180006; core-only import isolation and both-wheel operator/runtime-role quickstart passed |
@@ -36,5 +36,45 @@ effects, no product authentication/authorization, no HTTP scheduler/queue, no
 file-to-database importer. The application must supply those policies and filter
 private state. See [setup and deployment guidance](../adapters/postgres/README.md).
 
-Independent whole-branch review follows these local acceptance checks; its
-findings and any regression fixes will be recorded before final handoff.
+Independent whole-branch review by a fresh gpt-6-astra reviewer found one
+Important/P2 defect and no Critical or Minor findings. Queued submissions could
+exceed admission capacity and disappear from lifecycle accounting when callers
+timed out before the private loop started them. The regression was watched fail,
+then passed after reserving capacity synchronously through actual teardown,
+using absolute request-start deadlines and observing submitted task exceptions.
+Transport/lease/routing passed 29 tests; complete core and both database lanes
+then passed. Expired queued work never reaches SQL and close rejects undrained
+work. No second reviewer was substituted for regression/full-suite proof.
+
+A native parallel rerun produced one shortened test-worker timeout; the case
+passed in isolation. Worker fixtures now use the production default 10-second
+budget, except explicit timeout fault tests. Production deadlines were not
+relaxed. A subsequent complete PostgreSQL 16 lane passed all 77 tests.
+
+## Implementation/review decisions
+
+- Keep the approved dedicated branch checkout; no additional worktree isolation.
+- libpq rejects readonly routing before SQL inspection: report unavailable rather
+  than incompatible, with less precise operator guidance but no admitted work.
+- Core/adapter suites run separately because their module names collide; combined
+  collection would require import-mode adjustments.
+- One required owned-container CI job per major covers adapter/crash/standby
+  gates; this increases lane duration, but avoids shared-container mutations.
+- Run safety guards inside bounded operations, not retrying pool check hooks;
+  transient failures stop and require reconciliation.
+- Database administration is trusted; compromised privileged actors can forge
+  state because seals are corruption checks, not authentication.
+- Exactly-once effects and lossless asynchronous failover remain application/
+  platform responsibilities; otherwise duplication/data loss is possible.
+- Both backends enforce byte bounds, but serialization overhead can reject a
+  near-limit payload sooner on one backend.
+- Legacy file callers can omit revisions for compatibility and therefore do not
+  receive mandatory stale-action protection.
+- Existing filesystem lock-helper exit semantics after fork are unchanged;
+  never fork active executions, since inherited cleanup may affect another lock.
+- In-flight fenced transactions may commit after local expiry; late output is
+  not admitted, and a timeout still requires authoritative reconciliation.
+- Routing proof covers primary/stale standby and per-operation guards, not every
+  deployment topology; validate your operator's failover behavior separately.
+
+No deferred Minor findings.

@@ -136,7 +136,7 @@ def test_unknown_receipt_commit_is_adopted_from_primary(db_admin_dsn, worker_flo
         store.initialize()
     run_id = uuid.uuid4().hex
     with TcpProxy(db_admin_dsn) as proxy:
-        with Worker(proxy.dsn, worker_flow, run_id, 'start', edge='pending') as first:
+        with Worker(proxy.dsn, worker_flow, run_id, 'start', edge='pending', operation_timeout_s=2) as first:
             assert first.ready.wait(10), first.failure()
             proxy.block_next_commit_reply()
             first.release.set()

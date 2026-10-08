@@ -157,3 +157,43 @@ def test_inherited_transport_fails_before_touching_thread(db_admin_dsn):
             if worker.is_alive():
                 worker.terminate()
                 worker.join(3)
+
+
+def test_queued_deadlines_retain_bounded_capacity_until_actual_drain(db_admin_dsn):
+    t = transport(db_admin_dsn, pool_size=1, max_active_leases=1, operation_timeout_s=.2)
+    blocked, release, executed = threading.Event(), threading.Event(), threading.Event()
+    warnings, results = [], []
+    t._loop.set_exception_handler(lambda loop, context: warnings.append(context))
+    def block_loop():
+        blocked.set()
+        release.wait(3)
+    t._loop.call_soon_threadsafe(block_loop)
+    assert blocked.wait(2)
+    async def query(conn):
+        executed.set()
+        return await conn.execute('SELECT 1')
+    def request():
+        try:
+            t.call(query)
+        except Exception as exc:
+            results.append(exc)
+    callers = [threading.Thread(target=request) for _ in range(6)]
+    try:
+        for caller in callers:
+            caller.start()
+        for caller in callers:
+            caller.join(1)
+            assert not caller.is_alive()
+        assert sum(isinstance(exc, StoreBusy) for exc in results) == 2
+        assert sum(isinstance(exc, StoreUnavailable) for exc in results) == 4
+        assert t.pending_operations == 4, 'timed-out submissions retired before loop teardown'
+        with pytest.raises(StoreBusy):
+            t.close()
+    finally:
+        release.set()
+        end = time.monotonic() + 2
+        while t.pending_operations and time.monotonic() < end:
+            time.sleep(.01)
+        t.close()
+    assert not executed.is_set(), 'expired queued request reached SQL callback'
+    assert not warnings, 'outer submitted coroutine exceptions were not observed'

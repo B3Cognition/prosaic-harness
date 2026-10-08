@@ -38,11 +38,11 @@ class EdgeStore:
         return result
 
 
-def run_worker(dsn, flow_path, run_id, command, edge, ready, release, channel, choice, revision, retry):
+def run_worker(dsn, flow_path, run_id, command, edge, ready, release, channel, choice, revision, retry, operation_timeout_s):
     from prosaic_harness import Harness, Workflow, StoreError
     from prosaic_harness_postgres import PostgresRunStore
     try:
-        with PostgresRunStore(dsn, namespace='workers', operation_timeout_s=2) as store:
+        with PostgresRunStore(dsn, namespace='workers', operation_timeout_s=operation_timeout_s) as store:
             h = Harness(Workflow.load(flow_path), store=EdgeStore(store, edge, ready, release), run_id=run_id)
             if command == 'start':
                 result = h.run({'task': 'synthetic'})
@@ -62,12 +62,13 @@ def run_worker(dsn, flow_path, run_id, command, edge, ready, release, channel, c
 
 
 class Worker:
-    def __init__(self, dsn, flow_path, run_id, command, *, edge=None, choice=None, revision=None, retry=False):
+    def __init__(self, dsn, flow_path, run_id, command, *, edge=None, choice=None, revision=None, retry=False,
+                 operation_timeout_s=10):
         ctx = multiprocessing.get_context('spawn')
         self.ready, self.release = ctx.Event(), ctx.Event()
         self.channel, child = ctx.Pipe(duplex=False)
         self.process = ctx.Process(target=run_worker, args=(dsn, str(flow_path), run_id, command,
-            edge, self.ready, self.release, child, choice, revision, retry))
+            edge, self.ready, self.release, child, choice, revision, retry, operation_timeout_s))
 
     def __enter__(self):
         self.process.start()

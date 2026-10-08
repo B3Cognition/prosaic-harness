@@ -754,7 +754,7 @@ servers synthetic and live inference opt-in. No publish/tag/release step is adde
   versions and any unmet platform gate. Do not call it MVP-ready with a skipped
   PostgreSQL/timeout/recovery gate or a red test.
 - [x] **Step 5: Commit:** `ci: require PostgreSQL adapter recovery and packaging checks`.
-- [ ] **Step 6: Final independent review and handoff.** Follow the selected
+- [x] **Step 6: Final independent review and handoff.** Follow the selected
   execution skill's reviewer gate. Address actionable findings with failing
   regressions first and rerun affected/full suites. Leave local commits ready
   for the user's review; do not push, publish or migrate consumers without a

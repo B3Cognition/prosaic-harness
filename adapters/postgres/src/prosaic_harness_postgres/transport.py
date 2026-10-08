@@ -6,6 +6,7 @@ import logging
 import math
 import os
 import threading
+import time
 import uuid
 
 import psycopg
@@ -35,6 +36,8 @@ class _PoolRedaction(logging.Filter):
 
 @dataclass(eq=False)
 class _Operation:
+    deadline: float
+    work_deadline: float
     connection: object = None
     task: object = None
     expired: bool = False
@@ -67,7 +70,6 @@ class PostgresTransport:
         self._pid = os.getpid()
         self._mutex = threading.RLock()
         self._pending = set()
-        self._scheduled = 0
         self._closing = False
         self._close_lock = threading.Lock()
         self._closed = False
@@ -109,7 +111,27 @@ class PostgresTransport:
     @property
     def pending_operations(self):
         with self._mutex:
-            return len(self._pending) + self._scheduled
+            return len(self._pending)
+
+    def _reserve(self, budget):
+        # Reserve synchronously before the loop can be delayed. Registration
+        # lasts through actual SQL/runner teardown, not just caller patience.
+        self._check_process()
+        deadline = time.monotonic() + budget
+        operation = _Operation(deadline, deadline - min(2, budget / 2))
+        with self._mutex:
+            self._check_process()
+            if len(self._pending) >= self._capacity:
+                raise StoreBusy('database operation capacity exhausted')
+            self._pending.add(operation)
+        return operation
+
+    @staticmethod
+    def _check_deadline(operation):
+        if operation.expired or time.monotonic() >= operation.work_deadline:
+            operation.expired = True
+            raise StoreUnavailable('database operation deadline exceeded; reconcile before retrying',
+                                   outcome_unknown=operation.commit_started)
 
     async def _guard(self, conn):
         row = await (await conn.execute("""SELECT pg_catalog.pg_is_in_recovery(),
@@ -120,6 +142,7 @@ class PostgresTransport:
             raise StoreIncompatible('require writable primary, logged durability and safe WAL settings')
 
     async def _sql(self, operation, callback, renewal, budget):
+        self._check_deadline(operation)
         pool = self._renewal if renewal else self._ordinary
         conn = await pool.getconn(timeout=min(self.pool_timeout_s, budget))
         operation.connection = conn
@@ -133,7 +156,9 @@ class PostgresTransport:
                                    (f'{min(self.lock_timeout_s, budget)*1000:.0f}ms',
                                     f'{min(self.statement_timeout_s, budget)*1000:.0f}ms'))
                 await self._guard(conn)
+                self._check_deadline(operation)
                 result = await callback(conn)
+                self._check_deadline(operation)
                 operation.commit_started = True
             return result
         finally:
@@ -154,20 +179,19 @@ class PostgresTransport:
         if operation.task is not None and not operation.task.cancelled():
             operation.task.exception()
 
-    async def execute_async(self, callback, *, renewal=False, timeout_s=None):
+    async def execute_async(self, callback, *, renewal=False, timeout_s=None, _operation=None):
         """Internal adapter entry point; callbacks are trusted database operations."""
-        self._check_process()
         budget = self.operation_timeout_s if timeout_s is None else positive(timeout_s, 'timeout_s')
         cleanup = min(2, budget / 2)
-        operation = _Operation()
-        with self._mutex:
-            if len(self._pending) >= self._capacity:
-                raise StoreBusy('database operation capacity exhausted')
-            self._pending.add(operation)
-        operation.task = asyncio.create_task(self._sql(operation, callback, renewal, budget))
-        timer = self._loop.call_later(budget - cleanup,
-                                     lambda: asyncio.create_task(self._expire(operation)))
+        operation = _operation if _operation is not None else self._reserve(budget)
+        timer = None
         try:
+            self._check_process()
+            self._check_deadline(operation)
+            remaining = operation.work_deadline - time.monotonic()
+            operation.task = asyncio.create_task(self._sql(operation, callback, renewal, remaining))
+            timer = self._loop.call_at(self._loop.time() + remaining,
+                                      lambda: asyncio.create_task(self._expire(operation)))
             try:
                 result = await asyncio.shield(operation.task)
             except asyncio.CancelledError:
@@ -177,7 +201,7 @@ class PostgresTransport:
                     raise StoreUnavailable('database operation interrupted; reconcile before retrying',
                                            outcome_unknown=operation.commit_started) from None
                 raise
-            if operation.expired:
+            if operation.expired or time.monotonic() >= operation.deadline:
                 raise StoreUnavailable('database operation deadline exceeded; reconcile before retrying',
                                        outcome_unknown=operation.commit_started)
             return result
@@ -189,8 +213,9 @@ class PostgresTransport:
             raise StoreUnavailable('database access failed; restore connectivity and reconcile',
                                    outcome_unknown=operation.commit_started) from None
         finally:
-            timer.cancel()
-            if operation.task.done():
+            if timer is not None:
+                timer.cancel()
+            if operation.task is None or operation.task.done():
                 self._retire(operation)
             else:
                 operation.task.add_done_callback(lambda _: self._retire(operation))
@@ -200,21 +225,30 @@ class PostgresTransport:
         if threading.current_thread() is self._thread:
             raise StoreBusy('synchronous database calls cannot run on the I/O thread')
         budget = self.operation_timeout_s if timeout_s is None else positive(timeout_s, 'timeout_s')
-        with self._mutex:
-            self._check_process()
-            self._scheduled += 1
+        operation = self._reserve(budget)
+        coroutine = self.execute_async(callback, renewal=renewal, timeout_s=budget, _operation=operation)
         try:
-            future = asyncio.run_coroutine_threadsafe(
-                self.execute_async(callback, renewal=renewal, timeout_s=budget), self._loop)
-            try:
-                return future.result(budget)
-            except FutureTimeout:
-                future.cancel()
-                raise StoreUnavailable('database operation deadline exceeded; reconcile before retrying',
-                                       outcome_unknown=True) from None
-        finally:
-            with self._mutex:
-                self._scheduled -= 1
+            future = asyncio.run_coroutine_threadsafe(coroutine, self._loop)
+        except BaseException:
+            coroutine.close()
+            self._retire(operation)
+            raise
+        # A timed-out caller cannot consume the eventual submitted exception.
+        future.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+        try:
+            return future.result(max(0, operation.deadline - time.monotonic()))
+        except FutureTimeout:
+            operation.expired = True
+            self._loop.call_soon_threadsafe(lambda: asyncio.create_task(self._expire(operation)))
+            # Don't cancel the concurrent Future: that reports completion before
+            # the queued runner starts/drains, and can orphan its exception.
+            raise StoreUnavailable('database operation deadline exceeded; reconcile before retrying',
+                                   outcome_unknown=True) from None
+        except BaseException:
+            if not future.done():
+                operation.expired = True
+                self._loop.call_soon_threadsafe(lambda: asyncio.create_task(self._expire(operation)))
+            raise
 
     def submit(self, coroutine):
         self._check_process()
@@ -239,7 +273,7 @@ class PostgresTransport:
                     raise StoreBusy('database workers have not drained')
         try:
             with self._mutex:
-                if self._pending or self._scheduled:
+                if self._pending:
                     raise StoreBusy('drain pending database operations before closing')
                 self._closing = True
             try:
