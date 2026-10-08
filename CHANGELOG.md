@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.6.0 — 2026-10-08
+
+- Add optional customer accounting context with backward-compatible `default`
+  attribution, frozen identity and recorder scope across workflow retry and resume,
+  and validated per-invocation lineage.
+- Pin immutable Runtime 0.6.0 for per-provider-call token metering and optional
+  durable accounting. Unknown historical usage remains unknown; this release
+  does not implement invoice charges or billing-platform export.
+- Add RunStore and the separately distributed PostgreSQL adapter 0.1.0 for
+  leased, cross-worker durable workflow execution, recovery and explicit
+  database setup. Filesystem storage and database-free core remain supported.
+
+## 0.5.0 — 2026-10-07
+
+- Add schema-validated human responses at durable workflow pauses, trusted
+  validators and retained feedback for downstream agents and checks.
+- Pin Runtime 0.5.3 and Python Prosaic 0.3.1.
+
 ## 0.4.2 — 2026-10-07
 
 - Pin the immutable Runtime 0.5.2 release, combining structured JSON tool

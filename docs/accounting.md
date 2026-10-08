@@ -2,7 +2,7 @@
 
 Accounting is off by default. Existing Harness callers, checkpoints and invocation receipts keep their existing shape and recovery behavior. No database is required while accounting is off.
 
-Harness pins Runtime commit `2fe4426453c0f5713c190d7b6fa7532fd4bd4a45`, which provides `accounting_v1`. When working with unpushed local commits, install the sibling Runtime source for integration; Git dependency installation requires the pinned commit to be available remotely.
+Harness 0.6.0 pins the immutable Runtime 0.6.0 release commit `b13a62eac955b19b13fe2c9dc646a188069f72f2`, which provides `accounting_v1`. Normal installation resolves this dependency without a sibling checkout.
 
 To opt in, supply trusted host context and an explicitly configured Runtime recorder:
 
