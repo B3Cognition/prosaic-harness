@@ -9,6 +9,13 @@ def pytest_addoption(parser):
     parser.addoption('--require-postgres', action='store_true', help='fail instead of skipping database tests')
 
 
+def pytest_sessionfinish(session, exitstatus):
+    if session.config.getoption('--require-postgres'):
+        reporter = session.config.pluginmanager.getplugin('terminalreporter')
+        if reporter and reporter.stats.get('skipped'):
+            session.exitstatus = 1
+
+
 @pytest.fixture
 def db_admin_dsn(request):
     import psycopg

@@ -18,7 +18,7 @@ class LocalCluster:
             raise ValueError('supported fixture engine/version required')
         self.engine, self.version = engine, version
         self.token = uuid.uuid4().hex
-        self.directory = Path(tempfile.mkdtemp(prefix='prosaic-harness-pgtest-'))
+        self.directory = Path(tempfile.mkdtemp(prefix='prosaic-harness-pgtest-')).resolve()
         self.manifest = self.directory / 'ownership.json'
         self.network = 'prosaic-harness-pgtest-' + self.token
         self.containers = []
@@ -109,6 +109,33 @@ class LocalCluster:
             time.sleep(.05)
         raise RuntimeError('disposable setting reload failed')
 
+    def linux_wheel_smoke(self, root):
+        self._validate_container(self.primary)
+        root = Path(root).resolve()
+        name = self.network + '-linux-wheels'
+        command = '''
+set -eu
+apt-get update -qq
+apt-get install -y -qq git >/dev/null
+python -m venv /tmp/core
+/tmp/core/bin/python -m pip install /core-wheels/prosaic_harness-0.6.0-py3-none-any.whl >/dev/null
+/tmp/core/bin/python -I -c 'import importlib.util,prosaic_harness; assert importlib.util.find_spec("psycopg") is None; assert importlib.util.find_spec("prosaic_harness_postgres") is None'
+python -m venv /tmp/both
+/tmp/both/bin/python -m pip install /core-wheels/prosaic_harness-0.6.0-py3-none-any.whl /adapter-wheels/prosaic_harness_postgres-0.1.0-py3-none-any.whl >/dev/null
+/tmp/both/bin/python /fixture/linux_wheel_smoke.py
+'''
+        container_id = self._run('create', '--name', name, '--network', self.network,
+            '--label', 'prosaic-harness-test-owner=' + self.token,
+            '-e', 'HARNESS_SMOKE_DSN=postgresql://postgres@' + self.primary['name'] + '/postgres',
+            '-v', str(root / 'dist') + ':/core-wheels:ro',
+            '-v', str(root / 'adapters/postgres/dist') + ':/adapter-wheels:ro',
+            '-v', str(root / 'examples/postgres') + ':/examples:ro',
+            '-v', str(root / 'adapters/postgres/tests/support/linux_wheel_smoke.py') + ':/fixture/linux_wheel_smoke.py:ro',
+            'docker.io/library/python:3.12-slim', 'sh', '-ec', command)
+        self.containers.append({'id': container_id, 'name': name})
+        self._write_manifest()
+        return self._run('start', '-a', container_id, timeout=240)
+
     def stop(self):
         for entry in reversed(self.containers):
             self._validate_container(entry)
@@ -131,7 +158,7 @@ class LocalCluster:
     def from_manifest(cls, path):
         path = Path(path).resolve()
         data = json.loads(path.read_text())
-        if (path.name != 'ownership.json' or path.parent != Path(data['directory'])
+        if (path.name != 'ownership.json' or path.parent != Path(data['directory']).resolve()
                 or not path.parent.name.startswith('prosaic-harness-pgtest-')
                 or data['network'] != 'prosaic-harness-pgtest-' + data['token']):
             raise ValueError('invalid fixture ownership manifest')

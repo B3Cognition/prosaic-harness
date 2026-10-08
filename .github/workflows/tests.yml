@@ -18,3 +18,34 @@ jobs:
       - run: prosaic --version
       - run: python -m pytest -q
       - run: python -m build
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ['16', '18']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build separate distributions
+        run: |
+          python -m pip install build pytest
+          python -m build
+          python -m build adapters/postgres
+      - name: Install local core wheel before adapter
+        run: |
+          python -m pip install dist/prosaic_harness-0.6.0-py3-none-any.whl
+          python -m pip install adapters/postgres/dist/prosaic_harness_postgres-0.1.0-py3-none-any.whl
+          prosaic --version
+      - name: Required real-database, owned crash/standby and clean-wheel gates
+        env:
+          POSTGRES_VERSION: '${{ matrix.postgres }}'
+        run: |
+          fixture_manifest="$(python adapters/postgres/tests/support/local_cluster.py start --engine docker --version "$POSTGRES_VERSION")"
+          trap 'python adapters/postgres/tests/support/local_cluster.py stop --manifest "$fixture_manifest"' EXIT
+          # The helper runs --require-postgres; any skipped gate fails the lane.
+          python adapters/postgres/tests/support/local_cluster.py test --manifest "$fixture_manifest"
+          git diff --check

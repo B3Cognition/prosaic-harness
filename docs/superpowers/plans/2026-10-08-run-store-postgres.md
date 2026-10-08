@@ -1,6 +1,6 @@
 # Harness RunStore and PostgreSQL Adapter Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Let an application persist Harness runs in an explicitly initialized
 PostgreSQL database and safely resume them on another worker, without changing
@@ -169,7 +169,7 @@ and `assert_run_store_contract(store, *, state, receipt)` in `testing.py`.
 Conformance receives full sealed fixtures created through the existing legacy
 Harness/FakeRuntime test setup; it does not manufacture partial checkpoints.
 
-- [ ] **Step 1: Write failing tests for isolated snapshots, stale/foreign leases,
+- [x] **Step 1: Write failing tests for isolated snapshots, stale/foreign leases,
   duplicate create, CAS, immutable receipts, bounds and existing layout.**
 
 ```python
@@ -200,9 +200,9 @@ Add literal cases for NaN/infinity, duplicate JSON keys, a UTF-8 payload crossin
 parents/destinations, corrupt seal and two live flock sessions. Assert no file
 changes on failed writes. Wrong-run revision uses two independently seeded runs.
 
-- [ ] **Step 2: Run RED:** `.venv/bin/python -m pytest -q tests/test_run_store.py`.
+- [x] **Step 2: Run RED:** `.venv/bin/python -m pytest -q tests/test_run_store.py`.
   Expected: missing public FileRunStore/new contract failures, not fixture errors.
-- [ ] **Step 3: Implement bounded codecs, safe errors and descriptor-safe FileRunStore.**
+- [x] **Step 3: Implement bounded codecs, safe errors and descriptor-safe FileRunStore.**
 
 ```python
 def encode_document(value):
@@ -232,9 +232,9 @@ overwriting it. Receipt repeats compare bounded canonical payloads; mismatches
 raise ReceiptConflict. Status reads may observe one atomically committed file
 snapshot without acquiring the execution lock. Close rejects active sessions.
 `testing.py` contains plain assertion helpers, no eagerly imported pytest.
-- [ ] **Step 4: Run GREEN and full suite:** focused command, then
+- [x] **Step 4: Run GREEN and full suite:** focused command, then
   `.venv/bin/python -m pytest -q`; expect all existing legacy cases unchanged.
-- [ ] **Step 5: Commit only Task 1 files:** `feat: add Harness run storage contract and file backend`.
+- [x] **Step 5: Commit only Task 1 files:** `feat: add Harness run storage contract and file backend`.
 
 ### Task 2: Engine integration, human revision targeting and lease-loss origin
 
@@ -248,7 +248,7 @@ on_event=None, validators=None, cancelled=None, clock=time.time)`;
 `resume(*, choice=None, response=None, retry_interrupted=False,
 expected_revision=None) -> dict`.
 
-- [ ] **Step 1: Write failing engine tests for explicit storage without a local
+- [x] **Step 1: Write failing engine tests for explicit storage without a local
   run directory, stale human consent and receipt recovery.**
 
 ```python
@@ -278,9 +278,9 @@ A controlled LeaseSession test double loses ownership during Runtime and after
 receipt commit; assert LeaseLost, no admitted output/no stale blocked write.
 This double tests engine branching only; Task 5 proves actual database fencing.
 
-- [ ] **Step 2: Run RED:** `.venv/bin/python -m pytest -q tests/test_store_engine.py`.
+- [x] **Step 2: Run RED:** `.venv/bin/python -m pytest -q tests/test_store_engine.py`.
   Expected: unsupported store/status/revision APIs.
-- [ ] **Step 3: Replace only run persistence/locking paths and retain controller rules.**
+- [x] **Step 3: Replace only run persistence/locking paths and retain controller rules.**
 
 ```python
 def _save(self, state):
@@ -315,9 +315,9 @@ must not swallow that storage error. Ordinary user cancellation keeps existing
 behavior. On StoreUnavailable with unknown commit outcome, stop; on next owned
 resume, validate/adopt authoritative receipts or require explicit retry. Do not
 automatically rerun a human response or invoke Runtime during reconciliation.
-- [ ] **Step 4: Run GREEN, entire core suite, and existing CLI transport tests.**
+- [x] **Step 4: Run GREEN, entire core suite, and existing CLI transport tests.**
   Commands: focused tests; `.venv/bin/python -m pytest -q`; `prosaic --version`.
-- [ ] **Step 5: Commit:** `feat: route Harness execution through RunStore`.
+- [x] **Step 5: Commit:** `feat: route Harness execution through RunStore`.
 
 ### Task 3: Separate adapter package, bounded transport and schema readiness
 
@@ -333,7 +333,7 @@ schema functions `initialize(transport)` and `check_ready(transport)`;
 adapter package dependency `prosaic-harness>=0.6,<0.7`.
 Install psycopg binary and psycopg-pool only in the adapter environment.
 
-- [ ] **Step 1: Write failing real-driver tests for uninitialized readiness,
+- [x] **Step 1: Write failing real-driver tests for uninitialized readiness,
   idempotent/parallel initialization and bounded network failure.**
 
 ```python
@@ -364,10 +364,10 @@ NaN/boolean/unsafe timing options, raw driver-error/DSN redaction, schema-versio
 rollback/newer version, nonlogged tables, readonly connections, unsafe WAL/session
 settings and actual runtime grants. Removing a guard must make dispatch fail a test.
 
-- [ ] **Step 2: Run RED in the adapter test environment:**
+- [x] **Step 2: Run RED in the adapter test environment:**
   `python -m pytest -q adapters/postgres/tests/test_transport.py adapters/postgres/tests/test_schema.py --require-postgres`.
   Missing adapter behavior must fail, not be skipped because no database exists.
-- [ ] **Step 3: Implement bounded I/O and explicit version-1 migration.**
+- [x] **Step 3: Implement bounded I/O and explicit version-1 migration.**
 
 Use one owned asyncio loop thread per long-lived transport, separate ordinary
 and renewal AsyncConnectionPool instances, `open=False`, `min_size=0`, bounded
@@ -446,8 +446,8 @@ verify trusted ownership; fail closed rather than adopting attacker-created
 objects. No runtime schema-version UPDATE, receipt UPDATE or DELETE grants.
 Check expected table persistence and runtime SELECT/INSERT/UPDATE privileges
 through catalogs without creating rows. Return safe stable errors from the facade.
-- [ ] **Step 4: Run GREEN and entire core/adapter suites against a real database.**
-- [ ] **Step 5: Commit:** `feat: add isolated PostgreSQL adapter setup and bounded I/O`.
+- [x] **Step 4: Run GREEN and entire core/adapter suites against a real database.**
+- [x] **Step 5: Commit:** `feat: add isolated PostgreSQL adapter setup and bounded I/O`.
 
 ### Task 4: PostgreSQL leases, immutable receipts and revision-fenced persistence
 
@@ -460,7 +460,7 @@ operations and safe context-manager support. Public snapshots/revisions never
 contain owner/fencing tokens. Private lease session owns store/PID/run identity,
 owner UUID, generation, sticky loss, conservative expiry and renewal task handle.
 
-- [ ] **Step 1: Write failing real-PostgreSQL conformance and expiry tests.**
+- [x] **Step 1: Write failing real-PostgreSQL conformance and expiry tests.**
 
 ```python
 def test_expired_owner_cannot_renew_without_takeover(pg_store, expire_lease):
@@ -481,8 +481,8 @@ with another connection, advance expires_at into the past while holding it,
 then release and assert the waiting writer fails. Do not wait 60 seconds to
 manufacture expiry; alter only fixture-owned lease rows with admin credentials.
 
-- [ ] **Step 2: Run RED:** adapter store/lease tests with `--require-postgres`.
-- [ ] **Step 3: Implement guarded SQL and bounded renewable sessions.**
+- [x] **Step 2: Run RED:** adapter store/lease tests with `--require-postgres`.
+- [x] **Step 3: Implement guarded SQL and bounded renewable sessions.**
 
 Within acquisition: INSERT a zero-generation released row ON CONFLICT DO NOTHING,
 lock that row, then read clock_timestamp(). Admit only released/expired rows;
@@ -536,10 +536,10 @@ and mark an execution lease lost when its ownership cannot be established.
 Core stops; a subsequent owned resume reloads authoritative state/receipts.
 Do not transparently repeat a modifying transaction or reenter Runtime. Stop
 and reconcile an unknown release instead of assuming it permits another owner.
-- [ ] **Step 4: Run GREEN, reusable conformance and full engine cases on PG/File.**
+- [x] **Step 4: Run GREEN, reusable conformance and full engine cases on PG/File.**
   Reuse `assert_run_store_contract` and parameterized controller cases; retain
   legacy filesystem-specific symlink/layout tests separately.
-- [ ] **Step 5: Commit:** `feat: add fenced PostgreSQL run persistence and renewable leases`.
+- [x] **Step 5: Commit:** `feat: add fenced PostgreSQL run persistence and renewable leases`.
 
 ### Task 5: Independent workers, crash durability and recovery release gates
 
@@ -553,7 +553,7 @@ and reconcile an unknown release instead of assuming it permits another owner.
 `expire_lease(run_id)`, `worker(command)` and `model_server.request_count`.
 Workers construct fresh stores after spawn, never inherit loops/connections.
 
-- [ ] **Step 1: Write failing independent-process tests for the core promises.**
+- [x] **Step 1: Write failing independent-process tests for the core promises.**
 
 ```python
 def test_receipt_committed_before_worker_death_is_adopted(worker, model_server):
@@ -580,10 +580,10 @@ revision and preserves consumed budget. Kill/restart the fixture database after
 acknowledged commits and check all rows survive. The fixture, not production
 code, exposes crash/alter/configure methods.
 
-- [ ] **Step 2: Run RED with independent processes and outer hard timeouts.**
+- [x] **Step 2: Run RED with independent processes and outer hard timeouts.**
   `python -m pytest -q adapters/postgres/tests --require-postgres`.
   Synchronize races with Events/barriers and database row locks, not timing-only sleeps.
-- [ ] **Step 3: Complete fixtures and repair only failures demonstrated by tests.**
+- [x] **Step 3: Complete fixtures and repair only failures demonstrated by tests.**
 
 ```python
 ctx = multiprocessing.get_context("spawn")
@@ -620,11 +620,11 @@ Never delete an existing database/schema, touch unrelated containers or use a
 broad name/glob. Test-only trust authentication is confined to the isolated
 fixture/network. Host psql is not required; fixture administration uses driver
 connections and container-owned PostgreSQL tools for replica/crash setup.
-- [ ] **Step 4: Run GREEN repeatedly, then all core and adapter tests.**
+- [x] **Step 4: Run GREEN repeatedly, then all core and adapter tests.**
   Run worker/recovery/routing suites three times; no conditional skips in the
   required lane. Check wrong namespace, runtime/tool executable paths, validators,
   evidence and retained absolute deadline/call/token budgets before dispatch.
-- [ ] **Step 5: Commit:** `test: prove cross-worker PostgreSQL recovery and fencing`.
+- [x] **Step 5: Commit:** `test: prove cross-worker PostgreSQL recovery and fencing`.
 
 ### Task 6: Operator CLI, complete examples and clear consumer documentation
 
@@ -638,7 +638,7 @@ modify root README/examples index and adapter README/entry point.
 resume with trusted namespace/run ID and explicit expected revision; it embeds
 the one Harness engine, not a new workflow interpreter.
 
-- [ ] **Step 1: Write failing subprocess tests for setup/errors and two-worker example.**
+- [x] **Step 1: Write failing subprocess tests for setup/errors and two-worker example.**
 
 ```python
 def test_doctor_missing_secret_is_safe(run_cli):
@@ -655,8 +655,8 @@ write diagnostic cleanup/failure reporting and sentinel-secret redaction tests.
 Run start/status in worker A and resume in worker B as separate subprocesses
 with the real runtime role; assert waiting/completed and stale-response rejection.
 
-- [ ] **Step 2: Run RED:** CLI/example tests in the required adapter lane.
-- [ ] **Step 3: Implement the small CLI and actual runnable fixtures.**
+- [x] **Step 2: Run RED:** CLI/example tests in the required adapter lane.
+- [x] **Step 3: Implement the small CLI and actual runnable fixtures.**
 
 ```yaml
 version: 1
@@ -695,8 +695,8 @@ capacity per process, missing initialization and stale/lease-lost error remedies
 Use one long-lived store per bounded trusted application namespace, not a pool
 per request. Explain that prose tool grants do not grant database permissions.
 State external-effect idempotency and asynchronous-failover rollback limits.
-- [ ] **Step 4: Run GREEN and execute all documented commands from clean installs.**
-- [ ] **Step 5: Commit:** `docs: add tested PostgreSQL setup and cross-worker examples`.
+- [x] **Step 4: Run GREEN and execute all documented commands from clean installs.**
+- [x] **Step 5: Commit:** `docs: add tested PostgreSQL setup and cross-worker examples`.
 
 ### Task 7: Mandatory CI, clean-wheel isolation and final acceptance
 
@@ -711,7 +711,7 @@ recovery/routing job executes restart/standby tests. Required tests may not pass
 by skipping missing infrastructure. Local Podman arm64 verifies native container
 and wheel installation alongside the CI x86_64 lane.
 
-- [ ] **Step 1: Write failing wheel-install tests for dependency isolation and CLI.**
+- [x] **Step 1: Write failing wheel-install tests for dependency isolation and CLI.**
 
 ```python
 def test_core_wheel_has_no_postgres_dependency(core_only_python):
@@ -731,9 +731,9 @@ SDK quick start. Inspect wheel contents/metadata and run core-only import in a
 subprocess; do not merely grep the pyproject. Avoid importing adapter tests from
 core's default `testpaths=['tests']`.
 
-- [ ] **Step 2: Run RED before packaging/CI changes.** Missing adapter entry point,
+- [x] **Step 2: Run RED before packaging/CI changes.** Missing adapter entry point,
   wheel discovery/version contracts or leaked dependencies must fail explicitly.
-- [ ] **Step 3: Wire separate builds and required database jobs.**
+- [x] **Step 3: Wire separate builds and required database jobs.**
 
 ```sh
 .venv/bin/python -m pytest -q
@@ -749,11 +749,11 @@ health-checked disposable PostgreSQL service credentials; use fixture-owned
 containers for crash/standby scenarios, never kill the shared service used by
 other tests. CI test collection fails if a required case is skipped. Keep model
 servers synthetic and live inference opt-in. No publish/tag/release step is added.
-- [ ] **Step 4: Run GREEN: full suites, wheel/sdist builds, clean installations,
+- [x] **Step 4: Run GREEN: full suites, wheel/sdist builds, clean installations,
   documented two-worker smoke, and arm64 fixture evidence.** Record exact counts,
   versions and any unmet platform gate. Do not call it MVP-ready with a skipped
   PostgreSQL/timeout/recovery gate or a red test.
-- [ ] **Step 5: Commit:** `ci: require PostgreSQL adapter recovery and packaging checks`.
+- [x] **Step 5: Commit:** `ci: require PostgreSQL adapter recovery and packaging checks`.
 - [ ] **Step 6: Final independent review and handoff.** Follow the selected
   execution skill's reviewer gate. Address actionable findings with failing
   regressions first and rerun affected/full suites. Leave local commits ready
