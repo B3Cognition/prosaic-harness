@@ -186,3 +186,10 @@ python adapters/postgres/tests/support/local_cluster.py stop --manifest "$FIXTUR
 Repeat with version 18. Stop validates exact IDs/names/ownership labels before
 removing only owned containers/volumes/network. Generated fixture networks and
 loopback ports use synthetic trust authentication, never production defaults.
+# Lease registration candidate
+
+The unpublished 0.1.1 candidate transfers acquisition capacity into registered
+session capacity atomically under the existing store mutex. A registering lease
+can no longer be counted twice while maintenance is scheduled. The database
+storage/fencing contract is unchanged. A unit scheduling-boundary regression and
+an owned PostgreSQL 16/18 race regression cover the transition.

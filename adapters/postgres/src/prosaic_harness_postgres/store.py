@@ -114,15 +114,19 @@ class PostgresRunStore:
                 raise StoreBusy('active execution capacity exhausted')
             self._acquiring += 1
         session = PostgresLease(self, run_id, time.monotonic())
+        registered = False
         try:
             session.generation = self._transport.call(lambda conn: self._acquire(conn, session))
             session.check_valid()
             with self._mutex:
                 self._sessions.add(session)
+                self._acquiring -= 1
+                registered = True
             self._transport.submit(session.maintain())
         finally:
-            with self._mutex:
-                self._acquiring -= 1
+            if not registered:
+                with self._mutex:
+                    self._acquiring -= 1
         primary = None
         try:
             yield session
