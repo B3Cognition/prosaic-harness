@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.6.1 — 2026-10-09
+
+- Ship PostgreSQL store 0.1.1 with atomic lease-registration admission, preventing
+  one acquiring execution from consuming two capacity slots.
+- Pin Runtime 0.7.0 for bounded native Anthropic execution and recorder readiness.
+- Wire the registration regression into the upstream owned database fixture and
+  refresh clean-wheel and crash/standby verification for these distributions.
+- Owned test networks use free explicit subnets and bounded inventory rereads
+  when concurrent fixture teardown removes an inspected network. They never
+  prune unrelated resources or mask stable engine failures.
+
 ## 0.6.0 — 2026-10-08
 
 - Add optional customer accounting context with backward-compatible `default`

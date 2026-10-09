@@ -4,11 +4,11 @@ Run on worker A, inspect/resume on worker B, without a shared writable run
 directory. Core remains database-free; install this separate adapter only when
 you need shared durable state. The API is synchronous; a private I/O thread
 bounds network waits. Model execution holds no database connection/transaction.
-Core **0.6.0** and adapter **0.1.0** are published together in the
-[Harness v0.6.0 release](https://github.com/B3Cognition/prosaic-harness/releases/tag/v0.6.0)
+Core **0.6.1** and adapter **0.1.1** are published together in the
+[Harness v0.6.1 release](https://github.com/B3Cognition/prosaic-harness/releases/tag/v0.6.1)
 as separate wheels and source archives. The adapter is maintained in this
 repository but installed and versioned separately, keeping PostgreSQL drivers
-optional for core users. Use the v0.6.0 checkout or release wheels for these APIs;
+optional for core users. Use the v0.6.1 checkout or release wheels for these APIs;
 the older v0.5.0 release does not include them.
 
 ## 1. Install and supply an existing database

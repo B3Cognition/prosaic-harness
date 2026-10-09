@@ -1,5 +1,6 @@
 """Disposable PostgreSQL fixtures with exact, validated ownership for cleanup."""
 import argparse
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,18 @@ import time
 import uuid
 
 import psycopg
+
+def owned_subnet(networks,token):
+    occupied=[ipaddress.ip_network(item['Subnet'],strict=False) for network in networks
+        for item in ((network.get('IPAM') or {}).get('Config') or []) if item.get('Subnet')]
+    occupied.extend(ipaddress.ip_network(item['subnet'],strict=False) for network in networks
+        for item in (network.get('subnets') or []) if item.get('subnet'))
+    initial=int(token[:2],16)
+    for offset in range(256):
+        candidate=ipaddress.ip_network(f'10.251.{(initial+offset)%256}.0/24')
+        if all(candidate.version!=used.version or not candidate.overlaps(used) for used in occupied):
+            return str(candidate)
+    raise ValueError('no free owned fixture subnet')
 
 
 class LocalCluster:
@@ -28,7 +41,8 @@ class LocalCluster:
     def _run(self, *args, timeout=45):
         result = subprocess.run([self.engine, *args], capture_output=True, text=True, timeout=timeout)
         if result.returncode:
-            raise RuntimeError('owned container fixture command failed: ' + args[0])
+            operation=args[0]+':'+args[1] if args[0]=='network' else args[0]
+            raise RuntimeError('owned container fixture command failed: ' + operation)
         return result.stdout.strip()
 
     def _write_manifest(self):
@@ -73,12 +87,25 @@ class LocalCluster:
     def start(self):
         # Trust is confined to this generated network and loopback host ports.
         (self.directory / 'pg_hba.conf').write_text('local all all trust\nhost all all 0.0.0.0/0 trust\nhost replication all 0.0.0.0/0 trust\n')
-        self._run('network', 'create', '--label', 'prosaic-harness-test-owner=' + self.token, self.network)
+        networks=self.network_inventory()
+        subnet=owned_subnet(networks,self.token)
+        self._run('network', 'create', '--subnet',subnet,'--label', 'prosaic-harness-test-owner=' + self.token, self.network)
         self.network_created = True
         self._write_manifest()
         self.primary = self._container('primary', 'postgres', '-c', 'hba_file=/fixture/pg_hba.conf')
         self.dsn = self.primary['dsn']
         return self
+
+    def network_inventory(self):
+        for _ in range(3):
+            identifiers=self._run('network','ls','-q').splitlines()
+            if not identifiers: return []
+            try:
+                return json.loads(self._run('network','inspect',*identifiers))
+            except RuntimeError:
+                current=set(self._run('network','ls','-q').splitlines())
+                if not set(identifiers)-current: raise
+        raise RuntimeError('owned network inventory changed repeatedly')
 
     def start_standby(self):
         self._validate_container(self.primary)
@@ -127,10 +154,10 @@ set -eu
 apt-get update -qq
 apt-get install -y -qq git >/dev/null
 python -m venv /tmp/core
-/tmp/core/bin/python -m pip install /core-wheels/prosaic_harness-0.6.0-py3-none-any.whl >/dev/null
+/tmp/core/bin/python -m pip install /core-wheels/prosaic_harness-0.6.1-py3-none-any.whl >/dev/null
 /tmp/core/bin/python -I -c 'import importlib.util,prosaic_harness; assert importlib.util.find_spec("psycopg") is None; assert importlib.util.find_spec("prosaic_harness_postgres") is None'
 python -m venv /tmp/both
-/tmp/both/bin/python -m pip install /core-wheels/prosaic_harness-0.6.0-py3-none-any.whl /adapter-wheels/prosaic_harness_postgres-0.1.0-py3-none-any.whl >/dev/null
+/tmp/both/bin/python -m pip install /core-wheels/prosaic_harness-0.6.1-py3-none-any.whl /adapter-wheels/prosaic_harness_postgres-0.1.1-py3-none-any.whl >/dev/null
 /tmp/both/bin/python /fixture/linux_wheel_smoke.py
 '''
         container_id = self._run('create', '--name', name, '--network', self.network,

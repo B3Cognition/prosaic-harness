@@ -4,8 +4,8 @@ Optional [customer accounting context](docs/accounting.md) preserves attribution
 through workflow retries and resume. Existing callers and saved runs remain supported;
 durable usage recording is explicitly enabled through Prosaic Runtime.
 
-Version **0.6.0** adds RunStore and a separately installed PostgreSQL adapter
-(**0.1.0**) for cross-worker durable workflows. Core remains database-free; filesystem constructors/CLI remain supported.
+Version **0.6.1** fixes lease-registration admission in the separately installed PostgreSQL adapter
+(**0.1.1**) for cross-worker durable workflows. Core remains database-free; filesystem constructors/CLI remain supported.
 See [explicit database setup/grants](adapters/postgres/README.md) and the
 [zero-model-call two-worker example](examples/postgres/README.md). Prose tools
 do not grant database access; applications retain tenant authorization and
@@ -21,12 +21,12 @@ Installation and CI no longer require Node.js or npm.
 
 Version 0.4.0 adds [manifest-defined CLI tools](examples/README.md#custom-command-line-tools)
 through the normal workflow CLI, with offline availability checks and required
-native execution evidence. The current immutable dependency pin installs Runtime v0.6.0.
+native execution evidence. The current immutable dependency pin installs Runtime v0.7.0.
 
 ## CLI permissions and sandboxing
 
-Harness **0.6.0** retains CLI sandbox policy enforcement and pins Runtime
-**0.6.0**, which provides `cli_sandbox_v1`. Follow the
+Harness **0.6.1** retains CLI sandbox policy enforcement and pins Runtime
+**0.7.0**, which provides `cli_sandbox_v1`. Follow the
 [sandboxed workflow walkthrough](examples/README.md#sandboxed-cli-workflow-harness-042)
 for installation, offline validation and live execution.
 The complete blueprint is [cli-tool-sandboxed.yml](examples/cli-tool-sandboxed.yml).
@@ -91,7 +91,7 @@ environment so another application's older runtime cannot be picked up by accide
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.6.0
+git checkout v0.6.1
 python3 -m venv .venv
 .venv/bin/python -m pip install .
 
@@ -102,7 +102,7 @@ prosaic --help
 
 In a future terminal, return to the repository and add its `.venv/bin` to PATH
 again. Node.js and npm are not required. The dependency pin installs Prosaic
-Runtime v0.6.0, Python Prosaic v0.3.1, PyYAML and jsonschema automatically.
+Runtime v0.7.0, Python Prosaic v0.3.1, PyYAML and jsonschema automatically.
 No sibling checkout or manual Prosaic installation is needed. Older Harness
 tags retain their historical installation docs.
 
@@ -345,7 +345,7 @@ integration. Live runs are opt-in examples, not part of the offline suite.
 
 ## Structured JSON tools
 
-This revision pins Prosaic Runtime 0.6.0, which supplies `StructuredToolLoop` for
+This revision pins Prosaic Runtime 0.7.0, which supplies `StructuredToolLoop` for
 explicit JSON tool-request transport. Product adapters can yield one Runtime
 turn per Harness invocation while retaining application-owned result validators.
 Register the same `CustomTool` descriptors with the workflow and adapter so

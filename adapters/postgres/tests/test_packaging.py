@@ -12,8 +12,34 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
-CORE = ROOT / 'dist/prosaic_harness-0.6.0-py3-none-any.whl'
-ADAPTER = ROOT / 'adapters/postgres/dist/prosaic_harness_postgres-0.1.0-py3-none-any.whl'
+CORE = ROOT / 'dist/prosaic_harness-0.6.1-py3-none-any.whl'
+ADAPTER = ROOT / 'adapters/postgres/dist/prosaic_harness_postgres-0.1.1-py3-none-any.whl'
+
+def test_owned_fixture_uses_free_explicit_subnet_when_default_pool_is_exhausted():
+    from support.local_cluster import owned_subnet
+    networks=[{'IPAM':{'Config':None}},
+        {'IPAM':{'Config':[{'Subnet':'10.251.0.0/25'},{'Subnet':'fd00::/64'}]}},
+        {'subnets':[{'subnet':'10.251.1.0/24'}]}]
+    assert owned_subnet(networks,'00'*16)=='10.251.2.0/24'
+    with pytest.raises(ValueError):
+        owned_subnet([{'IPAM':{'Config':[{'Subnet':'10.251.0.0/16'}]}}],'00'*16)
+
+def test_owned_inventory_retries_disappearance_but_preserves_engine_failure(monkeypatch):
+    from support.local_cluster import LocalCluster
+    cluster=object.__new__(LocalCluster)
+    scans=iter(['gone\nlive','live','live'])
+    def command(*args):
+        if args==('network','ls','-q'): return next(scans)
+        if args==('network','inspect','gone','live'): raise RuntimeError('owned inspect failed')
+        assert args==('network','inspect','live')
+        return '[{"Id":"live","IPAM":{"Config":[]}}]'
+    monkeypatch.setattr(cluster,'_run',command)
+    assert cluster.network_inventory()==[{'Id':'live','IPAM':{'Config':[]}}]
+    def stable_failure(*args):
+        if args==('network','ls','-q'): return 'live'
+        raise RuntimeError('owned inspect failed')
+    monkeypatch.setattr(cluster,'_run',stable_failure)
+    with pytest.raises(RuntimeError): cluster.network_inventory()
 
 
 def test_ci_requires_both_database_majors_and_owned_recovery():
@@ -44,11 +70,11 @@ def metadata(path):
 
 def test_wheel_contents_and_dependency_boundaries():
     core, names = metadata(CORE)
-    assert core['Version'] == '0.6.0'
+    assert core['Version'] == '0.6.1'
     assert not any(name.startswith('prosaic_harness_postgres/') for name in names)
     assert not any('psycopg' in value.lower() for value in core.get_all('Requires-Dist'))
     adapter, names = metadata(ADAPTER)
-    assert adapter['Version'] == '0.1.0'
+    assert adapter['Version'] == '0.1.1'
     assert any(value.startswith('prosaic-harness<0.7,>=0.6') for value in adapter.get_all('Requires-Dist'))
     assert 'prosaic_harness_postgres/cli.py' in names
 

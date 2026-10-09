@@ -1,8 +1,6 @@
 """Deterministic registration race against an explicitly owned PostgreSQL DB."""
-import os
 import threading
 import uuid
-import pytest
 from prosaic_harness_postgres import PostgresRunStore
 
 
@@ -41,14 +39,12 @@ def test_unit_registration_boundary_has_capacity_and_releases_all_counts(monkeyp
     assert fixture._sessions == set()
 
 
-def test_one_registering_session_does_not_consume_two_capacity_slots(monkeypatch):
-    dsn = os.environ.get('HARNESS_EXISTING_RUNTIME_DSN')
-    if not dsn:
-        pytest.fail('an owned pre-provisioned Harness runtime DSN is required')
+def test_one_registering_session_does_not_consume_two_capacity_slots(monkeypatch,db_admin_dsn):
     entered,release = threading.Event(),threading.Event()
     errors = []
-    with PostgresRunStore(dsn,namespace=uuid.uuid4().hex,max_active_leases=2,
+    with PostgresRunStore(db_admin_dsn,namespace=uuid.uuid4().hex,max_active_leases=2,
                          lease_s=15,renew_s=3,operation_timeout_s=5) as store:
+        store.initialize()  # Explicit provisioning in this fixture-owned database.
         original = store._transport.submit
         def scheduling_boundary(coroutine,*args,**kwargs):
             if threading.current_thread().name == 'registration-first':
