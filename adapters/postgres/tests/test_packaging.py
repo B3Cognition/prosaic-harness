@@ -1,5 +1,6 @@
 """Built wheels, not editable imports, are the installation contract."""
 from email import message_from_string
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -80,6 +81,8 @@ def test_wheel_contents_and_dependency_boundaries():
     assert adapter['Version'] == '0.2.0'
     assert any(value.startswith('b3-prosaic-harness<0.8,>=0.7') for value in adapter.get_all('Requires-Dist'))
     assert 'prosaic_harness_postgres/cli.py' in names
+    assert any(value.startswith('psycopg[binary]<4,>=3.2.3')
+               for value in adapter.get_all('Requires-Dist'))
     for distribution in (core, adapter):
         assert distribution['License-Expression'] == 'Apache-2.0'
         assert set(distribution.get_all('License-File', [])) == {'LICENSE', 'NOTICE'}
@@ -89,6 +92,8 @@ def test_wheel_contents_and_dependency_boundaries():
 
 @pytest.fixture(scope='session')
 def wheel_environments(tmp_path_factory):
+    from support.local_cluster import candidate_wheels
+    dependencies = candidate_wheels(ROOT)
     root = tmp_path_factory.mktemp('installed-wheels')
     envs = []
     for label, wheels in [('core', [CORE]), ('both', [CORE, ADAPTER])]:
@@ -97,7 +102,8 @@ def wheel_environments(tmp_path_factory):
         # macOS executable breaks its relative libpython load path.
         venv.EnvBuilder(with_pip=True, symlinks=True).create(directory)
         python = directory / 'bin/python'
-        result = subprocess.run([str(python), '-m', 'pip', 'install', *map(str, wheels)],
+        result = subprocess.run([str(python), '-m', 'pip', 'install',
+            *map(str, dependencies + wheels)],
             cwd=root, capture_output=True, text=True, timeout=180)
         assert result.returncode == 0, 'clean declared-dependency wheel install failed'
         envs.append(python)
@@ -145,3 +151,87 @@ def test_both_wheels_setup_and_two_worker_quickstart(wheel_environments, db_admi
     assert run('start')['state']['status'] == 'waiting'
     revision = run('status')['revision']
     assert run('resume', '--choice', 'approve', '--expected-revision', revision)['state']['status'] == 'completed'
+
+
+SCRIPT = ROOT / 'scripts/release_artifacts.py'
+
+
+@pytest.fixture
+def release_tool():
+    spec = importlib.util.spec_from_file_location('release_artifacts', SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture
+def curated_candidates(release_tool, tmp_path):
+    directory, wheelhouse = tmp_path / 'artifacts', tmp_path / 'wheels'
+    directory.mkdir(); wheelhouse.mkdir()
+    candidates = []
+    for repo, expected in (
+        ('B3Cognition/prosaic', {'b3-prosaic': '0.4.0'}),
+        ('B3Cognition/prosaic-runtime', {'b3-prosaic-runtime': '0.8.0',
+                                       'b3-prosaic-runtime-postgres': '0.2.0'})):
+        artifacts = []
+        for name, version in expected.items():
+            wheel = name.replace('-', '_') + '-' + version + '-py3-none-any.whl'
+            content = ('synthetic-' + name).encode()
+            (wheelhouse / wheel).write_bytes(content)
+            artifacts.append({'filename': wheel, 'sha256': release_tool.digest(content)})
+            artifacts.append({'filename': name.replace('-', '_') + '-' + version + '.tar.gz',
+                              'sha256': release_tool.digest(b'synthetic-source')})
+        receipt = {'version': 1, 'source_commit': 'a' * 40,
+                   'distributions': [{'name': name, 'version': version}
+                                     for name, version in expected.items()],
+                   'artifacts': artifacts}
+        serialized = (json.dumps(receipt, sort_keys=True, indent=2) + '\n').encode()
+        candidates.append({'repository': repo, 'run_id': '123', 'source_commit': 'a' * 40,
+                           'receipt': receipt, 'receipt_sha256': release_tool.digest(serialized),
+                           'wheels': [item for item in artifacts if item['filename'].endswith('.whl')]})
+    dependency = {'version': 1, 'candidates': [candidates[0]]}
+    candidates[1]['upstream_receipt'] = dependency
+    candidates[1]['upstream_sha256'] = release_tool.digest(
+        (json.dumps(dependency, sort_keys=True, indent=2) + '\n').encode())
+    release_tool.write_json(directory / 'upstream-receipt.json', {'version': 1, 'candidates': candidates})
+    return directory, wheelhouse
+
+
+def test_owned_container_uses_only_verified_opt_in_wheelhouse(monkeypatch, tmp_path):
+    spec = importlib.util.spec_from_file_location('local_cluster',
+        SCRIPT.parents[1] / 'adapters/postgres/tests/support/local_cluster.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    cluster = object.__new__(module.LocalCluster)
+    cluster.primary = {'id': 'owned', 'name': 'owned'}
+    cluster.network, cluster.token, cluster.containers = 'owned-network', 'token', []
+    monkeypatch.setattr(cluster, '_validate_container', lambda entry: None)
+    monkeypatch.setattr(cluster, '_write_manifest', lambda: None)
+    calls = []
+    monkeypatch.setattr(cluster, '_run', lambda *args, **kwargs: calls.append(args) or 'container')
+    monkeypatch.setenv('HARNESS_TEST_WHEELHOUSE', str(tmp_path))
+    with pytest.raises(ValueError, match='verified'):
+        cluster.linux_wheel_smoke(SCRIPT.parents[1])
+    assert calls == []
+
+
+def test_container_mounts_verified_dependency_bytes_read_only(
+        monkeypatch, curated_candidates):
+    spec = importlib.util.spec_from_file_location('local_cluster',
+        SCRIPT.parents[1] / 'adapters/postgres/tests/support/local_cluster.py')
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    directory, wheelhouse = curated_candidates
+    monkeypatch.setenv('HARNESS_TEST_WHEELHOUSE', str(wheelhouse))
+    monkeypatch.setenv('HARNESS_TEST_RELEASE_DIRECTORY', str(directory))
+    cluster = object.__new__(module.LocalCluster)
+    cluster.primary = {'id': 'owned', 'name': 'owned'}
+    cluster.network, cluster.token, cluster.containers = 'owned-network', 'token', []
+    monkeypatch.setattr(cluster, '_validate_container', lambda entry: None)
+    monkeypatch.setattr(cluster, '_write_manifest', lambda: None)
+    calls = []
+    monkeypatch.setattr(cluster, '_run', lambda *args, **kwargs: calls.append(args) or 'container')
+    cluster.linux_wheel_smoke(SCRIPT.parents[1])
+    create = calls[0]
+    assert str(wheelhouse) + ':/candidate-wheels:ro' in create
+    assert 'PIP_FIND_LINKS=/candidate-wheels' in create[-1]
+    assert '/candidate-wheels/b3_prosaic_runtime-0.8.0-py3-none-any.whl' in create[-1]
