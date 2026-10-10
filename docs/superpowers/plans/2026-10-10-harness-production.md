@@ -95,7 +95,7 @@ def envelope():
 
 The exact standard runtime may be function-patched in unit tests. Tests of budget enforcement itself use a Harness-owned synthetic loopback response sequence through the real standard Runtime, not a stub pretending to enforce Runtime policy or importing tests from a sibling checkout. Extend `tests/test_transport.py`'s existing endpoint fixture for finite response sequences if needed. PostgreSQL tests use the existing explicitly owned fixtures and `--require-postgres`.
 
-### Task H1: Optional observer delivery at committed boundaries
+### Task 1: H1 — Optional observer delivery at committed boundaries
 
 **Files:**
 - Create: `src/prosaic_harness/observations.py` — allowlisted Harness projection and delivery adapter around Runtime's `ObserverEmitter`.
@@ -137,7 +137,7 @@ The actual Runtime scalar allowlist must accept the approved fields; map unsuppo
 - [ ] **Step 4: Pin failure and privacy boundaries.** Add tests for `KeyboardInterrupt` propagation, critical `on_event` still propagating, observer failure on committed recovery, separate emitters/sequences for concurrent Harness instances, and mutation of a received record. Reuse the existing state-limit receipt fixture: collect observations, force `_save` to commit `blocked/state_limit`, then assert the last observation reports the committed blocked state/revision rather than waiting/completed. Have an observer call `h.status()` and assert its revision equals the record revision. A failed store save must emit no committed observation.
 - [ ] **Step 5: Run GREEN and compatibility checks.** Run `.venv/bin/python -m pytest tests/test_observers.py tests/test_native_execution.py tests/test_store_engine.py -q`. Document fast cooperative callbacks, best-effort delivery, critical-hook separation and observation after durable state. Commit only H1 files with `git commit -m "feat: isolate optional Harness observations"` after `git diff --check` and focused tests pass.
 
-### Task H2: Policy-projected catalogue, proposal schema and safe locations
+### Task 2: H2 — Policy-projected catalogue, proposal schema and safe locations
 
 **Files:**
 - Create: `src/prosaic_harness/discovery.py` — bounded pure public projection and structural proposal schema.
@@ -197,7 +197,7 @@ def test_unknown_agent_error_identifies_safe_logical_field():
 Add negative schema/property and forbidden resource cases. Hostile keys/exception messages must not appear in `str(error)` or locations; locations remain bounded at 256 characters. Shared graph diagnostics may carry safe locations internally, but preserve loader diagnostic prefixes and existing single-failure behavior. Test description metadata opt-in and identity neutrality, allowlist-only-but-unbound tools/validators/tiers, boolean schema bodies, maximum_bytes overflow, and zero callback/probe invocations.
 - [ ] **Step 5: Run schema parity GREEN.** Use `Draft202012Validator.check_schema(build.proposal_schema())` and validate accepted fixture envelopes, including all five step kinds, omitted versus explicitly empty inline mapping, authorized composition and authorized inline variants. Rejected physical-binding/envelope/closed-step keys must fail structurally. Include a structurally valid graph with unknown transition that schema accepts and factory rejects to document authority boundaries. Run `.venv/bin/python -m pytest tests/test_workflow_discovery.py tests/test_workflow_factory.py tests/test_legacy_loader_admission.py -q`. Document tenant-projected factory construction and host-only schema disclosure. Commit H2 files with `git commit -m "feat: expose safe workflow catalogue and proposal schema"` after diff check.
 
-### Task H3: Pure input preparation and bounded human interaction
+### Task 3: H3 — Pure input preparation and bounded human interaction
 
 **Files:**
 - Create: `src/prosaic_harness/interaction.py` — immutable projection record and bounded record encoding.
@@ -282,7 +282,7 @@ def test_invalid_response_preserves_revision_and_has_safe_code(tmp_path, monkeyp
 Add typed and untyped pause cases, unknown choice, oversized views/responses, stale revision still `RevisionConflict`, nonwaiting/completed interactions, fresh-worker waiting view, returned nested-value mutation, one store load and one validator invocation per actual valid response. Gate/check output validation behavior remains unchanged.
 - [ ] **Step 5: Run GREEN and document service use.** Run `.venv/bin/python -m pytest tests/test_public_interactions.py tests/test_human_responses.py tests/test_store_engine.py tests/test_schema_profile.py -q`. Document input preparation before host reservation, host-selected disclosure and revision CAS; `status()` remains the full operator view. Commit H3 files with `git commit -m "feat: add bounded public workflow interactions"` after diff check.
 
-### Task H4: Frozen host bundles and reconstructable proposal references
+### Task 4: H4 — Frozen host bundles and reconstructable proposal references
 
 **Files:**
 - Create: `src/prosaic_harness/bundles.py` — canonical original envelope, immutable reference/prepared record and reconstruction.
@@ -340,7 +340,7 @@ def test_same_version_changed_material_is_rejected():
 Add an accepted non-ASCII question near a small proposal cap; `prepare_json` then canonical reconstruction must succeed and produce identical hashes. Test shuffled database JSON key ordering reproduces canonical bytes; exact text storage preserves bytes. Public description changes leave bundle identity unchanged; private agent/schema/policy/config/version changes alter it, including unused frozen bundle material. Test callback functions are never called and cannot be hydrated from reference JSON. Extend the existing isolated fresh-worker test to persist proposal text/reference and reconstruct through only public APIs, preserving waiting revision and completing without a second provider call.
 - [ ] **Step 5: Run GREEN and document retention obligations.** Run `.venv/bin/python -m pytest tests/test_workflow_bundles.py tests/test_native_workers.py tests/test_workflow_factory.py -q`. Document that hosts retain immutable bundle registrations and current authorization/revocation checks, store exact canonical proposal text and reference, and never silently use the newest bundle for an old run. Commit H4 files with `git commit -m "feat: reconstruct native workflows from frozen host bundles"` after diff check.
 
-### Task H5: Runtime budgets, operation scope and native recovery gates
+### Task 5: H5 — Runtime budgets, operation scope and native recovery gates
 
 **Files:**
 - Modify: `src/prosaic_harness/factory.py` — optional policy caps, native journal bindings/record/identity and repeated admission checks.
