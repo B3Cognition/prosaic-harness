@@ -9,7 +9,7 @@ python -m venv .venv
 ```
 
 The Python import remains `prosaic_harness`, and the command remains `prosaic-harness`.
-The optional PostgreSQL store is `b3-prosaic-harness-postgres==0.2.0`; its import
+The optional PostgreSQL store is `b3-prosaic-harness-postgres==0.2.1`; its import
 and command remain `prosaic_harness_postgres` and `prosaic-harness-postgres`.
 PyPI's package named `prosaic` belongs to an unrelated publisher. The previous
 GitHub-only distributions and the B3 packages share installed module paths;
@@ -87,7 +87,7 @@ For local preparation:
 ```sh
 .venv/bin/python scripts/release_artifacts.py build --ref COMMIT \
   --output /tmp/harness-release-COMMIT --project . --project adapters/postgres \
-  --expect b3-prosaic-harness=0.7.0 --expect b3-prosaic-harness-postgres=0.2.0
+  --expect b3-prosaic-harness=0.7.1 --expect b3-prosaic-harness-postgres=0.2.1
 .venv/bin/python scripts/release_artifacts.py verify \
   --directory /tmp/harness-release-COMMIT/artifacts --commit COMMIT
 ```
@@ -98,7 +98,7 @@ Harness and its store adapter, then the lab. The train's final qualification
 must include its intended source, dependency floors and four architecture/PG
 cells; synthetic results do not certify live provider or staging capacity.
 
-Tag the same source commit `v0.7.0`. Tags prepare candidates; they do not
+Tag the same source commit `v0.7.1`. Tags prepare candidates; they do not
 automatically upload them. Dispatch **Publish SDK** on that tag with
 `candidate_run_id` pointing to its successful exact-source build and
 `publish=true`. Promotion downloads those original bytes and reruns the
@@ -117,10 +117,8 @@ Update the lab's exact-version manifest only from verified public downloads.
 ## Qualified upstream candidates
 
 Until upstream packages are published, dispatch with explicit `core_run_id`,
-`core_commit`, `runtime_run_id` and `runtime_commit`. The approved Core default
-is run `38047286885` at `aad4bf45ae1c242f4451700ca59b27280010573a`.
-Runtime has no default: choose the successful final Runtime candidate containing
-the full intended release code. A tag-triggered qualification uses repository
+`core_commit`, `runtime_run_id` and `runtime_commit`. The hardening train has no default upstream run: choose successful exact-source
+Core and Runtime candidates containing these patch fixes. A tag-triggered qualification uses repository
 variables `QUALIFIED_CORE_RUN_ID`, `QUALIFIED_CORE_COMMIT`,
 `QUALIFIED_RUNTIME_RUN_ID` and `QUALIFIED_RUNTIME_COMMIT`; missing Runtime
 identity fails qualification.
@@ -128,7 +126,7 @@ identity fails qualification.
 The builder checks the upstream run's repository, successful conclusion, workflow,
 event and exact source commit, then downloads its original `qualified-release`
 artifact. It verifies the receipt and every distribution hash, allowing exactly
-Core 0.4.0, Runtime 0.8.0 and Runtime PostgreSQL 0.2.0. It curates exactly those
+Core 0.4.1, Runtime 0.8.1 and Runtime PostgreSQL 0.2.1. It curates exactly those
 three wheels, with no legacy wheels or unselected local caches.
 `upstream-receipt.json` retains both upstream receipts, run/source identities and
 selected hashes. Every Harness qualification record binds its digest. Promotion

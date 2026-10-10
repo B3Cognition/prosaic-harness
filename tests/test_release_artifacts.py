@@ -434,9 +434,9 @@ def curated_candidates(release_tool, tmp_path):
     directory.mkdir(); wheelhouse.mkdir()
     candidates = []
     for repo, expected in (
-        ('B3Cognition/prosaic', {'b3-prosaic': '0.4.0'}),
-        ('B3Cognition/prosaic-runtime', {'b3-prosaic-runtime': '0.8.0',
-                                       'b3-prosaic-runtime-postgres': '0.2.0'})):
+        ('B3Cognition/prosaic', {'b3-prosaic': '0.4.1'}),
+        ('B3Cognition/prosaic-runtime', {'b3-prosaic-runtime': '0.8.1',
+                                       'b3-prosaic-runtime-postgres': '0.2.1'})):
         artifacts = []
         for name, version in expected.items():
             wheel = name.replace('-', '_') + '-' + version + '-py3-none-any.whl'
@@ -466,7 +466,7 @@ def test_verified_wheelhouse_rejects_mixed_or_changed_candidates(
         release_tool, curated_candidates, change):
     directory, wheelhouse = curated_candidates
     release_tool.verify_upstream(directory, wheelhouse)
-    path = wheelhouse / 'b3_prosaic-0.4.0-py3-none-any.whl'
+    path = wheelhouse / 'b3_prosaic-0.4.1-py3-none-any.whl'
     if change == 'extra':
         (wheelhouse / 'prosaic-0.3.0-py3-none-any.whl').write_bytes(b'old')
     elif change == 'missing':

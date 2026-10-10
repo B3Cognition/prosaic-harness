@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Prepare Harness 0.7.1 and PostgreSQL store 0.2.1 hardening candidates. Lease
+  setup failures and interruptions release registration capacity; queued renewals
+  are closed or cancelled on their owning loop and drained before ownership release.
+
 - Prepare `b3-prosaic-harness` 0.7.0 and `b3-prosaic-harness-postgres` 0.2.0
   candidate metadata. Harness selects Runtime 0.8.x through an index requirement;
   the adapter selects Harness 0.7.x. Imports, CLI names and persisted formats

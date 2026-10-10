@@ -1,7 +1,7 @@
 # Harness package migration
 
-The candidate distribution names are `b3-prosaic-harness` 0.7.0 and optional
-`b3-prosaic-harness-postgres` 0.2.0. Harness selects
+The candidate distribution names are `b3-prosaic-harness` 0.7.1 and optional
+`b3-prosaic-harness-postgres` 0.2.1. Harness selects
 `b3-prosaic-runtime>=0.8,<0.9`; the PostgreSQL adapter selects
 `b3-prosaic-harness>=0.7,<0.8`. Python imports and CLI commands remain
 `prosaic_harness`, `prosaic_harness_postgres`, `prosaic-harness` and
@@ -22,7 +22,7 @@ does not qualify the complete train.
 ```sh
 python3 -m venv .venv-candidate
 .venv-candidate/bin/python -m pip install --find-links /absolute/path/to/curated-wheelhouse \
-  b3-prosaic-harness==0.7.0 b3-prosaic-harness-postgres==0.2.0
+  b3-prosaic-harness==0.7.1 b3-prosaic-harness-postgres==0.2.1
 .venv-candidate/bin/prosaic-harness --help
 .venv-candidate/bin/prosaic-harness-postgres --help
 .venv-candidate/bin/python -I scripts/workflow_factory_smoke.py

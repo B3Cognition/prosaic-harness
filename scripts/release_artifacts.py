@@ -405,9 +405,9 @@ def verify_upstream(directory, wheelhouse):
     if evidence.get('version') != 1 or len(evidence.get('candidates', [])) != 2:
         raise ReleaseError('both explicit upstream candidates required')
     validate_upstream_chain(evidence)
-    expected_sets = {'B3Cognition/prosaic': {'b3-prosaic': '0.4.0'},
-        'B3Cognition/prosaic-runtime': {'b3-prosaic-runtime': '0.8.0',
-                                      'b3-prosaic-runtime-postgres': '0.2.0'}}
+    expected_sets = {'B3Cognition/prosaic': {'b3-prosaic': '0.4.1'},
+        'B3Cognition/prosaic-runtime': {'b3-prosaic-runtime': '0.8.1',
+                                      'b3-prosaic-runtime-postgres': '0.2.1'}}
     seen, wheels = set(), {}
     for candidate in evidence['candidates']:
         repo = candidate['repository']
@@ -591,9 +591,9 @@ def main():
         result = build_release(args.repo, args.ref, args.output, expected, args.project or ['.'])
     elif args.action == 'upstream':
         result = prepare_upstream(args.directory, args.wheelhouse, [
-            ('B3Cognition/prosaic', args.core_run, args.core_commit, {'b3-prosaic': '0.4.0'}),
+            ('B3Cognition/prosaic', args.core_run, args.core_commit, {'b3-prosaic': '0.4.1'}),
             ('B3Cognition/prosaic-runtime', args.runtime_run, args.runtime_commit,
-             {'b3-prosaic-runtime': '0.8.0', 'b3-prosaic-runtime-postgres': '0.2.0'})])
+             {'b3-prosaic-runtime': '0.8.1', 'b3-prosaic-runtime-postgres': '0.2.1'})])
     elif args.action == 'verify':
         result = verify_receipt(args.directory, args.commit)
     elif args.action == 'qualify':

@@ -12,11 +12,11 @@ on:
       core_run_id:
         description: Successful exact-source Core qualified-release run
         type: string
-        default: '38047286885'
+        default: ''
       core_commit:
         description: Exact Core source commit
         type: string
-        default: 'aad4bf45ae1c242f4451700ca59b27280010573a'
+        default: ''
       runtime_run_id:
         description: Successful final Runtime qualified-release run (required)
         type: string
@@ -92,20 +92,20 @@ jobs:
                       path = source.joinpath(*release.safe_path(name).parts)
                       path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(content)
                   release.audit_artifacts(source, pathlib.Path('release/artifacts'),
-                                          {project['name']: project['version'], 'b3-prosaic-harness-postgres': '0.2.0'},
+                                          {project['name']: project['version'], 'b3-prosaic-harness-postgres': '0.2.1'},
                                           ('.', 'adapters/postgres'))
           else:
               subprocess.run(['python', 'scripts/release_artifacts.py', 'build', '--ref',
                               os.environ['SOURCE_COMMIT'], '--output', 'release', '--expect',
                               project['name'] + '=' + project['version'], '--expect',
-                              'b3-prosaic-harness-postgres=0.2.0', '--project', '.',
+                              'b3-prosaic-harness-postgres=0.2.1', '--project', '.',
                               '--project', 'adapters/postgres'], check=True)
           PY
       - name: Bind verified upstream candidates to the selected Harness bytes
         env:
           GH_TOKEN: ${{ secrets.ECOSYSTEM_ARTIFACT_TOKEN || github.token }}
-          CORE_RUN: ${{ inputs.core_run_id || vars.QUALIFIED_CORE_RUN_ID || '38047286885' }}
-          CORE_COMMIT: ${{ inputs.core_commit || vars.QUALIFIED_CORE_COMMIT || 'aad4bf45ae1c242f4451700ca59b27280010573a' }}
+          CORE_RUN: ${{ inputs.core_run_id || vars.QUALIFIED_CORE_RUN_ID }}
+          CORE_COMMIT: ${{ inputs.core_commit || vars.QUALIFIED_CORE_COMMIT }}
           RUNTIME_RUN: ${{ inputs.runtime_run_id || vars.QUALIFIED_RUNTIME_RUN_ID }}
           RUNTIME_COMMIT: ${{ inputs.runtime_commit || vars.QUALIFIED_RUNTIME_COMMIT }}
         run: |
@@ -172,7 +172,7 @@ jobs:
           sudo apparmor_parser -r /etc/apparmor.d/prosaic-ci-bwrap
       - name: Require an operational Linux sandbox
         run: |
-          python -m pip install release/upstream-wheels/b3_prosaic-0.4.0-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.0-py3-none-any.whl
+          python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.1-py3-none-any.whl
           python - <<'PY'
           import platform, subprocess, sys, tempfile
           from pathlib import Path
@@ -202,10 +202,10 @@ jobs:
           PIP_FIND_LINKS: ${{ github.workspace }}/release/upstream-wheels
         run: |
           python -m venv .venv
-          .venv/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.0-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.0-py3-none-any.whl -e '.[test]'
+          .venv/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.1-py3-none-any.whl -e '.[test]'
           .venv/bin/python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$SOURCE_COMMIT" --label "${LANE}-source" --junit "$RUNNER_TEMP/harness-source.xml" -- .venv/bin/python -m pytest -q --junitxml="$RUNNER_TEMP/harness-source.xml"
           python -m venv .wheel-test
-          .wheel-test/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.0-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.0-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.7.0-py3-none-any.whl
+          .wheel-test/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.1-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.7.1-py3-none-any.whl
           .venv/bin/python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$SOURCE_COMMIT" --label "${LANE}-wheel" -- .wheel-test/bin/python -I scripts/workflow_factory_smoke.py
       - name: Reject skipped or incomplete Harness sandbox coverage
         id: sandbox_report
@@ -239,7 +239,7 @@ jobs:
           PIP_FIND_LINKS: ${{ github.workspace }}/release/upstream-wheels
         run: |
           python -m venv .floor-test
-          .floor-test/bin/python -m pip install 'PyYAML==6.0' 'pyuca==1.2' 'markdown-it-py==3.0.0' 'jsonschema==4.23.0' 'referencing==0.28.4' 'psycopg[binary]==3.2.3' 'psycopg-pool==3.2.0' release/upstream-wheels/b3_prosaic-0.4.0-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.0-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime_postgres-0.2.0-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.7.0-py3-none-any.whl release/artifacts/b3_prosaic_harness_postgres-0.2.0-py3-none-any.whl
+          .floor-test/bin/python -m pip install 'PyYAML==6.0' 'pyuca==1.2' 'markdown-it-py==3.0.0' 'jsonschema==4.23.0' 'referencing==0.28.4' 'psycopg[binary]==3.2.3' 'psycopg-pool==3.2.0' release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime_postgres-0.2.1-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.7.1-py3-none-any.whl release/artifacts/b3_prosaic_harness_postgres-0.2.1-py3-none-any.whl
           python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$GITHUB_SHA" --label floor-${{ matrix.os }} -- .floor-test/bin/python -I -c "from prosaic_harness_postgres import PostgresRunStore; store = PostgresRunStore('postgresql://invalid.invalid/unused', namespace='floor'); store.close(); import runpy; runpy.run_path('scripts/workflow_factory_smoke.py', run_name='__main__')"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
@@ -284,9 +284,9 @@ jobs:
           release.verify_upstream(Path('release/artifacts'), Path('release/upstream-wheels'))
           PY
           mkdir -p dist adapters/postgres/dist
-          cp release/artifacts/b3_prosaic_harness-0.7.0-py3-none-any.whl dist/
-          cp release/artifacts/b3_prosaic_harness_postgres-0.2.0-py3-none-any.whl adapters/postgres/dist/
-          python -m pip install release/upstream-wheels/b3_prosaic-0.4.0-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.0-py3-none-any.whl dist/b3_prosaic_harness-0.7.0-py3-none-any.whl adapters/postgres/dist/b3_prosaic_harness_postgres-0.2.0-py3-none-any.whl
+          cp release/artifacts/b3_prosaic_harness-0.7.1-py3-none-any.whl dist/
+          cp release/artifacts/b3_prosaic_harness_postgres-0.2.1-py3-none-any.whl adapters/postgres/dist/
+          python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.1-py3-none-any.whl dist/b3_prosaic_harness-0.7.1-py3-none-any.whl adapters/postgres/dist/b3_prosaic_harness_postgres-0.2.1-py3-none-any.whl
           prosaic --version
       - name: Required real database source, installed wheel, crash and standby gates
         env:

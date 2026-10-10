@@ -94,7 +94,7 @@ jobs:
       - name: Verify installed native workflow
         run: |
           python -m venv "$RUNNER_TEMP/harness-wheel"
-          "$RUNNER_TEMP/harness-wheel/bin/python" -m pip install dist/b3_prosaic_harness-0.7.0-py3-none-any.whl
+          "$RUNNER_TEMP/harness-wheel/bin/python" -m pip install dist/b3_prosaic_harness-0.7.1-py3-none-any.whl
           "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/workflow_factory_smoke.py
   postgres:
     runs-on: ubuntu-latest
@@ -117,8 +117,8 @@ jobs:
           python -m build "$RUNNER_TEMP/harness-source/adapters/postgres" --outdir adapters/postgres/dist
       - name: Install local core wheel before adapter
         run: |
-          python -m pip install dist/b3_prosaic_harness-0.7.0-py3-none-any.whl
-          python -m pip install adapters/postgres/dist/b3_prosaic_harness_postgres-0.2.0-py3-none-any.whl
+          python -m pip install dist/b3_prosaic_harness-0.7.1-py3-none-any.whl
+          python -m pip install adapters/postgres/dist/b3_prosaic_harness_postgres-0.2.1-py3-none-any.whl
           prosaic --version
       - name: Required real-database, owned crash/standby and clean-wheel gates
         env:
