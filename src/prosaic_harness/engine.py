@@ -21,13 +21,14 @@ from .admission_data import snapshot_json, parse_bounded_json
 from .errors import WorkflowAdmissionError
 from .schema_validation import evaluate_schema, SchemaEvaluationError
 from .factory import admit_workflow, _config_from_json
+from .observations import CommittedObserver
 
 _TERMINAL_HEADROOM = 4096
 _TERMINAL_NODES = 16
 
 
 class Harness:
-    def __init__(self, workflow, run_dir=None, *, store=None, run_id=None, runtime=None, on_event=None, validators=None, cancelled=None, clock=time.time, context=None, accounting=None):
+    def __init__(self, workflow, run_dir=None, *, store=None, run_id=None, runtime=None, on_event=None, observer=None, validators=None, cancelled=None, clock=time.time, context=None, accounting=None):
         self.workflow = workflow
         admission = admit_workflow(workflow)
         self._admission = admission
@@ -55,6 +56,7 @@ class Harness:
         if self._accounting_enabled and 'accounting_v1' not in getattr(self.runtime, 'capabilities', ()):
             raise ValueError('accounting/context needs a Prosaic Runtime with accounting_v1 support')
         self.on_event = on_event
+        self._observations = CommittedObserver(observer)
         self.validators = dict(admission.validators if admission and validators is None else validators or {})
         self.cancelled = cancelled or (lambda: False)
         self.clock = clock
@@ -71,6 +73,8 @@ class Harness:
         self._admit()
 
     def _admit(self):
+        if self._observations.observer is not None and 'observer_v1' not in getattr(self.runtime, 'capabilities', ()):
+            raise ValueError('observer needs a Prosaic Runtime with observer_v1 support')
         if self._admission is None:
             self._check_custom_tools()  # Preserve released trusted-adapter diagnostics.
         admission = admit_workflow(self.workflow, runtime=self.runtime, validators=self.validators)
@@ -217,12 +221,16 @@ class Harness:
         state.update(seal(state))
         if self._admission:
             self._bounded_document(state, self._admission.policy.max_state_bytes)
-        if self._revision is None:
+        created = self._revision is None
+        if created:
             self._revision = self.store.create_run(self._storage_run_id, state, self._lease)
         else:
             self._revision = self.store.save_run(self._storage_run_id, state, self._revision, self._lease)
         if self._admission:
             self._last_saved_state = deepcopy(state)
+        if self._observations.observer is not None:
+            self._observations.emit_committed(state, self._revision,
+                                              recovery=self._observations.recovering, started=created)
 
     @contextmanager
     def _execution(self):
@@ -334,6 +342,8 @@ class Harness:
                 scope = self._accounting_scope()
                 if scope is not None:
                     state['accounting_scope'] = scope
+            if self._observations.observer is not None:
+                self._observations.begin(state['run_id'])
             self._save(state)
             return self._drive(state)
 
@@ -353,6 +363,8 @@ class Harness:
                 raise ValueError('workflow, prose, schema, or runtime configuration changed; start a new run')
             self._evidence_unchanged(state)
             self._verify_ledger(state)
+            if self._observations.observer is not None:
+                self._observations.begin(state['run_id'])
             self._resume_accounting(state)
             if state['status'] in {'completed', 'rejected'}:
                 if choice is not None or response is not None:
@@ -397,7 +409,8 @@ class Harness:
                 receipt = self.store.load_receipt(self._storage_run_id, pending['id'])
                 if receipt is not None:
                     validate_receipt(receipt, state, pending)
-                    self._accept(state, receipt)
+                    with self._observations.recovery():
+                        self._accept(state, receipt)
                 elif not retry_interrupted:
                     return self._block(state, 'interrupted_call')
                 else:
@@ -712,10 +725,17 @@ class Harness:
                                    **({'initial_tool': 'read_file'} if step.get('require_reads') and
                                       'initial_tool_v1' in getattr(self.runtime, 'capabilities', ()) else {}))
                 self._check_ownership()
+                observation_options = {}
+                if self._observations.observer is not None:
+                    from prosaic_runtime import InvocationScope
+                    observation_options = {'observer': self._observations.observer,
+                        'operation_context': InvocationScope(attempt_id, run_id=state['run_id'],
+                            step_id=name if self._admission else None)}
                 result = self.runtime.run(self.workflow.artifacts[name], json.dumps(arguments),
                                           cwd=self._cwd, policy=policy, on_event=record,
                                           cancelled=lambda: bool(event_failure) or self._runtime_cancelled(state),
                                           **({'acquisition': self.workflow.acquisitions[name]} if name in self.workflow.acquisitions else {}),
+                                          **observation_options,
                                           **accounting_options)
                 self._check_ownership()
                 receipt = self._receipt(state, attempt_id, name, arguments, result, events, event_failure)

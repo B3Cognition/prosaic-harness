@@ -405,6 +405,28 @@ list indices may appear. Locations are bounded at 256 characters and never deriv
 from parser messages, private paths or failed reference values. Existing error
 codes and the single-failure behavior remain compatible.
 
+## Optional monitoring
+
+Pass `observer=callback` to `Harness` for version-1, bounded monitoring records.
+Harness emits `run_started`, `transition_committed`, `waiting_committed`,
+`recovery_committed`, `blocked_committed` and `run_completed` after successful
+store commits, including the actual committed revision and state outcome. When a
+save falls back to `blocked/state_limit`, monitoring reports that blocked state.
+Reading `harness.status()` inside the observer sees the committed revision.
+
+Each public run/resume execution owns a fresh opaque scope and sequence. The same
+observer receives Runtime observations correlated with the persisted invocation
+attempt ID. Configured observation requires Runtime's `observer_v1` capability;
+an incompatible adapter fails before execution. Observations exclude prompts,
+inputs, outputs, private history, filesystem paths and exception messages.
+Unsupported checkpoint reasons become the fixed `unknown` marker.
+
+ALWAYS keep the callback fast and cooperative: delivery is synchronous and best
+effort, and ordinary callback exceptions are isolated. NEVER use observations as
+durable evidence, authorization or an outbox. `KeyboardInterrupt` and other
+process-control exceptions propagate. The existing `on_event` callback remains a
+critical, propagating hook, and Runtime receipt capture still uses that hook.
+
 ## Offline installed-wheel check
 
 Use a tagged checkout for the smoke script and a clean environment for the
