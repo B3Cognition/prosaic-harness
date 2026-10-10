@@ -41,7 +41,7 @@ class PostgresRunStore:
         self._pid = os.getpid()
         self._mutex = threading.RLock()
         self._sessions = set()
-        self._acquiring = 0
+        self._reservations = set()
         self._max_active_leases = max_active_leases
         self._transport = PostgresTransport(dsn, operation_timeout_s=operation_timeout_s,
             pool_timeout_s=pool_timeout_s, connect_timeout_s=connect_timeout_s,
@@ -109,21 +109,21 @@ class PostgresRunStore:
     def lease(self, run_id):
         self._transport._check_process()
         validate_id(run_id)
-        with self._mutex:
-            if len(self._sessions) + self._acquiring >= self._max_active_leases:
-                raise StoreBusy('active execution capacity exhausted')
-            self._acquiring += 1
+        reservation = object()
         session = None
-        registered = False
         primary = None
         try:
+            with self._mutex:
+                if len(self._reservations) >= self._max_active_leases:
+                    raise StoreBusy('active execution capacity exhausted')
+                # One token owns capacity throughout setup, execution and
+                # teardown. Registration never transfers or decrements it.
+                self._reservations.add(reservation)
             session = PostgresLease(self, run_id, time.monotonic())
             session.generation = self._transport.call(lambda conn: self._acquire(conn, session))
             session.check_valid()
             with self._mutex:
                 self._sessions.add(session)
-                self._acquiring -= 1
-                registered = True
             # Retain the coroutine even if submission is interrupted before it
             # returns. stop() closes an unstarted runner on its owning loop or
             # drains a started renewal before ownership can be released.
@@ -150,8 +150,9 @@ class PostgresRunStore:
                 if session is not None:
                     session._active = False
                 with self._mutex:
-                    if not registered:
-                        self._acquiring -= 1
+                    if (session is None or session.generation is None
+                            or session._stopped.is_set()):
+                        self._reservations.discard(reservation)
                     if session is not None and session._stopped.is_set():
                         self._sessions.discard(session)
 
@@ -259,7 +260,7 @@ class PostgresRunStore:
         if self._pid != os.getpid():
             raise StoreBusy('construct database stores after worker fork')
         with self._mutex:
-            if self._sessions or self._acquiring:
+            if self._sessions or self._reservations:
                 raise StoreBusy('drain active executions before closing the store')
             self._transport.close()
 

@@ -1,6 +1,7 @@
 """Deterministic registration race against an explicitly owned PostgreSQL DB."""
 import asyncio
 import os
+import sys
 import threading
 import time
 import uuid
@@ -17,7 +18,7 @@ def local_store(monkeypatch):
     store._pid = os.getpid()
     store._mutex = threading.RLock()
     store._sessions = set()
-    store._acquiring = 0
+    store._reservations = set()
     store._max_active_leases = 1
     store.lease_s, store.renew_s = 15, 3
     owners = {}
@@ -101,6 +102,38 @@ def test_failed_session_construction_releases_capacity(monkeypatch, local_store)
     monkeypatch.setattr(implementation, 'PostgresLease', original)
     with store.lease(uuid.uuid4().hex):
         pass
+    store.close()
+
+
+@pytest.mark.parametrize('boundary', ['after_reservation', 'after_registration'])
+def test_statement_boundary_interrupt_preserves_one_slot_capacity(local_store, boundary):
+    store, owners = local_store
+    hit = []
+    code = PostgresRunStore.lease.__wrapped__.__code__
+    previous_trace = sys.gettrace()
+    def trace(frame, event, arg):
+        if event == 'line' and frame.f_code is code and not hit:
+            reservations = store._reservations
+            if ((boundary == 'after_reservation'
+                    and reservations and not store._sessions)
+                    or (boundary == 'after_registration'
+                        and store._sessions)):
+                hit.append(frame.f_lineno)
+                raise KeyboardInterrupt('statement boundary interrupted')
+        return trace
+    sys.settrace(trace)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            with store.lease(uuid.uuid4().hex):
+                pytest.fail('interrupted setup must not yield')
+    finally:
+        sys.settrace(previous_trace)
+    assert hit, 'interruption boundary was not exercised'
+    assert owners == {}
+    with store.lease(uuid.uuid4().hex):
+        with pytest.raises(StoreBusy):
+            with store.lease(uuid.uuid4().hex):
+                pytest.fail('one-slot store admitted two simultaneous sessions')
     store.close()
 
 
@@ -296,7 +329,7 @@ def test_unit_registration_boundary_has_capacity_and_releases_all_counts(monkeyp
     fixture = object.__new__(PostgresRunStore)
     fixture._mutex = threading.RLock()
     fixture._sessions = set()
-    fixture._acquiring = 0
+    fixture._reservations = set()
     fixture._max_active_leases = 2
     class Lease:
         def __init__(self,store,run_id,started):
@@ -321,7 +354,7 @@ def test_unit_registration_boundary_has_capacity_and_releases_all_counts(monkeyp
     with fixture.lease(uuid.uuid4().hex):
         acquired.append('first')
     assert acquired == ['second','first']
-    assert fixture._acquiring == 0
+    assert fixture._reservations == set()
     assert fixture._sessions == set()
 
 
