@@ -18,16 +18,18 @@ from .workflow import digest
 from .contracts import seal, validate_state, validate_receipt, output_json
 from .validation import Validator, CheckContext
 from .admission_data import snapshot_json, parse_bounded_json
-from .errors import WorkflowAdmissionError
+from .errors import WorkflowAdmissionError, HumanResponseError, response_schema_issues
+from .interaction import project_interaction
 from .schema_validation import evaluate_schema, SchemaEvaluationError
 from .factory import admit_workflow, _config_from_json
+from .observations import CommittedObserver
 
 _TERMINAL_HEADROOM = 4096
 _TERMINAL_NODES = 16
 
 
 class Harness:
-    def __init__(self, workflow, run_dir=None, *, store=None, run_id=None, runtime=None, on_event=None, validators=None, cancelled=None, clock=time.time, context=None, accounting=None):
+    def __init__(self, workflow, run_dir=None, *, store=None, run_id=None, runtime=None, on_event=None, observer=None, validators=None, cancelled=None, clock=time.time, context=None, accounting=None):
         self.workflow = workflow
         admission = admit_workflow(workflow)
         self._admission = admission
@@ -55,6 +57,7 @@ class Harness:
         if self._accounting_enabled and 'accounting_v1' not in getattr(self.runtime, 'capabilities', ()):
             raise ValueError('accounting/context needs a Prosaic Runtime with accounting_v1 support')
         self.on_event = on_event
+        self._observations = CommittedObserver(observer)
         self.validators = dict(admission.validators if admission and validators is None else validators or {})
         self.cancelled = cancelled or (lambda: False)
         self.clock = clock
@@ -71,6 +74,8 @@ class Harness:
         self._admit()
 
     def _admit(self):
+        if self._observations.observer is not None and 'observer_v1' not in getattr(self.runtime, 'capabilities', ()):
+            raise ValueError('observer needs a Prosaic Runtime with observer_v1 support')
         if self._admission is None:
             self._check_custom_tools()  # Preserve released trusted-adapter diagnostics.
         admission = admit_workflow(self.workflow, runtime=self.runtime, validators=self.validators)
@@ -133,21 +138,23 @@ class Harness:
             raise ValueError('accounting context run_id conflicts with run identity')
         return replace(context, run_id=run_id)
 
-    def _resume_accounting(self, state):
+    def _resume_accounting(self, state, *, persist=True):
+        """Validate accounting identity, optionally staging migration until admission."""
         if 'accounting_context' not in state and not self._accounting_enabled:
-            return
+            return False
         scope = self._accounting_scope()
         if 'accounting_scope' in state and scope is not None and scope != state['accounting_scope']:
             raise ValueError('accounting scope conflicts with saved scope')
         from prosaic_runtime.accounting import ATTRIBUTION, ResolvedContext
+        changed = False
         if 'accounting_context' not in state:
             if not self._accounting_enabled:
-                return
+                return False
             state['accounting_context'] = self._resolved_accounting_context(state['run_id']).to_dict()
             state['accounting_migration'] = {'source': 'legacy_checkpoint', 'time': self.clock()}
             if scope is not None:
                 state['accounting_scope'] = scope
-            self._save(state)
+            changed = True
         else:
             saved = ResolvedContext.from_dict(state['accounting_context'])
             if self.context is not None:
@@ -157,7 +164,10 @@ class Harness:
                         raise ValueError('supplied accounting context conflicts with saved context')
             if scope is not None and 'accounting_scope' not in state:
                 state['accounting_scope'] = scope
-                self._save(state)
+                changed = True
+        if changed and persist:
+            self._save(state)
+        return changed
 
     def _invocation_accounting(self, state, attempt_id, step):
         if 'accounting_context' not in state:
@@ -217,12 +227,16 @@ class Harness:
         state.update(seal(state))
         if self._admission:
             self._bounded_document(state, self._admission.policy.max_state_bytes)
-        if self._revision is None:
+        created = self._revision is None
+        if created:
             self._revision = self.store.create_run(self._storage_run_id, state, self._lease)
         else:
             self._revision = self.store.save_run(self._storage_run_id, state, self._revision, self._lease)
         if self._admission:
             self._last_saved_state = deepcopy(state)
+        if self._observations.observer is not None:
+            self._observations.emit_committed(state, self._revision,
+                                              recovery=self._observations.recovering, started=created)
 
     @contextmanager
     def _execution(self):
@@ -289,13 +303,21 @@ class Harness:
         self._verify_ledger(snapshot.state)
         return snapshot
 
+    def interaction(self, *, review_outputs=(), include_response_schema=False, maximum_bytes=262_144):
+        """Return a bounded public view from one verified, read-only snapshot."""
+        snapshot = self.status()
+        return project_interaction(self.workflow, snapshot, review_outputs=review_outputs,
+                                   include_response_schema=include_response_schema,
+                                   maximum_bytes=maximum_bytes,
+                                   policy=self._admission.policy if self._admission else None)
+
     def _validate_address(self, state):
         if not self._legacy_file_mode and state['run_id'] != self._storage_run_id:
             raise StoreCorrupt('checkpoint identity does not match its storage address')
 
     def _check_expected_revision(self, expected_revision, *, human_action):
         if human_action and not self._legacy_file_mode and expected_revision is None:
-            raise ValueError('expected_revision is required for this response')
+            raise HumanResponseError('expected_revision_required')
         if expected_revision is not None:
             validate_revision(expected_revision)
             if expected_revision != self._revision:
@@ -317,7 +339,7 @@ class Harness:
         self._admit()
         self._check_custom_tools()
         if self._admission:
-            inputs = self._snapshot(inputs, self._admission.policy.max_run_input_bytes)
+            inputs = self.workflow.prepare_inputs(inputs)
         else:
             digest(inputs)  # JSON-serializable and finite before creating a run.
         with self._execution():
@@ -334,6 +356,8 @@ class Harness:
                 scope = self._accounting_scope()
                 if scope is not None:
                     state['accounting_scope'] = scope
+            if self._observations.observer is not None:
+                self._observations.begin(state['run_id'])
             self._save(state)
             return self._drive(state)
 
@@ -353,12 +377,20 @@ class Harness:
                 raise ValueError('workflow, prose, schema, or runtime configuration changed; start a new run')
             self._evidence_unchanged(state)
             self._verify_ledger(state)
-            self._resume_accounting(state)
+            if self._observations.observer is not None:
+                self._observations.begin(state['run_id'])
+            # Invalid human actions must not persist even an accounting upgrade.
+            # Keep identity/conflict admission early, staging its owned state
+            # changes until choice/schema/product validation has succeeded.
+            human_action = choice is not None or response is not None
+            accounting_changed = self._resume_accounting(state, persist=not human_action)
             if state['status'] in {'completed', 'rejected'}:
                 if choice is not None or response is not None:
-                    raise ValueError('completed run has no pending choice')
+                    raise HumanResponseError('completed_run')
                 return state
             if state['status'] == 'blocked' and state['reason'] != 'interrupted_call':
+                if human_action and accounting_changed:
+                    self._save(state)
                 return state
             reason = self._resource_reason(state)
             if reason and state['pending'] is None:
@@ -367,37 +399,50 @@ class Harness:
                 step = self.workflow.definition['steps'][state['current']]
                 if choice is None:
                     if response is not None:
-                        raise ValueError('response requires a declared choice')
+                        raise HumanResponseError('response_requires_choice')
                     return state
-                if choice not in step['choices']:
-                    raise ValueError('choice is not declared by the pending pause')
+                if type(choice) is not str or choice not in step['choices']:
+                    raise HumanResponseError('invalid_choice')
                 if 'response_schema' in step:
-                    response = (self._snapshot(response, self._admission.policy.max_human_response_bytes)
-                                if self._admission else output_json(json.dumps(response, allow_nan=False)))
+                    try:
+                        response = (self._snapshot(response, self._admission.policy.max_human_response_bytes)
+                                    if self._admission else output_json(json.dumps(response, allow_nan=False)))
+                    except (ValueError, TypeError, UnicodeError, RecursionError):
+                        raise HumanResponseError('response_limit') from None
                     try:
                         errors = evaluate_schema(self.workflow.schemas[state['current']], response,
                                                  profile=self._schema_profile(human=True))
                     except SchemaEvaluationError:
                         return self._block(state, self._resource_reason(state) or 'schema_error')
                     if errors:
-                        raise ValueError('human response failed schema validation')
-                    error = self._checks(state, state['current'], {'choice': choice, 'response': response}, step.get('validators', []))
+                        raise HumanResponseError('response_schema_invalid', response_schema_issues(errors))
+                    try:
+                        error = self._checks(state, state['current'], {'choice': choice, 'response': response}, step.get('validators', []))
+                    except StoreError:
+                        raise
+                    except ValueError:
+                        raise HumanResponseError('response_validation_failed') from None
                     if error:
-                        raise ValueError('human response failed validation: ' + error)
+                        raise HumanResponseError('response_validation_failed')
                 elif response is not None:
-                    raise ValueError('pause has no response schema')
+                    raise HumanResponseError('response_not_allowed')
+                if accounting_changed:
+                    self._save(state)
+                    if state['status'] == 'blocked':
+                        return state
                 self._event(state, 'human_decision', choice=choice, **({'response': response} if 'response_schema' in step else {}))
                 self._advance(state, step['choices'][choice])
                 if state['status'] == 'blocked':
                     return state
             elif choice is not None or response is not None:
-                raise ValueError('run has no pending human choice')
+                raise HumanResponseError('no_pending_choice')
             pending = state['pending']
             if pending is not None:
                 receipt = self.store.load_receipt(self._storage_run_id, pending['id'])
                 if receipt is not None:
                     validate_receipt(receipt, state, pending)
-                    self._accept(state, receipt)
+                    with self._observations.recovery():
+                        self._accept(state, receipt)
                 elif not retry_interrupted:
                     return self._block(state, 'interrupted_call')
                 else:
@@ -709,13 +754,30 @@ class Harness:
                                    read_roots=tuple(step.get('read_roots', [])),
                                    timeout_s=timeout, max_tool_rounds=self.workflow.config.limits.max_tool_rounds,
                                    **({'max_input_bytes': self._admission.policy.max_invocation_bytes} if self._admission else {}),
+                                   **({'max_provider_requests': self._admission.policy.max_provider_requests_per_invocation,
+                                       'max_tool_calls': self._admission.policy.max_tool_calls_per_invocation,
+                                       'max_reported_tokens': limits['max_tokens'] - sum(
+                                           i['token_usage'] for i in state['invocations'] if i['status'] == 'complete')}
+                                      if self._admission else {}),
                                    **({'initial_tool': 'read_file'} if step.get('require_reads') and
                                       'initial_tool_v1' in getattr(self.runtime, 'capabilities', ()) else {}))
                 self._check_ownership()
+                self._admit()
+                observation_options = {}
+                if self._admission or self._observations.observer is not None:
+                    from prosaic_runtime import InvocationScope
+                    observation_options = {'operation_context': InvocationScope(attempt_id, run_id=state['run_id'],
+                        step_id=name if self._admission else None,
+                        operation_namespace=self._admission.operation_namespace if self._admission else None)}
+                    if self._observations.observer is not None:
+                        observation_options['observer'] = self._observations.observer
+                    if self._admission and self._admission.tool_journal is not None:
+                        observation_options['tool_journal'] = self._admission.tool_journal
                 result = self.runtime.run(self.workflow.artifacts[name], json.dumps(arguments),
                                           cwd=self._cwd, policy=policy, on_event=record,
                                           cancelled=lambda: bool(event_failure) or self._runtime_cancelled(state),
                                           **({'acquisition': self.workflow.acquisitions[name]} if name in self.workflow.acquisitions else {}),
+                                          **observation_options,
                                           **accounting_options)
                 self._check_ownership()
                 receipt = self._receipt(state, attempt_id, name, arguments, result, events, event_failure)

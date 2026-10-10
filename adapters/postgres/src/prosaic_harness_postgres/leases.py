@@ -20,6 +20,7 @@ class PostgresLease:
         self._stopping = threading.Event()
         self._stopped = threading.Event()
         self._task = None
+        self._renewal = None
 
     def check_valid(self):
         if (self.pid != os.getpid() or not self._active or self._lost
@@ -51,6 +52,12 @@ class PostgresLease:
         def cancel():
             if self._task is not None:
                 self._task.cancel()
+            elif self._renewal is not None:
+                # Submission may have raised before scheduling, or while the
+                # runner was still queued. Only the I/O loop can close it
+                # without racing its first execution.
+                self._renewal.close()
+                self._stopped.set()
         self.store._transport._loop.call_soon_threadsafe(cancel)
         if not self._stopped.wait(self.store._transport.operation_timeout_s + 2):
             self._lost = True

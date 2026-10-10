@@ -29,3 +29,16 @@ ALWAYS keep unknown historical measurements unknown. NEVER infer per-provider-ca
 CLI `run` and `resume` accept optional `--application-id`, `--tenant-id`, `--billing-account-id`, `--actor-id`, `--project-id` and `--request-id`. These flags preserve context without configuring durable accounting. Configure a recorder through the SDK; the CLI does not load arbitrary recorder plugins.
 
 Durable recorder installation, deployment namespace/environment provisioning, database ownership, rate cards and reconciliation belong to the recorder and host. Harness checkpoint and accounting persistence are separate recovery boundaries. This integration provides metering lineage; it does not implement customer charging, exporter delivery, verified account mappings or historical receipt import.
+
+Native contextual tools and effect journals use Runtime's separate
+`InvocationScope`. Each invocation carries its own persisted attempt ID, run/step
+IDs and the sealed host operation namespace. This scope does not enable
+accounting, carry billing attribution, or add accounting checkpoint fields.
+`WorkflowBindings(operation_namespace=..., tool_journal=...)` captures the trusted
+ledger object privately and seals its static opaque identity/contract declaration.
+
+ALWAYS keep business operation persistence and reconciliation in the consuming
+application. NEVER treat an accounting record or Harness receipt as an outcome
+commit in the tool journal. A Runtime journal uncertainty failure is a terminal
+invocation failure receipt; Harness preserves usage and never automatically
+reconciles or retries the effect.

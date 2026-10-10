@@ -173,9 +173,12 @@ def _pairs(items):
     return result
 
 
-def parse_bounded_json(text, *, maximum_bytes, maximum_depth=64, maximum_nodes=65536):
+def parse_bounded_json(text, *, maximum_bytes, maximum_depth=64, maximum_nodes=65536,
+                       maximum_snapshot_bytes=None):
     """Decode strict UTF-8 JSON with transport bounds before the JSON decoder."""
     _bounds(maximum_bytes, maximum_depth, maximum_nodes)
+    snapshot_bytes = maximum_bytes if maximum_snapshot_bytes is None else maximum_snapshot_bytes
+    _bounds(snapshot_bytes, maximum_depth, maximum_nodes)
     try:
         if type(text) is bytes:
             if len(text) > maximum_bytes:
@@ -196,7 +199,7 @@ def parse_bounded_json(text, *, maximum_bytes, maximum_depth=64, maximum_nodes=6
         _raw_depth(text, maximum_depth)
         decoded = json.loads(text, object_pairs_hook=_pairs,
                              parse_constant=lambda _: _fail())
-        return snapshot_json(decoded, maximum_bytes=maximum_bytes,
+        return snapshot_json(decoded, maximum_bytes=snapshot_bytes,
                              maximum_depth=maximum_depth, maximum_nodes=maximum_nodes)
     except WorkflowAdmissionError:
         raise

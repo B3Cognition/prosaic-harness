@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '${{ matrix.python }}'
-      - name: Install Harness and its pinned Python dependencies
+      - name: Install Harness and its compatible index dependencies
         run: python -m pip install -e '.[test]'
       - name: Install Linux CLI sandbox backend
         run: |
@@ -86,7 +86,16 @@ jobs:
           print('All seven required Harness sandbox cases passed without skips')
           PY
       - run: python -m pytest -q
-      - run: python -m build
+      - name: Build committed clean source
+        run: |
+          mkdir -p "$RUNNER_TEMP/harness-source"
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/harness-source"
+          python -m build "$RUNNER_TEMP/harness-source" --outdir dist
+      - name: Verify installed native workflow
+        run: |
+          python -m venv "$RUNNER_TEMP/harness-wheel"
+          "$RUNNER_TEMP/harness-wheel/bin/python" -m pip install dist/b3_prosaic_harness-0.7.1-py3-none-any.whl
+          "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/workflow_factory_smoke.py
   postgres:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -102,12 +111,14 @@ jobs:
       - name: Build separate distributions
         run: |
           python -m pip install build pytest
-          python -m build
-          python -m build adapters/postgres
+          mkdir -p "$RUNNER_TEMP/harness-source"
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/harness-source"
+          python -m build "$RUNNER_TEMP/harness-source" --outdir dist
+          python -m build "$RUNNER_TEMP/harness-source/adapters/postgres" --outdir adapters/postgres/dist
       - name: Install local core wheel before adapter
         run: |
-          python -m pip install dist/prosaic_harness-0.6.2-py3-none-any.whl
-          python -m pip install adapters/postgres/dist/prosaic_harness_postgres-0.1.1-py3-none-any.whl
+          python -m pip install dist/b3_prosaic_harness-0.7.1-py3-none-any.whl
+          python -m pip install adapters/postgres/dist/b3_prosaic_harness_postgres-0.2.1-py3-none-any.whl
           prosaic --version
       - name: Required real-database, owned crash/standby and clean-wheel gates
         env:

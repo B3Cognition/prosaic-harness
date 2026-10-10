@@ -1,5 +1,6 @@
 """Disposable PostgreSQL fixtures with exact, validated ownership for cleanup."""
 import argparse
+import importlib.util
 import ipaddress
 import json
 import os
@@ -23,6 +24,23 @@ def owned_subnet(networks,token):
         if all(candidate.version!=used.version or not candidate.overlaps(used) for used in occupied):
             return str(candidate)
     raise ValueError('no free owned fixture subnet')
+
+
+def candidate_wheels(root):
+    """Select exact audited Core/Runtime wheels for isolated test environments."""
+    if not os.environ.get('HARNESS_TEST_WHEELHOUSE'):
+        return []
+    wheelhouse = Path(os.environ['HARNESS_TEST_WHEELHOUSE']).resolve(strict=True)
+    receipt_directory = os.environ.get('HARNESS_TEST_RELEASE_DIRECTORY')
+    if not receipt_directory:
+        raise ValueError('candidate wheelhouse requires verified release evidence')
+    spec = importlib.util.spec_from_file_location('release_artifacts',
+        Path(root) / 'scripts/release_artifacts.py')
+    release = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(release)
+    release.verify_upstream(Path(receipt_directory).resolve(strict=True), wheelhouse)
+    return [wheelhouse / 'b3_prosaic-0.4.1-py3-none-any.whl',
+            wheelhouse / 'b3_prosaic_runtime-0.8.1-py3-none-any.whl']
 
 
 class LocalCluster:
@@ -148,18 +166,29 @@ class LocalCluster:
     def linux_wheel_smoke(self, root):
         self._validate_container(self.primary)
         root = Path(root).resolve()
+        candidate_mounts, candidate_setup = [], ''
+        dependencies = candidate_wheels(root)
+        if dependencies:
+            wheelhouse = dependencies[0].parent
+            candidate_mounts = ['-v', str(wheelhouse) + ':/candidate-wheels:ro']
+            candidate_setup = 'export PIP_FIND_LINKS=/candidate-wheels\n'
         name = self.network + '-linux-wheels'
         command = '''
 set -eu
 apt-get update -qq
-apt-get install -y -qq git >/dev/null
 python -m venv /tmp/core
-/tmp/core/bin/python -m pip install /core-wheels/prosaic_harness-0.6.2-py3-none-any.whl >/dev/null
+/tmp/core/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.7.1-py3-none-any.whl >/dev/null
 /tmp/core/bin/python -I -c 'import importlib.util,prosaic_harness; assert importlib.util.find_spec("psycopg") is None; assert importlib.util.find_spec("prosaic_harness_postgres") is None'
+/tmp/core/bin/python -I /fixture/workflow_factory_smoke.py
 python -m venv /tmp/both
-/tmp/both/bin/python -m pip install /core-wheels/prosaic_harness-0.6.2-py3-none-any.whl /adapter-wheels/prosaic_harness_postgres-0.1.1-py3-none-any.whl >/dev/null
-/tmp/both/bin/python /fixture/linux_wheel_smoke.py
+/tmp/both/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.7.1-py3-none-any.whl /adapter-wheels/b3_prosaic_harness_postgres-0.2.1-py3-none-any.whl >/dev/null
+/tmp/both/bin/python -I /fixture/linux_wheel_smoke.py
 '''
+        if dependencies:
+            selected = ' '.join('/candidate-wheels/' + path.name for path in dependencies) + ' '
+            for environment in ('core', 'both'):
+                prefix = '/tmp/' + environment + '/bin/python -m pip install '
+                command = command.replace(prefix, prefix + selected)
         container_id = self._run('create', '--name', name, '--network', self.network,
             '--label', 'prosaic-harness-test-owner=' + self.token,
             '-e', 'HARNESS_SMOKE_DSN=postgresql://postgres@' + self.primary['name'] + '/postgres',
@@ -167,7 +196,9 @@ python -m venv /tmp/both
             '-v', str(root / 'adapters/postgres/dist') + ':/adapter-wheels:ro',
             '-v', str(root / 'examples/postgres') + ':/examples:ro',
             '-v', str(root / 'adapters/postgres/tests/support/linux_wheel_smoke.py') + ':/fixture/linux_wheel_smoke.py:ro',
-            'docker.io/library/python:3.12-slim', 'sh', '-ec', command)
+            '-v', str(root / 'scripts/workflow_factory_smoke.py') + ':/fixture/workflow_factory_smoke.py:ro',
+            *candidate_mounts,
+            'docker.io/library/python:3.12-slim', 'sh', '-ec', candidate_setup + command)
         self.containers.append({'id': container_id, 'name': name})
         self._write_manifest()
         return self._run('start', '-a', container_id, timeout=240)
@@ -235,8 +266,11 @@ def main():
             env = os.environ | {'HARNESS_TEST_DATABASE_URL': cluster.dsn,
                 'HARNESS_TEST_CONTAINER_ENGINE': cluster.engine, 'HARNESS_TEST_POSTGRES_VERSION': cluster.version}
             root = Path(__file__).resolve().parents[4]
+            report = (['--junitxml=' + env['HARNESS_TEST_JUNIT_XML']]
+                      if env.get('HARNESS_TEST_JUNIT_XML') else [])
             raise SystemExit(subprocess.run([sys.executable, '-m', 'pytest', '-q',
-                'adapters/postgres/tests', '--require-postgres'], cwd=root, env=env, timeout=600).returncode)
+                'adapters/postgres/tests', '--require-postgres', *report],
+                cwd=root, env=env, timeout=600).returncode)
 
 
 if __name__ == '__main__':

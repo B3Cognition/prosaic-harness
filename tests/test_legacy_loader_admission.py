@@ -123,3 +123,13 @@ def test_empty_legacy_read_root_and_gate_property_keys_remain_valid(tmp_path, mo
     workflow = Workflow.load(path)
     assert workflow.definition['steps']['gate']['field'] == ['']
     assert workflow.definition['steps']['author']['read_roots'] == ['']
+
+
+def test_shared_logical_diagnostic_preserves_legacy_valueerror_message(tmp_path, monkeypatch):
+    from prosaic_harness.graph_admission import validate_resolved_workflow
+    workflow = Workflow.load(blueprint(tmp_path, monkeypatch))
+    workflow.definition['steps']['author']['unexpected-private-property'] = True
+    with pytest.raises(ValueError, match='^unsupported step or keys$') as caught:
+        validate_resolved_workflow(workflow, descriptors={}, native=False)
+    assert caught.value.location == '$.definition.steps.author.*'
+    assert 'unexpected-private-property' not in str(caught.value)

@@ -59,6 +59,67 @@ def factory(*, assets=None, schemas=None, cfg=None, registry=None, **policy_chan
                    policy=Policy(**values))
 
 
+@pytest.mark.parametrize('field,value,code', [
+    ('agent', 'missing', 'unknown_reference'),
+    ('schema', 'missing', 'unknown_reference'),
+    ('resources', [], 'resource_not_bound'),
+    ('read_roots', ['private/path'], 'resource_not_bound'),
+    ('max_attempts', 3, 'limit_exceeded'),
+    ('next', 'missing', 'invalid_definition'),
+])
+def test_native_admission_reports_safe_logical_field(field, value, code):
+    proposal = graph()
+    proposal['steps']['find'][field] = value
+    with pytest.raises(prosaic_harness.WorkflowAdmissionError) as caught:
+        factory().build(proposal)
+    assert caught.value.code == code
+    assert caught.value.location == f'$.definition.steps.find.{field}'
+
+
+def test_schema_admission_identifies_reference_without_leaking_schema_properties():
+    with pytest.raises(prosaic_harness.WorkflowAdmissionError) as caught:
+        factory(schemas={'result': {'type': 'secret-invalid-type'}}).build(graph())
+    assert caught.value.code == 'invalid_schema'
+    assert caught.value.location == '$.definition.steps.find.schema'
+    assert 'secret-invalid-type' not in str(caught.value)
+
+
+@pytest.mark.parametrize('hostile', ['password-secret', '/private/secret\n', 'x' * 1000])
+def test_unknown_property_locations_are_structural_and_bounded(hostile):
+    proposal = graph()
+    proposal['steps']['find'][hostile] = True
+    with pytest.raises(prosaic_harness.WorkflowAdmissionError) as caught:
+        factory().build(proposal)
+    assert caught.value.location == '$.definition.steps.find.*'
+    assert hostile not in str(caught.value)
+    assert len(caught.value.location) <= 256
+
+
+@pytest.mark.parametrize('field,value,code,location', [
+    ('agent', '../private/name', 'invalid_definition', '$.definition.steps.find.agent'),
+    ('schema', '../private/schema', 'invalid_definition', '$.definition.steps.find.schema'),
+    ('tools', ['unregistered'], 'invalid_definition', '$.definition.steps.find.tools'),
+    ('validators', ['missing'], 'binding_mismatch', '$.definition.steps.find.validators[0]'),
+    ('field', ['private-property'], 'invalid_definition', '$.definition.steps.find.*'),
+])
+def test_invalid_native_references_do_not_expose_values(field, value, code, location):
+    proposal = graph()
+    proposal['steps']['find'][field] = value
+    with pytest.raises(prosaic_harness.WorkflowAdmissionError) as caught:
+        factory().build(proposal)
+    assert (caught.value.code, caught.value.location) == (code, location)
+    assert str(value) not in str(caught.value)
+
+
+def test_logical_location_redacts_unknown_keys_and_bounds_numeric_indices():
+    from prosaic_harness.errors import logical_location, logical_alias
+    location = logical_location('definition', 'steps', logical_alias('find'), 'untrusted-property', 3)
+    assert location == '$.definition.steps.find.*[3]'
+    assert prosaic_harness.WorkflowAdmissionError('invalid_definition', location).location == location
+    assert len(logical_location(*[logical_alias('a' * 64)] * 100)) <= 256
+    assert logical_location('steps', 10 ** 100) == '$.steps[*]'
+
+
 def test_public_factory_constructs_without_a_physical_path():
     workflow = factory().build(graph())
     assert workflow.path is None

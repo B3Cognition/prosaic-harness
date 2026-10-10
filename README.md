@@ -1,6 +1,12 @@
 # Prosaic Harness
 
-Version **0.6.2** adds a [validated in-memory workflow factory](docs/workflow-factory.md)
+Version **0.7.1** is the candidate `b3-prosaic-harness` index distribution, with
+`b3-prosaic-runtime>=0.8,<0.9` and optional `b3-prosaic-harness-postgres` **0.2.1**.
+Imports (`prosaic_harness`) and CLI commands (`prosaic-harness`) remain unchanged.
+The five-package release train is pending final qualification and publication;
+see [package migration](docs/package-migration.md) for fresh-environment installs.
+
+Version **0.6.2** added a [validated in-memory workflow factory](docs/workflow-factory.md)
 for approved agents, native tool registries and client-generated graphs. The host
 supplies policy and private bindings; proposals need no filesystem directory.
 Admission, schema bounds and durable failure recovery are enforced before execution.
@@ -26,12 +32,12 @@ Installation and CI no longer require Node.js or npm.
 
 Version 0.4.0 adds [manifest-defined CLI tools](examples/README.md#custom-command-line-tools)
 through the normal workflow CLI, with offline availability checks and required
-native execution evidence. The current immutable dependency pin installs Runtime v0.7.1.
+native execution evidence. Current candidates select the compatible Runtime 0.8 series.
 
 ## CLI permissions and sandboxing
 
-Harness **0.6.2** retains CLI sandbox policy enforcement and pins Runtime
-**0.7.1**, which provides `cli_sandbox_v1`. Follow the
+Harness **0.7.1** retains CLI sandbox policy enforcement and selects Runtime
+**0.8.x**, which provides `cli_sandbox_v1`. Follow the
 [sandboxed workflow walkthrough](examples/README.md#sandboxed-cli-workflow-harness-042)
 for installation, offline validation and live execution.
 The complete blueprint is [cli-tool-sandboxed.yml](examples/cli-tool-sandboxed.yml).
@@ -96,18 +102,21 @@ environment so another application's older runtime cannot be picked up by accide
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.6.2
+git checkout <exact-candidate-commit>
 python3 -m venv .venv
-.venv/bin/python -m pip install .
+.venv/bin/python -m pip install --find-links /absolute/path/to/curated-wheelhouse .
 
 export PATH="$PWD/.venv/bin:$PATH"
 prosaic --help
 .venv/bin/prosaic-harness --help
 ```
 
-In a future terminal, return to the repository and add its `.venv/bin` to PATH
-again. Node.js and npm are not required. The dependency pin installs Prosaic
-Runtime v0.7.1, Python Prosaic v0.3.2, PyYAML, jsonschema and referencing automatically.
+ALWAYS use a fresh clone/environment for migration; NEVER reuse an environment
+containing legacy distributions. In a future terminal, return to the repository and add its `.venv/bin` to PATH
+again. Node.js and npm are not required. Candidate dependency metadata selects
+`b3-prosaic-runtime` 0.8.x, `b3-prosaic` 0.4.x, PyYAML, jsonschema and referencing.
+Use only the manifest-selected b3 wheels in the curated wheelhouse. Candidate
+installation requires the Runtime 0.8 producer; it is not yet a published index install.
 No sibling checkout or manual Prosaic installation is needed. Older Harness
 tags retain their historical installation docs.
 

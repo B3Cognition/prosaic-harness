@@ -131,6 +131,77 @@ aliases from the permitted catalogue. It cannot supply policy, registrations,
 Runtime configuration or credentials. Application-generated definitions use the
 same admission boundary.
 
+The application constructs a tenant-specific factory using that tenant's trusted
+policy and registrations. `factory.describe()` returns a fresh public JSON
+document (`version=1`) with the permitted **and bound** `agents`, `schemas`,
+`tools` and `validators`, supported `stepKinds`, `allowInlineAgents`,
+`allowAgentComposition`, `modelTiers`, `defaultModelTierAllowed` and effective
+camelCase `limits`. Tool aliases also intersect Runtime's allowed tools; named
+tiers must be both policy-approved and configured. Omitted `model_tier` continues
+to select the host default, including when no named tier is approved.
+
+Descriptions are absent unless the host explicitly opts them into the catalogue:
+
+```python
+public_catalog = WorkflowCatalog(
+    agents={"finder": agent}, schemas={"entity": entity_schema},
+    public_metadata={
+        "agents": {"finder": {"description": "Find an approved entity"}},
+        "schemas": {"entity": {"description": "Entity result"}},
+        "tools": {"lookup_item": {"description": "Look up an approved entity"}},
+    },
+)
+```
+
+The optional categories are `agents`, `schemas`, `tools` and `validators`;
+entries contain exactly one string `description`, at most 4096 UTF-8 bytes.
+Unknown categories, fields, aliases, cycles and aggregate host-bound overflow
+are rejected. Agent/schema aliases are checked when the catalogue is constructed;
+tool/validator aliases are checked against registrations when the factory is
+constructed. Metadata is owned and excluded from execution identity, so changing
+a public description does not change a workflow fingerprint.
+
+Agent `requestedCapabilities.tools` includes only effective public tool aliases.
+Tools expose declared semantic versions, byte caps and `authorizationRequired`;
+validators expose their declared versions. These fields are host-approved public
+metadata. Discovery reads captured JSON and invokes no callbacks, descriptor or
+version properties, CLI discovery, endpoint probes or models. Private agent bodies,
+frontmatter, artifact IDs, resource content and physical Runtime bindings never
+appear. `describe(include_schemas=True)` adds catalogue `schema` bodies and native
+tool `parameters`; use this host-only opt-in only for schemas approved for disclosure.
+
+```python
+public_capabilities = factory.describe()
+authoring_schema = factory.proposal_schema()
+```
+
+`proposal_schema()` returns a Draft 2020-12 structural schema with versioned ID
+`urn:prosaic-harness:proposal:v1`. It closes the envelope, definition and each of
+the five step variants, bounds graph sizes and numeric limits, and projects
+schema/tool/validator references. Denied inline instructions permit an omitted
+or explicitly empty `inline_agents` mapping. Authorized inline entries retain the
+existing required `type`, `frontmatter`, `body` and optional embedded `resources`
+shape; canonical subagent metadata and configured permitted model tiers are
+reflected. Frontmatter extensions remain prompt metadata.
+Inline `frontmatter.tools` is a request declaration: it accepts `""`, `"none"`,
+`"read"`, `"write"` or a list of strings, with registration checks retained in
+factory admission. Requests confer no step grant. Step `tools` and `require_tools`
+stay restricted to effective permitted native aliases; denied registration names
+are never enumerated in the public schema.
+
+ALWAYS submit proposals to `build_json` after structural validation. NEVER treat
+the authoring schema as admission or an execution grant. It cannot establish
+transition targets, freshness, composition counts or whether a local inline alias
+is supplied, used or collides with a private catalogue binding. Those checks stay
+in mandatory factory admission; hidden aliases are never published to enumerate
+collisions. A structurally valid graph with an unknown transition still fails
+admission.
+
+Both discovery methods accept `maximum_bytes` (default 262144; finite host ceiling
+8388608). They reject oversized semantic documents with `limit_exceeded` rather
+than truncating aliases or schemas. Every returned document is independently
+owned; editing it cannot change later discovery or execution.
+
 `build_json` accepts a strict JSON envelope with `definition` and optional
 `inline_agents`. Send the JSON itself, without Markdown fences. For example,
 this proposal uses the host's `finder`, `entity` schema and native lookup:
@@ -168,6 +239,66 @@ are separate from the graph proposal. Keep raw workflow objects, configuration
 and operator checkpoints inside the application. Codes such as `policy_denied`,
 `unknown_reference`, `invalid_definition` and `limit_exceeded` let the service
 explain rejected proposals without exposing parser exceptions or host data.
+
+## Retaining frozen host bundles
+
+Use `WorkflowBundle` when a proposal must survive a deployment or resume in a
+fresh worker. Construction freezes the factory's complete private agent/schema
+catalogue, policy, effective Runtime configuration and declared tool/validator
+versions, including unused entries. Display-only public catalogue metadata is
+excluded. The opaque `identity` is a versioned SHA-256 digest of that material;
+changing execution material changes it even when the host version label stays
+the same. Supported sandbox mode and every trusted runtime root remain private
+identity material; preparing or reconstructing a bundle does not resolve or probe
+those paths. A version label is a nonempty opaque string, limited to 128 UTF-8 bytes
+with no Unicode control, format or surrogate characters.
+
+```python
+from prosaic_harness import WorkflowBundle, WorkflowReference
+
+bundle = WorkflowBundle("service-v1", factory)
+prepared = bundle.prepare_json(proposal_text)
+# Persist prepared.proposal_json exactly and prepared.reference.to_dict().
+workflow = prepared.workflow
+
+# In a fresh worker, the application resolves its retained immutable bundle.
+reference = WorkflowReference.from_dict(saved_reference_dict)
+workflow = retained_bundle.reconstruct(saved_proposal_json, reference)
+prepared_inputs = workflow.prepare_inputs({"query": "sample"})
+```
+
+`PreparedWorkflow` is frozen and contains `workflow`, `proposal_json` and
+`reference`. The proposal text is the original admitted envelope, canonicalized
+as `json-sort-keys-utf8-v1`: `json.dumps(envelope, ensure_ascii=False,
+sort_keys=True, separators=(",", ":"), allow_nan=False)`. Object keys are sorted
+recursively. Omitted `inline_agents`, graph limits and step defaults stay omitted;
+host catalogue bodies are never expanded into the retained proposal. The
+proposal digest hashes those exact UTF-8 bytes. Database JSON key ordering can
+change if the host reproduces the same canonical bytes. Transport, JSON
+depth/work and final canonical byte limits remain bounded; the historical ASCII
+encoding of other Harness snapshots and fingerprints is unchanged.
+
+`WorkflowReference` is a frozen validated scalar record. `to_dict()` uses
+`version=1`, `bundleVersion`, `bundleIdentity`,
+`canonicalization="json-sort-keys-utf8-v1"`, `proposalSha256`,
+`workflowFingerprint`, `admissionVersion=1` and `schemaProfile=1`. Digests are
+64-character lowercase hexadecimal strings. `from_dict()` admits exactly those
+keys and supported bounded scalar values, without hydrating host configuration,
+callbacks or endpoint data. Reconstruction verifies the format/profile, bundle
+version and identity, canonical proposal digest, then freshly admits the native
+workflow and checks its fingerprint. Malformed records/envelopes use
+`invalid_definition`; unsupported format/profile or identity mismatches use
+`identity_mismatch`; missing or invalid declared execution bindings use
+`binding_mismatch`. Existing graph, policy and resource admission errors retain
+their safe codes. No callbacks or model calls occur during this preparation.
+
+ALWAYS retain immutable historical bundle registrations and check current
+authorization/revocation before reconstructing or dispatching an old proposal.
+NEVER silently substitute the newest bundle for a retained reference. Bundle
+registries, missing-registration operator handling and persistence belong to the
+application. Callback implementation/version correspondence remains a trusted
+host obligation; hashes cannot establish that correspondence. References and
+bundle hashes are identity evidence, never authorization grants.
 
 ## Composing approved agents
 
@@ -328,24 +459,166 @@ Admission raises `WorkflowAdmissionError`, with safe `code` and `location`
 attributes. Services should project logical summaries and safe errors rather
 than serialize workflow bindings, private configuration or raw checkpoints.
 Consumer authentication and request-specific policy selection remain host duties.
+Known native checks identify logical fields such as
+`$.definition.steps.find.agent`; arbitrary property names become `*`, and numeric
+list indices may appear. Locations are bounded at 256 characters and never derive
+from parser messages, private paths or failed reference values. Existing error
+codes and the single-failure behavior remain compatible.
+
+## Preparing inputs and serving a human pause
+
+Call `workflow.prepare_inputs(inputs)` for a native admitted workflow before the
+application reserves a run. It returns owned, finite JSON bounded by
+`max_run_input_bytes`, `max_json_depth` and `max_json_nodes`. Preparation readmits
+the workflow without model calls, validators, storage, filesystem resolution or
+CLI discovery. Mutating the original inputs cannot change the prepared value.
+`harness.run(inputs=prepared_inputs)` repeats execution admission and input bounds.
+Trusted YAML workflows retain their existing `run` input behavior.
+
+Use `harness.interaction()` for the public waiting view. It reads `status()` once,
+verifies the checkpoint and receipts, and returns an immutable `PendingInteraction`
+or `None` for any nonwaiting state. `status()` remains the full operator view.
+The projection includes the run ID, committed revision, pause step ID, question,
+actual choice names and deadline. It excludes private inputs, bindings, evidence
+and history. Outputs and schema bodies are omitted by default.
+
+```python
+prepared_inputs = workflow.prepare_inputs({"query": "sample"})
+# Reserve the application run only after preparation succeeds.
+harness.run(inputs=prepared_inputs)
+interaction = harness.interaction(
+    review_outputs=("find",), include_response_schema=True,
+)
+if interaction is not None:
+    public_view = interaction.to_dict()
+    state = harness.resume(choice="accept", response={"entity_id": "sample-1"},
+                           expected_revision=interaction.revision)
+```
+
+The host authorizes access and selects which existing agent **step IDs** to expose
+through `review_outputs`; unknown, nonagent or unavailable outputs are rejected.
+ALWAYS select review content explicitly for the authorized human. NEVER interpret
+the projection or its digest as authentication or an execution grant.
+`include_response_schema=True` is a separate host disclosure choice. The schema
+digest uses the existing Harness recipe: SHA-256 of UTF-8
+`json.dumps(schema, sort_keys=True, allow_nan=False)` with its default separators
+and ASCII escaping. It is present for typed pauses even when the body is omitted.
+
+`to_dict()` uses camelCase keys: `version=1`, `runId`, `revision`, `stepId`,
+`question`, `choices`, `deadline`, and optional `responseSchemaDigest`,
+`responseSchema`, `reviewOutputs`. Scalar properties use snake_case; `choices`
+is a tuple. Nested properties and every `to_dict()` result are independently owned.
+`maximum_bytes` defaults to 262144, capped by the storage ceiling of 8388608 and
+native `max_state_bytes`. Native depth/node bounds also apply to the final view.
+Oversized views raise `WorkflowAdmissionError` with `limit_exceeded`; no question,
+choice, schema or selected output is truncated.
+
+Handle `HumanResponseError` as a `ValueError` with a stable `code` and at most five
+structural `{code, location}` issues. `to_dict()` returns only those safe fields.
+Codes are `expected_revision_required`, `invalid_choice`,
+`response_requires_choice`, `response_not_allowed`, `response_limit`,
+`response_schema_invalid`, `response_validation_failed`, `no_pending_choice` and
+`completed_run`. Raw values, schema prose, product-validator messages and callback
+exceptions never appear in that public error. `RevisionConflict` remains separate;
+refresh the interaction before retrying a stale decision. Missing required
+revisions, invalid choices and invalid responses do not commit human decisions.
+When accounting is newly enabled or a recorder scope is attached, migration is
+validated early and staged until human response admission succeeds. A rejected
+response preserves the checkpoint bytes and revision even during that upgrade;
+plain `resume()` continues to persist accounting migration normally.
+The view performs no validator dry run: actual response admission evaluates the
+schema and invokes each registered product validator once. Schema evaluator
+failure still blocks with `schema_error`; an expired deadline takes precedence.
+
+## Optional monitoring
+
+Pass `observer=callback` to `Harness` for version-1, bounded monitoring records.
+Harness emits `run_started`, `transition_committed`, `waiting_committed`,
+`recovery_committed`, `blocked_committed` and `run_completed` after successful
+store commits, including the actual committed revision and state outcome. When a
+save falls back to `blocked/state_limit`, monitoring reports that blocked state.
+Reading `harness.status()` inside the observer sees the committed revision.
+
+Each public run/resume execution owns a fresh opaque scope and sequence. The same
+observer receives Runtime observations correlated with the persisted invocation
+attempt ID. Configured observation requires Runtime's `observer_v1` capability;
+an incompatible adapter fails before execution. Observations exclude prompts,
+inputs, outputs, private history, filesystem paths and exception messages.
+Unsupported checkpoint reasons become the fixed `unknown` marker.
+
+ALWAYS keep the callback fast and cooperative: delivery is synchronous and best
+effort, and ordinary callback exceptions are isolated. NEVER use observations as
+durable evidence, authorization or an outbox. `KeyboardInterrupt` and other
+process-control exceptions propagate. The existing `on_event` callback remains a
+critical, propagating hook, and Runtime receipt capture still uses that hook.
+
+## Host Runtime controls
+
+`WorkflowPolicy` accepts `max_provider_requests_per_invocation` and
+`max_tool_calls_per_invocation`. Each is an exact nonnegative integer or `None`;
+zero permits no dispatch of that unit. These are host controls. `describe()`
+includes enabled controls in `limits` with `limitUnits` set to `perInvocation`.
+The client proposal's graph `limits` cannot set either control. `max_calls`
+continues to count Harness invocations. Omitted and explicit `None` controls
+retain the historic workflow fingerprints and descriptors.
+
+Before each native invocation Harness passes the remaining workflow reported
+token allowance and remaining persisted run time to Runtime, alongside the host
+provider/tool caps. Runtime counts actual outgoing provider requests and tool
+dispatch attempts. A final response exactly at the token allowance may succeed;
+unknown or over-cap terminal usage blocks further work. The completed receipt
+and invocation ledger retain incurred/unknown usage even on failure.
+
+Native adapters must advertise `invocation_budgets_v1` and `tool_context_v1`;
+journal bindings additionally require `tool_journal_v1`. Admission checks these
+before creating run state or calling the model. Ordinary trusted adapters keep
+their existing call keywords when these native controls are disabled.
+
+Contextual tools receive a dedicated `InvocationScope`, with the persisted
+attempt ID as `invocation_id`, the run/step IDs, and an optional host namespace.
+Configure operation bindings through the host:
+
+```python
+bindings = WorkflowBindings(config=config, custom_tools=tools,
+    operation_namespace='owned-business-domain-v1', tool_journal=journal)
+```
+
+Journaled tools require both bindings. Harness reads Runtime's static journal
+descriptor, rejecting property-backed declarations without evaluating them, and
+seals the opaque identity, contract version and namespace in workflow/bundle
+material. Fresh registrations with the same declarations reconstruct the same
+identity. Status, resume and dispatch recheck bindings. Host ledger objects stay
+private; checkpoint v2 and receipt v1 contain no operation binding extensions.
+
+ALWAYS make the journal's declared identity refer to the same durable ledger
+across replicas and deployments. NEVER derive a business idempotency key from a
+Harness attempt ID, provider call ID or argument hash. Key resolution and
+reconciliation belong to the trusted tool and its consuming application.
+
+ALWAYS preserve an uncertain effect for explicit host resolution. NEVER use
+`retry_interrupted=True`, a graph retry or a monitoring event to reconcile it.
+Runtime uncertainty failures produce terminal invocation failure receipts;
+Harness does not implement a business journal or automatic model retry.
 
 ## Offline installed-wheel check
 
-Use a tagged checkout for the smoke script and a clean environment for the
-released Harness wheel. Its immutable dependencies install Core and Runtime:
+Use the exact candidate checkout for the smoke script and a fresh environment
+with the manifest-selected b3 candidate wheelhouse. Runtime 0.8 and final
+five-wheel qualification must complete before publication:
 
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.6.2
+git checkout <exact-candidate-commit>
 python3 -m venv .wheel-check
-.wheel-check/bin/python -m pip install \
-  https://github.com/B3Cognition/prosaic-harness/releases/download/v0.6.2/prosaic_harness-0.6.2-py3-none-any.whl
+.wheel-check/bin/python -m pip install --find-links /absolute/path/to/curated-wheelhouse \
+  b3-prosaic-harness==0.7.0
 .wheel-check/bin/python -I scripts/workflow_factory_smoke.py
 ```
 
 [The smoke script](../scripts/workflow_factory_smoke.py) checks installed module
-origins and public prerequisite APIs, clears Node/Prosaic executables from PATH,
+ownership by the b3 distributions, absence of legacy packages and public
+prerequisite APIs, clears Node/Prosaic executables from PATH,
 and uses a disposable loopback endpoint with synthetic responses. It exercises
 the native tool, confirmation schema/validator, read-only status, fresh-factory
 reconstruction and resume, unchanged receipt identity and one completed Harness

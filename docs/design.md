@@ -25,6 +25,21 @@ There are no external publication effects in v0.1. Checkpointing a result before
 advancing state avoids silently losing accepted work. Local run history records
 transitions and pause decisions; receipts contain output, usage, and events.
 
+`Harness(..., observer=callback)` delivers optional version-1 monitoring records
+after the store commits each state revision. A state-limit fallback therefore
+reports the committed blocked state. Each run/resume execution has an independent
+opaque observation scope and sequence; Runtime records use the persisted attempt
+ID. Records contain bounded safe scalars and correlation, excluding inputs,
+outputs, private evidence and raw error text. Unsupported checkpoint reasons
+become `unknown`.
+
+ALWAYS keep observers fast and cooperative: delivery is synchronous and best
+effort, and ordinary observer exceptions do not change committed work. NEVER
+treat observations as durable receipts, authorization or an outbox. Process-control
+exceptions still propagate. The existing `on_event` hook remains critical and
+propagating, including Runtime receipt evidence capture; use it only when callback
+failure should interrupt execution.
+
 Workflow content, resolved schemas, runtime configuration, and inspected prose
 are fingerprinted. Resume rejects changed definitions. Runtime credentials are
 read from the environment or configured secret file, never copied into run state.

@@ -4,26 +4,33 @@ Run on worker A, inspect/resume on worker B, without a shared writable run
 directory. Core remains database-free; install this separate adapter only when
 you need shared durable state. The API is synchronous; a private I/O thread
 bounds network waits. Model execution holds no database connection/transaction.
-Core **0.6.1** and adapter **0.1.1** are published together in the
+The current candidate is `b3-prosaic-harness-postgres` **0.2.0**, selecting
+`b3-prosaic-harness>=0.7,<0.8`. The adapter is maintained in this repository but
+installed and versioned separately, keeping PostgreSQL drivers optional for
+Harness users. Imports and CLI names remain unchanged. Final qualification and
+publication of the b3 release train are pending. The historical
 [Harness v0.6.1 release](https://github.com/B3Cognition/prosaic-harness/releases/tag/v0.6.1)
-as separate wheels and source archives. The adapter is maintained in this
-repository but installed and versioned separately, keeping PostgreSQL drivers
-optional for core users. Use the v0.6.1 checkout or release wheels for these APIs;
-the older v0.5.0 release does not include them.
+retains its original 0.6.1/0.1.1 package names and receipts.
 
 ## 1. Install and supply an existing database
 
-Python 3.11+, PostgreSQL 16 or 18 on a writable primary, Git for the pinned
-Runtime dependency, and libpq 17+ are required. `psycopg[binary]` supplies libpq;
-older libpq is rejected. From the Harness repository root:
+Python 3.11+, PostgreSQL 16 or 18 on a writable primary, and libpq 17+ are
+required. `psycopg[binary]` supplies libpq; older libpq is rejected.
+From the exact candidate Harness checkout, use a new environment and a curated
+wheelhouse containing only the manifest-selected b3 candidate wheels:
 
 ```sh
 python3 -m venv .venv-postgres
-.venv-postgres/bin/python -m pip install . ./adapters/postgres
+.venv-postgres/bin/python -m pip install --find-links /absolute/path/to/curated-wheelhouse . ./adapters/postgres
 export PATH="$PWD/.venv-postgres/bin:$PATH"
 prosaic --version
 prosaic-harness-postgres --help
 ```
+
+ALWAYS migrate using a fresh environment or image; NEVER install legacy and b3
+distributions together because they own the same import paths. See
+[package migration](../../docs/package-migration.md). The Runtime 0.8 candidate
+must be available before this installation can resolve.
 
 Harness does **not** provision PostgreSQL, create databases/users, start a
 service, or fall back to files. Your operator supplies two DSNs through a secret
@@ -188,7 +195,7 @@ removing only owned containers/volumes/network. Generated fixture networks and
 loopback ports use synthetic trust authentication, never production defaults.
 # Lease registration candidate
 
-The unpublished 0.1.1 candidate transfers acquisition capacity into registered
+The adapter transfers acquisition capacity into registered
 session capacity atomically under the existing store mutex. A registering lease
 can no longer be counted twice while maintenance is scheduled. The database
 storage/fencing contract is unchanged. A unit scheduling-boundary regression and

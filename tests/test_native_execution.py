@@ -9,7 +9,7 @@ from prosaic_harness import Harness, Workflow
 from test_workflow_factory import api, factory, graph, agent, config, tools
 
 
-def bound(tmp_path, monkeypatch, *, proposal=None, reply=None, **caps):
+def bound(tmp_path, monkeypatch, *, proposal=None, reply=None, harness_options=None, **caps):
     workflow = factory(**caps).build(proposal or graph())
     runtime = ProsaicRuntime(workflow.config, custom_tools=tools())
     calls = []
@@ -23,7 +23,7 @@ def bound(tmp_path, monkeypatch, *, proposal=None, reply=None, **caps):
             return reply(kwargs)
         return reply or Result(0, '{"found":true}', '', token_usage=3)
     monkeypatch.setattr(runtime, 'run', run)
-    return Harness(workflow, tmp_path / 'run', runtime=runtime), calls
+    return Harness(workflow, tmp_path / 'run', runtime=runtime, **(harness_options or {})), calls
 
 
 def test_native_run_pause_resume_private_cwd_and_cleanup(tmp_path, monkeypatch):
@@ -206,13 +206,24 @@ def test_terminal_state_limit_retains_receipt_accounting(tmp_path, monkeypatch):
     proposal['steps']['find']['require_tools'] = []
     proposal['steps']['find']['next'] = 'done'
     result = Result(0, json.dumps({'found': True, 'payload': 'x' * 6000}), '', token_usage=3)
+    records = []
+    revisions = []
+    def observe(record):
+        revisions.append(h.status().revision)
+        records.append(record)
     h, calls = bound(tmp_path, monkeypatch, proposal=proposal, reply=result,
+                     harness_options={'observer': observe},
                      schemas={'result': {'type': 'object'}}, max_state_bytes=7000)
     state = h.run({})
     assert state['reason'] == 'state_limit' and state['pending'] is None
     assert state['invocations'][0]['status'] == 'complete'
     assert state['outputs'] == {} and h.status().state['reason'] == 'state_limit'
     assert (tmp_path / 'run/run.json').stat().st_size <= 7000
+    assert records[-1]['event'] == 'blocked_committed'
+    assert records[-1]['outcome'] == 'blocked' and records[-1]['reason'] == 'unknown'
+    assert records[-1]['revision'] == h.status().revision
+    assert [record['revision'] for record in records] == revisions
+    assert records[-1]['calls'] == 1
 
 
 def test_terminal_state_reserves_node_capacity_too(tmp_path, monkeypatch):

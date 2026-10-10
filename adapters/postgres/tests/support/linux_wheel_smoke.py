@@ -1,5 +1,6 @@
 """Installed-wheel SDK/CLI smoke inside an owned native Linux container."""
 import json
+from importlib import import_module, metadata
 import os
 from pathlib import Path
 import platform
@@ -15,6 +16,21 @@ from psycopg.conninfo import make_conninfo
 def main():
     assert platform.system() == 'Linux'
     assert psycopg.pq.version() >= 170000
+    installed = {distribution.metadata['Name'].lower().replace('_', '-')
+                 for distribution in metadata.distributions()}
+    assert {'b3-prosaic', 'b3-prosaic-runtime', 'b3-prosaic-harness',
+            'b3-prosaic-harness-postgres'} <= installed, installed
+    assert not {'prosaic', 'prosaic-runtime', 'prosaic-runtime-postgres',
+                'prosaic-harness', 'prosaic-harness-postgres'} & installed, installed
+    for module_name, distribution in [('prosaic', 'b3-prosaic'),
+            ('prosaic_runtime', 'b3-prosaic-runtime'),
+            ('prosaic_harness', 'b3-prosaic-harness'),
+            ('prosaic_harness_postgres', 'b3-prosaic-harness-postgres')]:
+        module = import_module(module_name)
+        origin = Path(module.__file__).resolve()
+        assert 'site-packages' in origin.parts
+        assert origin in {Path(file.locate()).resolve() for file in metadata.files(distribution)}
+        assert module.__version__ == metadata.version(distribution)
     base = os.environ['HARNESS_SMOKE_DSN']
     db, role = 'harness_test_' + uuid.uuid4().hex, 'harness_role_' + uuid.uuid4().hex
     with psycopg.connect(base, autocommit=True) as admin:

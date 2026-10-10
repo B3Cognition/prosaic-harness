@@ -8,6 +8,7 @@ from prosaic_runtime import validate_execution_artifact
 from prosaic_runtime.policy import READ_TOOLS, BUILTIN_TOOLS, requested_tools
 
 from .schema_validation import admit_schema
+from .errors import GraphAdmissionError, logical_location, logical_alias
 
 
 STEP_KEYS = {
@@ -82,7 +83,8 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
             raise ValueError('step identifiers must be simple names')
         kind = step.get('kind')
         if kind not in STEP_KEYS or set(step) - STEP_KEYS[kind]:
-            raise ValueError('unsupported step or keys')
+            raise GraphAdmissionError('unsupported step or keys', logical_location(
+                'definition', 'steps', logical_alias(name), 'kind' if kind not in STEP_KEYS else '*'))
         if native and set(step) & {'acquisition', 'read_roots', 'require_reads'}:
             raise ValueError('native workflows cannot introduce filesystem bindings')
         _positive(step.get('max_visits', limits['max_visits']), 'max_visits')
@@ -109,7 +111,8 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
             _strings(granted, 'tools')
             allowed = set(descriptors) if native else set(descriptors) | READ_TOOLS
             if set(granted) - allowed or set(granted) - workflow.config.allowed_tools:
-                raise ValueError('agent tool grants need registered permitted implementations')
+                raise GraphAdmissionError('agent tool grants need registered permitted implementations',
+                    logical_location('definition', 'steps', logical_alias(name), 'tools'))
             required = step.get('require_tools', [])
             _strings(required, 'require_tools')
             if set(required) - set(granted):
@@ -179,7 +182,10 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
         elif step.get('outcome', 'completed') not in {'completed', 'rejected'}:
             raise ValueError('invalid finish outcome')
         if any(type(target) is not str or target not in steps for target in targets):
-            raise ValueError('unknown transition target')
+            field = 'next' if kind == 'agent' else 'choices' if kind == 'pause' else (
+                'pass' if type(step.get('pass')) is not str or step.get('pass') not in steps else 'fail')
+            raise GraphAdmissionError('unknown transition target', logical_location(
+                'definition', 'steps', logical_alias(name), field))
     if set(workflow.artifacts) != artifact_steps or set(workflow.schemas) != schema_steps or set(workflow.acquisitions) != acquisition_steps:
         raise ValueError('resolved content does not match graph references')
     for schema in workflow.schemas.values():
