@@ -7,13 +7,14 @@ import json
 from pathlib import Path
 import re
 
-from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 import yaml
 from prosaic_runtime import RuntimeConfig, ProsaicRuntime, RunPolicy
 from prosaic_runtime.artifacts import inspect_artifact
 from prosaic_runtime.policy import READ_TOOLS, BUILTIN_TOOLS, requested_tools
 from .store import parse_json, read_bytes
+from .errors import WorkflowAdmissionError
+from .graph_admission import validate_resolved_workflow
 
 
 def digest(value):
@@ -63,17 +64,6 @@ def local(root, value):
     return path
 
 
-def reject_external_refs(value):
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key in {'$ref', '$dynamicRef'} and (not isinstance(child, str) or not child.startswith('#')):
-                raise ValueError('schemas support internal references only')
-            reject_external_refs(child)
-    elif isinstance(value, list):
-        for child in value:
-            reject_external_refs(child)
-
-
 @dataclass
 class Workflow:
     path: Path
@@ -89,6 +79,11 @@ class Workflow:
     @property
     def tool_descriptors(self):
         return deepcopy(self._tool_descriptors)
+
+    @property
+    def _registered_descriptors(self):
+        """Owned preparation metadata; reads cannot mutate the loader snapshot."""
+        return json.loads(getattr(self, '_registered_descriptors_json', '{}'))
 
     def current_fingerprint(self):
         return digest({'workflow': self.definition, 'runtime': runtime_identity(self.config),
@@ -109,6 +104,10 @@ class Workflow:
     def load(cls, path, *, executable='prosaic', custom_tools=None):
         try:
             return cls._load(path, executable=executable, custom_tools=custom_tools)
+        except WorkflowAdmissionError as exc:
+            if exc.code == 'invalid_schema':
+                raise ValueError('invalid workflow definition: schema must be valid and support internal references only') from None
+            raise
         except (yaml.YAMLError, SchemaError, KeyError, TypeError, AttributeError) as exc:
             raise ValueError(f'invalid workflow definition: {type(exc).__name__}') from exc
 
@@ -141,7 +140,6 @@ class Workflow:
         # Preserve compatibility with the released Runtime for no-custom flows.
         adapter = ProsaicRuntime(config, custom_tools=registry) if registry else ProsaicRuntime(config)
         registered = dict(getattr(adapter, 'tool_descriptors', {}))
-        descriptors = {}
         source = local(root, raw.get('source', '.prosaic'))
         evidence = raw.get('evidence', [])
         if not isinstance(evidence, list) or not all(isinstance(v, str) for v in evidence) or len(evidence) > 64 or len(set(evidence)) != len(evidence):
@@ -211,7 +209,6 @@ class Workflow:
                     if not report['ok']:
                         failed = {tool: check['message'] for tool, check in report['checks'].items() if check['status'] != 'ok'}
                         raise ValueError(f'CLI tool preflight failed in step {name}: {failed}')
-                descriptors.update({tool: registered[tool] for tool in requested & registered.keys()})
                 if set(required) - requested_tools(artifact.frontmatter.get('tools')):
                     raise ValueError('prose does not request required tools')
                 if reads and 'read_file' not in requested_tools(artifact.frontmatter.get('tools')):
@@ -232,8 +229,6 @@ class Workflow:
                             raise ValueError(f'acquisition {key} must match final prose or be omitted')
                     acquisitions[name] = acquisition
                 schema = parse_json(read_bytes(local(root, step['schema'])).decode())
-                reject_external_refs(schema)
-                Draft202012Validator.check_schema(schema)
                 schemas[name] = schema
             elif kind in {'gate', 'check'}:
                 if step.get('from') not in steps or steps[step['from']].get('kind') != 'agent':
@@ -249,8 +244,6 @@ class Workflow:
             elif kind == 'pause':
                 if 'response_schema' in step:
                     schema = parse_json(read_bytes(local(root, step['response_schema'])).decode())
-                    reject_external_refs(schema)
-                    Draft202012Validator.check_schema(schema)
                     schemas[name] = schema
                 elif validators:
                     raise ValueError('pause validators require response_schema')
@@ -263,11 +256,19 @@ class Workflow:
                 raise ValueError('finish outcome must be completed or rejected')
             if any(not isinstance(t, str) or t not in steps for t in targets):
                 raise ValueError(f'unknown transition target in {name}')
+        # The YAML adapter resolves trusted paths and prepares CLI availability;
+        # the same pure graph/artifact/schema admission also serves native graphs
+        # and manually assembled execution objects. No native limits are applied.
+        workflow = cls(path, raw, config, artifacts, schemas, '', acquisitions,
+                       MappingProxyType(registry), {})
+        workflow._registered_descriptors_json = json.dumps(registered, sort_keys=True, allow_nan=False)
+        descriptors = validate_resolved_workflow(workflow, descriptors=registered,
+                                                 profile=None, native=False)
         fingerprint = digest({'workflow': raw, 'runtime': runtime_identity(config),
                               'schemas': schemas, 'prose': {name: a.digest for name, a in artifacts.items()},
                               **({'acquisitions': {name: a.digest for name, a in acquisitions.items()}} if acquisitions else {}),
                               **({'custom_tools': descriptors} if descriptors else {})})
-        workflow = cls(path, raw, config, artifacts, schemas, fingerprint, acquisitions,
-                       MappingProxyType(registry), deepcopy(descriptors))
+        workflow.fingerprint = fingerprint
+        workflow._tool_descriptors = deepcopy(descriptors)
         workflow.snapshot()
         return workflow

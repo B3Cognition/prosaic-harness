@@ -1,5 +1,8 @@
 # Validated in memory workflow construction
 
+Superseded by the [production MVP design](2026-10-09-workflow-mvp-design.md).
+This document retains the initial proposal and review history.
+
 Provide a supported Harness API that validates and seals workflows assembled in
 memory. Trusted application code can supply inspected or composed agents,
 schemas, and registered native tools. A service can use the same mechanism to
@@ -8,6 +11,11 @@ caller-invented directory or manual fingerprints and private descriptor fields.
 
 The user approved this direction on 2026-10-09. This written specification is
 ready for review; implementation planning follows approval of this artifact.
+
+Review identified four substantive admission gaps. The accompanying
+[resolution research](2026-10-09-workflow-review-resolutions.md) records reproductions
+and proposed amendments, including a narrower initial schema scope. Those
+recommendations have not yet been incorporated into this specification.
 
 ## Scope and success criteria
 
@@ -157,8 +165,12 @@ those new aliases. Their tools, routes, limits and graph behavior still satisfy
 all other policy constraints. Unused inline aliases fail even when permitted.
 
 Validator names must be host-registered, policy-allowed, and valid for the step
-kind. Model tiers must exist in runtime routes and be policy-allowed. The default
-profile is host configuration; clients cannot select an endpoint or credentials.
+kind. Explicit model tiers must exist in runtime routes and be policy-allowed.
+Omitting `model_tier` authorizes the host-configured default profile, even when
+`allowed_model_tiers` permits only named tiers or is empty. The tier allowlist
+constrains explicit tier selection; it does not restrict the implicit default.
+The selected default profile remains part of sealed runtime identity. Clients
+cannot select an endpoint or credentials.
 Consequential native callbacks continue to enforce real host authorization.
 Generated arguments or prose claiming approval do not authorize an operation.
 Human choices enter through the existing explicit `Harness.resume()` interface.
@@ -412,6 +424,9 @@ Acceptance tests must establish:
   native callbacks and a local HTTP fixture. Product tool names stay in consumers.
 - Inline prose and multi-agent composition permissions operate independently;
   valid prose requesting unauthorized behavior cannot broaden effective grants.
+- Omitted `model_tier` selects the host default profile even with an empty or
+  named-tier-only allowlist; explicit tiers require both an allowed name and a
+  configured route. Changing the default profile changes sealed runtime identity.
 - Invalid transitions, references, schemas, bounds and unsupported fields fail;
   registration alone never authorizes execution. Remote schema references, JSON
   cycles, nonfinite numbers, excess nesting and duplicate raw JSON keys fail safely.

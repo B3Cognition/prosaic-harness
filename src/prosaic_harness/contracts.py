@@ -1,8 +1,8 @@
 """Admission for controller-owned checkpoints and invocation receipts."""
 import re
-from jsonschema import Draft202012Validator
 from .store import parse_json
 from .workflow import digest
+from .schema_validation import evaluate_schema
 
 IDENTIFIER = re.compile(r'^[0-9a-f]{32}$')
 HASH = re.compile(r'^[0-9a-f]{64}$')
@@ -114,7 +114,9 @@ def validate_state(state, workflow):
             if step['kind'] != 'pause' or event.get('choice') not in step['choices']:
                 raise ValueError('invalid human decision')
             if 'response_schema' in step:
-                if 'response' not in event or not Draft202012Validator(workflow.schemas[event['step']]).is_valid(event['response']):
+                admission = getattr(workflow, '_admission', None)
+                profile = admission.policy.schema_profile(human=True) if admission is not None else None
+                if 'response' not in event or evaluate_schema(workflow.schemas[event['step']], event['response'], profile=profile):
                     raise ValueError('invalid human response')
             elif 'response' in event:
                 raise ValueError('unexpected human response')

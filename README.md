@@ -1,5 +1,10 @@
 # Prosaic Harness
 
+Version **0.6.2** adds a [validated in-memory workflow factory](docs/workflow-factory.md)
+for approved agents, native tool registries and client-generated graphs. The host
+supplies policy and private bindings; proposals need no filesystem directory.
+Admission, schema bounds and durable failure recovery are enforced before execution.
+
 Optional [customer accounting context](docs/accounting.md) preserves attribution
 through workflow retries and resume. Existing callers and saved runs remain supported;
 durable usage recording is explicitly enabled through Prosaic Runtime.
@@ -21,12 +26,12 @@ Installation and CI no longer require Node.js or npm.
 
 Version 0.4.0 adds [manifest-defined CLI tools](examples/README.md#custom-command-line-tools)
 through the normal workflow CLI, with offline availability checks and required
-native execution evidence. The current immutable dependency pin installs Runtime v0.7.0.
+native execution evidence. The current immutable dependency pin installs Runtime v0.7.1.
 
 ## CLI permissions and sandboxing
 
-Harness **0.6.1** retains CLI sandbox policy enforcement and pins Runtime
-**0.7.0**, which provides `cli_sandbox_v1`. Follow the
+Harness **0.6.2** retains CLI sandbox policy enforcement and pins Runtime
+**0.7.1**, which provides `cli_sandbox_v1`. Follow the
 [sandboxed workflow walkthrough](examples/README.md#sandboxed-cli-workflow-harness-042)
 for installation, offline validation and live execution.
 The complete blueprint is [cli-tool-sandboxed.yml](examples/cli-tool-sandboxed.yml).

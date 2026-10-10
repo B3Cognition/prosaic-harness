@@ -22,7 +22,7 @@ def test_missing_runtime_provenance_capability_fails_before_dispatch(tmp_path, m
     setup(tmp_path, monkeypatch)
     from prosaic_runtime import ProsaicArtifact
     monkeypatch.setattr('prosaic_harness.workflow.inspect_artifact', lambda *a, **k:
-        ProsaicArtifact('author', 'subagent', {'model_tier': 'fast', 'tools': 'read'}, 'Return JSON'))
+        ProsaicArtifact('author', 'subagent', {'name': 'author', 'description': 'Synthetic author', 'model_tier': 'fast', 'tools': 'read'}, 'Return JSON'))
     (tmp_path / 'source.md').write_text('evidence')
     config = tmp_path / 'runtime.yml'
     config.write_text(config.read_text() + 'allowed_tools: [read_file]\n')
@@ -49,7 +49,7 @@ def test_wrong_file_changed_content_and_partial_read_do_not_count(tmp_path, monk
         d['steps']['author'].update(tools=['read_file'], read_roots=['.'], require_reads=['source.md'])
     from prosaic_runtime import ProsaicArtifact
     monkeypatch.setattr('prosaic_harness.workflow.inspect_artifact', lambda *a, **k:
-        ProsaicArtifact('author', 'subagent', {'model_tier': 'fast', 'tools': 'read'}, 'Return JSON'))
+        ProsaicArtifact('author', 'subagent', {'name': 'author', 'description': 'Synthetic author', 'model_tier': 'fast', 'tools': 'read'}, 'Return JSON'))
     class Reading(FakeRuntime):
         capabilities = {'read_receipts_v1'}
         def run(self, *a, **kw):

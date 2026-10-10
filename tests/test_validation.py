@@ -8,6 +8,19 @@ from prosaic_harness.store import locked
 from test_harness import setup, FakeRuntime
 
 
+@pytest.mark.parametrize('boundary', ['resume', 'status'])
+def test_live_validator_version_cannot_change_after_construction(tmp_path, monkeypatch, boundary):
+    from prosaic_harness import Validator
+    setup(tmp_path, monkeypatch, pause=True)
+    path = edit_flow(tmp_path, lambda d: d['steps']['author'].update(validators=['guard']))
+    h = Harness(Workflow.load(path), tmp_path / 'run', runtime=FakeRuntime(['{"approved":true}']),
+                validators={'guard': Validator('v1', lambda output, context: [])})
+    assert h.run({})['status'] == 'waiting'
+    h.validators['guard'] = Validator('v2', lambda output, context: [])
+    with pytest.raises(ValueError):
+        h.resume(choice='approve') if boundary == 'resume' else h.status()
+
+
 def edit_flow(tmp_path, change):
     import yaml
     path = tmp_path / 'flow.yml'

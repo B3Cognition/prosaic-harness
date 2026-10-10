@@ -12,7 +12,7 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
-CORE = ROOT / 'dist/prosaic_harness-0.6.1-py3-none-any.whl'
+CORE = ROOT / 'dist/prosaic_harness-0.6.2-py3-none-any.whl'
 ADAPTER = ROOT / 'adapters/postgres/dist/prosaic_harness_postgres-0.1.1-py3-none-any.whl'
 
 def test_owned_fixture_uses_free_explicit_subnet_when_default_pool_is_exhausted():
@@ -70,7 +70,7 @@ def metadata(path):
 
 def test_wheel_contents_and_dependency_boundaries():
     core, names = metadata(CORE)
-    assert core['Version'] == '0.6.1'
+    assert core['Version'] == '0.6.2'
     assert not any(name.startswith('prosaic_harness_postgres/') for name in names)
     assert not any('psycopg' in value.lower() for value in core.get_all('Requires-Dist'))
     adapter, names = metadata(ADAPTER)

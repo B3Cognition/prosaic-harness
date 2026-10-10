@@ -154,10 +154,10 @@ set -eu
 apt-get update -qq
 apt-get install -y -qq git >/dev/null
 python -m venv /tmp/core
-/tmp/core/bin/python -m pip install /core-wheels/prosaic_harness-0.6.1-py3-none-any.whl >/dev/null
+/tmp/core/bin/python -m pip install /core-wheels/prosaic_harness-0.6.2-py3-none-any.whl >/dev/null
 /tmp/core/bin/python -I -c 'import importlib.util,prosaic_harness; assert importlib.util.find_spec("psycopg") is None; assert importlib.util.find_spec("prosaic_harness_postgres") is None'
 python -m venv /tmp/both
-/tmp/both/bin/python -m pip install /core-wheels/prosaic_harness-0.6.1-py3-none-any.whl /adapter-wheels/prosaic_harness_postgres-0.1.1-py3-none-any.whl >/dev/null
+/tmp/both/bin/python -m pip install /core-wheels/prosaic_harness-0.6.2-py3-none-any.whl /adapter-wheels/prosaic_harness_postgres-0.1.1-py3-none-any.whl >/dev/null
 /tmp/both/bin/python /fixture/linux_wheel_smoke.py
 '''
         container_id = self._run('create', '--name', name, '--network', self.network,

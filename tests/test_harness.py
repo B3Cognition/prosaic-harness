@@ -24,7 +24,7 @@ def setup(tmp_path, monkeypatch, *, pause=False, repair=False, max_calls=10):
     path.write_text(yaml.safe_dump({"version": 1, "start": "author", "runtime": "runtime.yml",
         "source": ".prosaic", "limits": {"max_calls": max_calls, "timeout_s": 10}, "steps": steps}))
     monkeypatch.setattr('prosaic_harness.workflow.inspect_artifact', lambda *a, **k:
-        ProsaicArtifact('author', 'subagent', {"model_tier": "fast"}, 'Return JSON for {{args}}'))
+        ProsaicArtifact('author', 'subagent', {"name": "author", "description": "Synthetic test author", "model_tier": "fast"}, 'Return JSON for {{args}}'))
     return Workflow.load(path)
 
 

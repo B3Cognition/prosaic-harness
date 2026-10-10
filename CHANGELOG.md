@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.6.2 — candidate
+
+- Add public WorkflowCatalog, WorkflowBindings, WorkflowPolicy and WorkflowFactory
+  for validated native in-memory assembly and admitted client-generated graphs.
+- Snapshot approved artifacts/configuration, seal graph/policy identity, and
+  verify actual runtime/tool/validator bindings at each execution boundary.
+- Bound JSON/schema work and durable documents, use private temporary execution
+  directories, and preserve returned-invocation receipts on limit failures.
+- Preserve YAML identities/defaults, explicit human choices, interrupted retry,
+  and checkpoint/receipt versions. Pin Runtime 0.7.1 / Prosaic 0.3.2.
+
 ## 0.6.1 — 2026-10-09
 
 - Ship PostgreSQL store 0.1.1 with atomic lease-registration admission, preventing
