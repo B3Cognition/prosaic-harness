@@ -4,7 +4,7 @@ Install the B3 distribution in a fresh Python 3.11+ environment:
 
 ```sh
 python -m venv .venv
-.venv/bin/python -m pip install 'b3-prosaic-harness>=0.7,<0.8'
+.venv/bin/python -m pip install 'b3-prosaic-harness>=0.7.1,<0.8'
 .venv/bin/prosaic-harness --help
 ```
 

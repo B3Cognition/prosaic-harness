@@ -30,7 +30,7 @@ with trusted validators and retained feedback for downstream agents and checks.
 It pins Runtime v0.5.3 and automatically installs Python Prosaic v0.3.1.
 Installation and CI no longer require Node.js or npm.
 
-Version 0.4.1 adds [manifest-defined CLI tools](examples/README.md#custom-command-line-tools)
+Version 0.4.0 adds [manifest-defined CLI tools](examples/README.md#custom-command-line-tools)
 through the normal workflow CLI, with offline availability checks and required
 native execution evidence. Current candidates select the compatible Runtime 0.8 series.
 
@@ -71,7 +71,7 @@ cannot silently downgrade it. Use a fresh run directory when changing policy.
 
 The [custom-tool embedding example](examples/README.md#host-registered-custom-tools)
 adds catalogue lookup, version-bound native execution evidence, deterministic
-answer admission and a human pause. It requires Harness v0.4.1+ / Runtime v0.5.0+.
+answer admission and a human pause. It requires Harness v0.4.0+ / Runtime v0.5.0+.
 
 A small Python harness for durable workflows built from neutral Prosaic agents.
 Define a graph in YAML, execute agents through Prosaic Runtime, validate their
@@ -88,7 +88,7 @@ existing OpenAI-compatible endpoint and the Python Prosaic CLI. Windows
 users can use WSL. The library imports no Echelon code.
 
 Version 0.2.0 adds versioned approvals, trusted checks and final-output validation,
-and hash-bound read provenance. Version 0.3.0 pins Prosaic Runtime 0.4.1, adding
+and hash-bound read provenance. Version 0.3.0 pins Prosaic Runtime 0.4.0, adding
 opt-in acquisition, strict initial-tool enforcement, admission-time resource
 checks and larger incident-review examples. State format is
 version 2; existing 0.1 runs must start afresh. See
