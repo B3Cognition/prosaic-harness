@@ -39,8 +39,8 @@ def candidate_wheels(root):
     release = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(release)
     release.verify_upstream(Path(receipt_directory).resolve(strict=True), wheelhouse)
-    return [wheelhouse / 'b3_prosaic-0.4.0-py3-none-any.whl',
-            wheelhouse / 'b3_prosaic_runtime-0.8.0-py3-none-any.whl']
+    return [wheelhouse / 'b3_prosaic-0.4.1-py3-none-any.whl',
+            wheelhouse / 'b3_prosaic_runtime-0.8.1-py3-none-any.whl']
 
 
 class LocalCluster:
@@ -177,11 +177,11 @@ class LocalCluster:
 set -eu
 apt-get update -qq
 python -m venv /tmp/core
-/tmp/core/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.7.0-py3-none-any.whl >/dev/null
+/tmp/core/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.7.1-py3-none-any.whl >/dev/null
 /tmp/core/bin/python -I -c 'import importlib.util,prosaic_harness; assert importlib.util.find_spec("psycopg") is None; assert importlib.util.find_spec("prosaic_harness_postgres") is None'
 /tmp/core/bin/python -I /fixture/workflow_factory_smoke.py
 python -m venv /tmp/both
-/tmp/both/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.7.0-py3-none-any.whl /adapter-wheels/b3_prosaic_harness_postgres-0.2.0-py3-none-any.whl >/dev/null
+/tmp/both/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.7.1-py3-none-any.whl /adapter-wheels/b3_prosaic_harness_postgres-0.2.1-py3-none-any.whl >/dev/null
 /tmp/both/bin/python -I /fixture/linux_wheel_smoke.py
 '''
         if dependencies:
