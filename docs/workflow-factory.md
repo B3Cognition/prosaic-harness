@@ -248,7 +248,9 @@ catalogue, policy, effective Runtime configuration and declared tool/validator
 versions, including unused entries. Display-only public catalogue metadata is
 excluded. The opaque `identity` is a versioned SHA-256 digest of that material;
 changing execution material changes it even when the host version label stays
-the same. A version label is a nonempty opaque string, limited to 128 UTF-8 bytes
+the same. Supported sandbox mode and every trusted runtime root remain private
+identity material; preparing or reconstructing a bundle does not resolve or probe
+those paths. A version label is a nonempty opaque string, limited to 128 UTF-8 bytes
 with no Unicode control, format or surrogate characters.
 
 ```python

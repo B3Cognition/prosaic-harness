@@ -27,6 +27,55 @@ def test_bundle_reference_reconstructs_public_native_workflow():
     assert 'inline_agents' not in json.loads(first.proposal_json)
 
 
+@pytest.mark.parametrize('mode,roots', [
+    ('off', ()),
+    ('required', ()),
+    ('off', ('/synthetic/trusted-root',)),
+    ('required', ('/synthetic/trusted-root',)),
+])
+def test_bundle_preserves_supported_sandbox_configuration_identity(mode, roots, monkeypatch):
+    from pathlib import Path
+    from prosaic_harness import WorkflowBundle
+    from prosaic_runtime import CliSandboxConfig
+    from test_workflow_factory import config
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError('bundle preparation probed a trusted runtime root')
+
+    cfg = config(cli_sandbox=CliSandboxConfig(mode, roots))
+    original = factory(cfg=cfg)
+    ordinary = original.build(graph())
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, 'resolve', forbidden)
+        patch.setattr(Path, 'exists', forbidden)
+        bundle = WorkflowBundle('v1', original)
+        saved = bundle.prepare_json(envelope())
+        recreated = WorkflowBundle('v1', factory(cfg=cfg)).reconstruct(saved.proposal_json, saved.reference)
+    assert saved.workflow.fingerprint == recreated.fingerprint == ordinary.fingerprint
+    assert recreated.config.cli_sandbox.mode == mode
+    assert recreated.config.cli_sandbox.runtime_roots == roots
+    default = WorkflowBundle('v1', factory())
+    if mode == 'off' and not roots:
+        assert bundle.identity == default.identity
+    else:
+        assert bundle.identity != default.identity
+
+
+def test_sandbox_mode_and_each_trusted_root_change_bundle_identity():
+    from prosaic_harness import WorkflowBundle
+    from prosaic_runtime import CliSandboxConfig
+    from test_workflow_factory import config
+    identities = {
+        WorkflowBundle('v1', factory(cfg=config(cli_sandbox=CliSandboxConfig(mode, roots)))).identity
+        for mode, roots in [
+            ('off', ()), ('required', ()), ('off', ('/synthetic/first',)),
+            ('off', ('/synthetic/second',)), ('required', ('/synthetic/first',)),
+            ('required', ('/synthetic/first', '/synthetic/second')),
+        ]
+    }
+    assert len(identities) == 6
+
+
 def test_canonical_original_envelope_sorts_recursive_keys_and_preserves_absence():
     from prosaic_harness import WorkflowBundle
     value = {'inline_agents': {}, 'definition': {'version': 1, 'start': 'ask', 'steps': {

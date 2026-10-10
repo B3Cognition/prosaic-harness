@@ -403,11 +403,16 @@ class WorkflowFactory:
 
     def _bundle_material(self):
         """Complete private versioned material; public discovery is not identity."""
+        runtime = runtime_identity(_config_from_json(self._config_json))
+        if 'cli_sandbox' in runtime:
+            # The admitted config identity retains this supported tuple for
+            # historic workflow seals. Bundle material must be plain JSON.
+            runtime['cli_sandbox']['runtime_roots'] = list(runtime['cli_sandbox']['runtime_roots'])
         return _host_snapshot({'version': 1,
             'agents': {name: json.loads(text) for name, text in self._agents.items()},
             'schemas': {name: json.loads(text) for name, text in self._schemas.items()},
             'policy': self._policy._identity(),
-            'runtime': runtime_identity(_config_from_json(self._config_json)),
+            'runtime': runtime,
             'tools': custom_descriptors(self._tools),
             'validators': {name: value.version for name, value in self._validators.items()}})
 
