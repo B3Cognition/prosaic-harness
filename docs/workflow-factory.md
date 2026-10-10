@@ -95,8 +95,6 @@ definition = {"version": 1, "name": "synthetic-selection", "start": "find", "ste
     "rejected": {"kind": "finish", "outcome": "rejected"},
 }}
 workflow = factory.build(definition)
-# For raw client JSON: factory.build_json(text), where text is
-# {"definition": definition, "inline_agents": {...}} with inline_agents optional.
 
 from pathlib import Path
 import uuid
@@ -124,6 +122,158 @@ with the same store and run ID. Changes to used content, configuration, policy,
 evaluation profile or required callback versions reject resume. A saved receipt
 is adopted without another invocation. A request interrupted before its receipt
 was committed remains ambiguous and requires an explicit interrupted retry.
+
+## Client or LLM-generated proposals
+
+The authenticated application chooses the factory and its host policy before
+admitting a proposal. A client or LLM supplies only JSON graph data and logical
+aliases from the permitted catalogue. It cannot supply policy, registrations,
+Runtime configuration or credentials. Application-generated definitions use the
+same admission boundary.
+
+`build_json` accepts a strict JSON envelope with `definition` and optional
+`inline_agents`. Send the JSON itself, without Markdown fences. For example,
+this proposal uses the host's `finder`, `entity` schema and native lookup:
+
+```python
+proposal_text = '''{
+  "definition": {
+    "version": 1,
+    "start": "find",
+    "steps": {
+      "find": {"kind": "agent", "agent": "finder", "schema": "entity",
+               "tools": ["lookup_item"], "require_tools": ["lookup_item"],
+               "next": "done"},
+      "done": {"kind": "finish", "requires": ["find"]}
+    }
+  }
+}'''
+
+from prosaic_harness import WorkflowAdmissionError
+
+try:
+    proposed_workflow = factory.build_json(proposal_text)
+except WorkflowAdmissionError as error:
+    admission_response = {
+        "accepted": False,
+        "error": {"code": error.code, "location": error.location},
+    }
+else:
+    admission_response = {"accepted": True}
+```
+
+The response contains only safe admission fields. Create the Harness and run
+storage after successful admission, then use `run`/`resume` as above. Run inputs
+are separate from the graph proposal. Keep raw workflow objects, configuration
+and operator checkpoints inside the application. Codes such as `policy_denied`,
+`unknown_reference`, `invalid_definition` and `limit_exceeded` let the service
+explain rejected proposals without exposing parser exceptions or host data.
+
+## Composing approved agents
+
+Approve each specialist and its output schema in the host catalogue, then enable
+`allow_agent_composition=True`. This example extends the same trusted finder
+with a reviewer. Inline instruction permission remains disabled.
+
+```python
+reviewer = ProsaicArtifact("subagents/reviewer.md", "subagent", {
+    "name": "reviewer", "description": "Review the supplied synthetic entity",
+}, "ALWAYS review artifacts.find from the invocation arguments.\n"
+   "ALWAYS preserve its entity_id and return entity_id plus approved as JSON.\n"
+   "NEVER invent an entity or emit prose outside the JSON object.")
+review_schema = {
+    "type": "object", "properties": {
+        "entity_id": {"type": "string", "maxLength": 64},
+        "approved": {"type": "boolean"},
+    }, "required": ["entity_id", "approved"], "additionalProperties": False,
+}
+composition_factory = WorkflowFactory(
+    catalog=WorkflowCatalog(agents={"finder": agent, "reviewer": reviewer},
+                           schemas={"entity": entity_schema, "review": review_schema}),
+    bindings=WorkflowBindings(config=config, custom_tools={"lookup_item": tool}),
+    policy=WorkflowPolicy(
+        allowed_agents=frozenset({"finder", "reviewer"}),
+        allowed_schemas=frozenset({"entity", "review"}),
+        allowed_tools=frozenset({"lookup_item"}),
+        allowed_model_tiers=frozenset({"fast"}),
+        allow_agent_composition=True, max_calls=2, max_tokens=128, max_run_s=60,
+    ),
+)
+composition_definition = {"version": 1, "start": "find", "steps": {
+    "find": {"kind": "agent", "agent": "finder", "schema": "entity",
+             "tools": ["lookup_item"], "require_tools": ["lookup_item"], "next": "review"},
+    "review": {"kind": "agent", "agent": "reviewer", "schema": "review",
+               "inputs": ["find"], "next": "approved"},
+    "approved": {"kind": "gate", "from": "review", "field": ["approved"],
+                 "equals": True, "pass": "done", "fail": "rejected"},
+    "done": {"kind": "finish", "requires": ["find", "review"]},
+    "rejected": {"kind": "finish", "outcome": "rejected"},
+}}
+composed_workflow = composition_factory.build(composition_definition)
+```
+
+`inputs` names graph **step IDs**, such as `find`, rather than catalogue aliases
+or canonical Markdown IDs. The second agent receives the first accepted output
+in `artifacts.find` and its provenance in `artifact_bindings.find`, alongside
+the original `request`. Required inputs must be present and fresh; a later
+revisit that changes `find` makes the old dependent review stale. Use
+`optional_inputs` for feedback that may be absent on a first pass. Optional
+inputs may contain stale feedback and cannot establish a fresh approval.
+Agent instructions are separate; the factory does not concatenate their prose.
+
+## Optional inline instructions
+
+Enable `allow_inline_agents=True` only for a host policy that permits new
+instructions. This permission is independent of composition: one inline agent
+needs inline permission, while a graph with multiple agent steps also needs
+composition permission. Tools, model tiers, schemas and resource bounds still
+follow the host policy.
+
+Each `inline_agents` entry has `type`, `frontmatter` and `body`, with optional
+embedded `resources`. Supported execution types are `command` and `subagent`;
+a subagent's canonical frontmatter requires `name` and `description`.
+This single-agent example reuses the host-approved `entity` schema:
+
+```python
+inline_factory = WorkflowFactory(
+    catalog=WorkflowCatalog(schemas={"entity": entity_schema}),
+    bindings=WorkflowBindings(config=config),
+    policy=WorkflowPolicy(allowed_schemas=frozenset({"entity"}), allow_inline_agents=True),
+)
+inline_agents = {
+    "custom_reply": {
+        "type": "command",
+        "frontmatter": {},
+        "body": "ALWAYS return entity_id and label from request as one JSON object.\n"
+                "NEVER invent fields or emit prose outside that object.",
+        "resources": [{
+            "relPath": "output-notes.md",
+            "content": "ALWAYS preserve the supplied identifiers.\nNEVER invent identifiers.",
+        }],
+    },
+}
+inline_definition = {"version": 1, "start": "reply", "steps": {
+    "reply": {"kind": "agent", "agent": "custom_reply", "schema": "entity", "next": "done"},
+    "done": {"kind": "finish", "requires": ["reply"]},
+}}
+inline_workflow = inline_factory.build(inline_definition, inline_agents=inline_agents)
+
+# The same data may arrive as a raw client/LLM JSON envelope.
+import json
+inline_workflow_from_json = inline_factory.build_json(json.dumps({
+    "definition": inline_definition, "inline_agents": inline_agents,
+}))
+```
+
+For this inline example, supply `{"entity_id": "sample-1", "label": "Synthetic item"}`
+as the run input, using a new run ID and the same Harness execution pattern.
+The factory assigns the artifact's logical ID from the inline alias
+(`custom_reply` here); clients do not provide an `id` field. Inline aliases
+must not collide with host catalogue aliases, and every supplied inline entry
+must be referenced. `allowed_agents` selects approved catalogue agents;
+inline content is authorized separately by `allow_inline_agents`.
+Schemas remain host catalogue entries. Embedded resource names and string
+content are prompt data, never host file lookups or filesystem grants.
 
 ## Admission and trust limits
 
@@ -167,6 +317,13 @@ truncated into an accepted artifact. Schema-evaluation failures block without a
 model correction retry. Normal invalid model JSON retains bounded correction
 attempts.
 
+The host chooses limits through `WorkflowPolicy` fields such as `max_steps`,
+`max_proposal_bytes`, `max_json_depth`, `max_calls`, `max_tokens` and `max_run_s`.
+See the versioned [default bounds and admission profile](superpowers/specs/2026-10-09-workflow-mvp-design.md#bounded-snapshots-and-admission-profile)
+for the complete defaults. Missing graph limits inherit the policy; lower
+requested limits are retained, and requests above the host caps fail admission.
+Clients cannot change the host's policy by adding fields to the JSON envelope.
+
 Admission raises `WorkflowAdmissionError`, with safe `code` and `location`
 attributes. Services should project logical summaries and safe errors rather
 than serialize workflow bindings, private configuration or raw checkpoints.
@@ -174,11 +331,17 @@ Consumer authentication and request-specific policy selection remain host duties
 
 ## Offline installed-wheel check
 
-After installing candidate Core, Runtime and Harness wheels into a clean
-environment, run:
+Use a tagged checkout for the smoke script and a clean environment for the
+released Harness wheel. Its immutable dependencies install Core and Runtime:
 
 ```sh
-/path/to/wheel-env/bin/python -I /absolute/path/to/scripts/workflow_factory_smoke.py
+git clone https://github.com/B3Cognition/prosaic-harness.git
+cd prosaic-harness
+git checkout v0.6.2
+python3 -m venv .wheel-check
+.wheel-check/bin/python -m pip install \
+  https://github.com/B3Cognition/prosaic-harness/releases/download/v0.6.2/prosaic_harness-0.6.2-py3-none-any.whl
+.wheel-check/bin/python -I scripts/workflow_factory_smoke.py
 ```
 
 [The smoke script](../scripts/workflow_factory_smoke.py) checks installed module

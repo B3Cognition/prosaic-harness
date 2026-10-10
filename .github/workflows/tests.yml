@@ -4,9 +4,12 @@ permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: '${{ matrix.os }}'
+    timeout-minutes: 15
     strategy:
+      fail-fast: false
       matrix:
+        os: ['ubuntu-24.04', 'ubuntu-24.04-arm']
         python: ['3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
@@ -15,7 +18,73 @@ jobs:
           python-version: '${{ matrix.python }}'
       - name: Install Harness and its pinned Python dependencies
         run: python -m pip install -e '.[test]'
+      - name: Install Linux CLI sandbox backend
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap meson ninja-build pkg-config libcap-dev gcc
+          git clone https://github.com/containers/bubblewrap.git "$RUNNER_TEMP/bubblewrap"
+          git -C "$RUNNER_TEMP/bubblewrap" checkout --detach 2a76602a8c71f36c1527cf9fc3417d9149822e0c
+          meson setup "$RUNNER_TEMP/bubblewrap/_build" "$RUNNER_TEMP/bubblewrap" --prefix=/usr -Dman=disabled -Dtests=false
+          meson compile -C "$RUNNER_TEMP/bubblewrap/_build"
+          sudo meson install -C "$RUNNER_TEMP/bubblewrap/_build"
+          # Permit only the trusted namespace broker on this disposable runner.
+          # Retain host-wide AppArmor restrictions and kernel sandbox controls.
+          sudo install -m 0644 .github/ci/bwrap.apparmor /etc/apparmor.d/prosaic-ci-bwrap
+          sudo apparmor_parser -r /etc/apparmor.d/prosaic-ci-bwrap
+      - name: Require an operational Linux sandbox
+        run: |
+          python - <<'PY'
+          import platform, subprocess, sys, tempfile
+          from pathlib import Path
+          from types import SimpleNamespace
+          from prosaic_runtime import CliSandboxConfig
+          from prosaic_runtime.sandbox import require_backend, _linux_command
+          print('Sandbox platform:', sys.platform, platform.machine())
+          try:
+              require_backend(CliSandboxConfig(mode='required'))
+          except Exception:
+              subprocess.run(['/usr/bin/bwrap', '--version'], check=False)
+              with tempfile.TemporaryDirectory() as temporary:
+                  root = Path(temporary).resolve()
+                  args = _linux_command([sys.executable, '-c', 'pass'], '/',
+                      SimpleNamespace(read_roots=(), forbidden_roots=()),
+                      SimpleNamespace(runtime_roots=()), root, root)
+                  result = subprocess.run(args, capture_output=True, text=True,
+                      env={'PATH': '/usr/bin:/bin', 'PYTHONDONTWRITEBYTECODE': '1', 'PYTHONNOUSERSITE': '1'})
+                  print('Sandbox probe exit:', result.returncode)
+                  print(result.stderr)
+              raise
+          PY
       - run: prosaic --version
+      - name: Run all required Harness sandbox cases
+        id: sandbox_tests
+        run: python -m pytest tests/test_cli_sandbox.py -q -rA --junitxml="$RUNNER_TEMP/harness-sandbox.xml"
+      - name: Reject skipped or incomplete Harness sandbox coverage
+        id: sandbox_report
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          expected = {
+              'test_documented_sandboxed_blueprint_runs_tool_then_requires_human',
+              'test_default_off_sandbox_preserves_legacy_runtime_identity',
+              'test_changing_sandbox_policy_invalidates_pending_approval',
+              'test_harness_cli_sandbox_denies_outside_secret_and_preserves_pause',
+              'test_injected_adapter_cannot_downgrade_required_sandbox[off]',
+              'test_injected_adapter_cannot_downgrade_required_sandbox[missing_capability]',
+              'test_injected_adapter_cannot_downgrade_required_sandbox[after_construction]',
+          }
+          report = ET.parse(Path(os.environ['RUNNER_TEMP']) / 'harness-sandbox.xml').getroot()
+          suites = list(report.iter('testsuite'))
+          cases = list(report.iter('testcase'))
+          if (not suites or len(cases) != 7 or {case.get('name') for case in cases} != expected
+                  or sum(int(suite.get('tests', '0')) for suite in suites) != 7
+                  or any(int(suite.get(key, '0')) for suite in suites for key in ('skipped', 'failures', 'errors'))
+                  or any(case.find(tag) is not None for case in cases for tag in ('skipped', 'failure', 'error'))):
+              raise SystemExit('All seven Harness sandbox cases must pass with no skips, failures or errors')
+          print('All seven required Harness sandbox cases passed without skips')
+          PY
       - run: python -m pytest -q
       - run: python -m build
   postgres:
