@@ -12,8 +12,8 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
-CORE = ROOT / 'dist/prosaic_harness-0.6.2-py3-none-any.whl'
-ADAPTER = ROOT / 'adapters/postgres/dist/prosaic_harness_postgres-0.1.1-py3-none-any.whl'
+CORE = ROOT / 'dist/b3_prosaic_harness-0.7.0-py3-none-any.whl'
+ADAPTER = ROOT / 'adapters/postgres/dist/b3_prosaic_harness_postgres-0.2.0-py3-none-any.whl'
 
 def test_owned_fixture_uses_free_explicit_subnet_when_default_pool_is_exhausted():
     from support.local_cluster import owned_subnet
@@ -48,7 +48,8 @@ def test_ci_requires_both_database_majors_and_owned_recovery():
     assert jobs['postgres']['strategy']['matrix']['postgres'] == ['16', '18']
     commands = '\n'.join(step.get('run', '') for step in jobs['postgres']['steps'])
     assert 'local_cluster.py test' in commands and 'local_cluster.py stop' in commands
-    assert 'python -m build adapters/postgres' in commands
+    assert 'git archive HEAD' in commands
+    assert 'python -m build "$RUNNER_TEMP/harness-source/adapters/postgres"' in commands
 
 
 def test_required_lane_rejects_skipped_case(tmp_path):
@@ -70,13 +71,20 @@ def metadata(path):
 
 def test_wheel_contents_and_dependency_boundaries():
     core, names = metadata(CORE)
-    assert core['Version'] == '0.6.2'
+    assert core['Name'] == 'b3-prosaic-harness'
+    assert core['Version'] == '0.7.0'
     assert not any(name.startswith('prosaic_harness_postgres/') for name in names)
     assert not any('psycopg' in value.lower() for value in core.get_all('Requires-Dist'))
     adapter, names = metadata(ADAPTER)
-    assert adapter['Version'] == '0.1.1'
-    assert any(value.startswith('prosaic-harness<0.7,>=0.6') for value in adapter.get_all('Requires-Dist'))
+    assert adapter['Name'] == 'b3-prosaic-harness-postgres'
+    assert adapter['Version'] == '0.2.0'
+    assert any(value.startswith('b3-prosaic-harness<0.8,>=0.7') for value in adapter.get_all('Requires-Dist'))
     assert 'prosaic_harness_postgres/cli.py' in names
+    for distribution in (core, adapter):
+        assert distribution['License-Expression'] == 'Apache-2.0'
+        assert set(distribution.get_all('License-File', [])) == {'LICENSE', 'NOTICE'}
+        assert all('git+' not in value and ' @ ' not in value
+                   for value in distribution.get_all('Requires-Dist', []))
 
 
 @pytest.fixture(scope='session')
@@ -101,7 +109,13 @@ def test_core_only_install_imports_without_postgres(wheel_environments, tmp_path
     result = subprocess.run([str(python), '-I', '-c', 'import importlib.util,prosaic_harness; '
         'assert importlib.util.find_spec("psycopg") is None; '
         'assert importlib.util.find_spec("prosaic_harness_postgres") is None; '
-        'assert "site-packages" in prosaic_harness.__file__'], cwd=tmp_path,
+        'assert "site-packages" in prosaic_harness.__file__; '
+        'from importlib import metadata; from pathlib import Path; '
+        'installed={d.metadata["Name"].lower().replace("_","-") for d in metadata.distributions()}; '
+        'assert {"b3-prosaic","b3-prosaic-runtime","b3-prosaic-harness"} <= installed; '
+        'assert not {"prosaic","prosaic-runtime","prosaic-harness"} & installed; '
+        'assert Path(prosaic_harness.__file__).resolve() in '
+        '{Path(f.locate()).resolve() for f in metadata.files("b3-prosaic-harness")}'], cwd=tmp_path,
         capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
 

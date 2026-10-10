@@ -3,23 +3,23 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "prosaic-harness"
-version = "0.6.2"
+name = "b3-prosaic-harness"
+version = "0.7.0"
 description = "Small durable workflows and validation around neutral Prosaic agents"
 requires-python = ">=3.11"
 readme = "README.md"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE"]
 authors = [{name = "B3 Cognition"}]
 dependencies = [
-  "prosaic-runtime @ git+https://github.com/B3Cognition/prosaic-runtime.git@47ac9952638249dc78ec037a485ba5104cf1ec8c",
+  "b3-prosaic-runtime>=0.8,<0.9",
   "PyYAML>=6.0",
   "jsonschema>=4.23",
   "referencing>=0.28.4",
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8", "build>=1"]
+test = ["pytest>=8", "build>=1", "setuptools>=77", "wheel", "packaging"]
 
 [project.scripts]
 prosaic-harness = "prosaic_harness.cli:main"

@@ -1,4 +1,6 @@
 recursive-include examples *.md *.yml *.json *.py
 recursive-include docs *.md
 include scripts/workflow_factory_smoke.py
+include LICENSE NOTICE
+recursive-include adapters/postgres *.toml *.md *.py LICENSE NOTICE MANIFEST.in
 global-exclude *.local.yml *.local.yaml

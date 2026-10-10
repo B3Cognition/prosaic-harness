@@ -554,21 +554,23 @@ critical, propagating hook, and Runtime receipt capture still uses that hook.
 
 ## Offline installed-wheel check
 
-Use a tagged checkout for the smoke script and a clean environment for the
-released Harness wheel. Its immutable dependencies install Core and Runtime:
+Use the exact candidate checkout for the smoke script and a fresh environment
+with the manifest-selected b3 candidate wheelhouse. Runtime 0.8 and final
+five-wheel qualification must complete before publication:
 
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.6.2
+git checkout <exact-candidate-commit>
 python3 -m venv .wheel-check
-.wheel-check/bin/python -m pip install \
-  https://github.com/B3Cognition/prosaic-harness/releases/download/v0.6.2/prosaic_harness-0.6.2-py3-none-any.whl
+.wheel-check/bin/python -m pip install --find-links /absolute/path/to/curated-wheelhouse \
+  b3-prosaic-harness==0.7.0
 .wheel-check/bin/python -I scripts/workflow_factory_smoke.py
 ```
 
 [The smoke script](../scripts/workflow_factory_smoke.py) checks installed module
-origins and public prerequisite APIs, clears Node/Prosaic executables from PATH,
+ownership by the b3 distributions, absence of legacy packages and public
+prerequisite APIs, clears Node/Prosaic executables from PATH,
 and uses a disposable loopback endpoint with synthetic responses. It exercises
 the native tool, confirmation schema/validator, read-only status, fresh-factory
 reconstruction and resume, unchanged receipt identity and one completed Harness

@@ -1,4 +1,6 @@
 """Durable, validated execution around Prosaic Runtime."""
+__version__ = '0.7.0'
+
 from .engine import Harness
 from .workflow import Workflow
 from .factory import WorkflowCatalog, WorkflowBindings, WorkflowPolicy, WorkflowFactory

@@ -152,13 +152,13 @@ class LocalCluster:
         command = '''
 set -eu
 apt-get update -qq
-apt-get install -y -qq git >/dev/null
 python -m venv /tmp/core
-/tmp/core/bin/python -m pip install /core-wheels/prosaic_harness-0.6.2-py3-none-any.whl >/dev/null
+/tmp/core/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.7.0-py3-none-any.whl >/dev/null
 /tmp/core/bin/python -I -c 'import importlib.util,prosaic_harness; assert importlib.util.find_spec("psycopg") is None; assert importlib.util.find_spec("prosaic_harness_postgres") is None'
+/tmp/core/bin/python -I /fixture/workflow_factory_smoke.py
 python -m venv /tmp/both
-/tmp/both/bin/python -m pip install /core-wheels/prosaic_harness-0.6.2-py3-none-any.whl /adapter-wheels/prosaic_harness_postgres-0.1.1-py3-none-any.whl >/dev/null
-/tmp/both/bin/python /fixture/linux_wheel_smoke.py
+/tmp/both/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.7.0-py3-none-any.whl /adapter-wheels/b3_prosaic_harness_postgres-0.2.0-py3-none-any.whl >/dev/null
+/tmp/both/bin/python -I /fixture/linux_wheel_smoke.py
 '''
         container_id = self._run('create', '--name', name, '--network', self.network,
             '--label', 'prosaic-harness-test-owner=' + self.token,
@@ -167,6 +167,7 @@ python -m venv /tmp/both
             '-v', str(root / 'adapters/postgres/dist') + ':/adapter-wheels:ro',
             '-v', str(root / 'examples/postgres') + ':/examples:ro',
             '-v', str(root / 'adapters/postgres/tests/support/linux_wheel_smoke.py') + ':/fixture/linux_wheel_smoke.py:ro',
+            '-v', str(root / 'scripts/workflow_factory_smoke.py') + ':/fixture/workflow_factory_smoke.py:ro',
             'docker.io/library/python:3.12-slim', 'sh', '-ec', command)
         self.containers.append({'id': container_id, 'name': name})
         self._write_manifest()

@@ -8,6 +8,7 @@ endpoint is a disposable loopback fixture owned by this process.
 """
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib import metadata
 import json
 import os
 from pathlib import Path
@@ -26,10 +27,20 @@ from prosaic_harness import (FileRunStore, Harness, Validator, WorkflowBindings,
 
 
 def installed_origins():
+    installed = {distribution.metadata['Name'].lower().replace('_', '-')
+                 for distribution in metadata.distributions()}
+    assert {'b3-prosaic', 'b3-prosaic-runtime', 'b3-prosaic-harness'} <= installed, installed
+    assert not {'prosaic', 'prosaic-runtime', 'prosaic-runtime-postgres',
+                'prosaic-harness', 'prosaic-harness-postgres'} & installed, installed
     origins = {}
-    for module in (prosaic, prosaic_runtime, prosaic_harness):
+    for module, distribution in ((prosaic, 'b3-prosaic'),
+                                 (prosaic_runtime, 'b3-prosaic-runtime'),
+                                 (prosaic_harness, 'b3-prosaic-harness')):
         origin = Path(module.__file__).resolve()
         assert 'site-packages' in origin.parts, (module.__name__, str(origin))
+        owned = {Path(file.locate()).resolve() for file in metadata.files(distribution)}
+        assert origin in owned, (module.__name__, distribution, str(origin))
+        assert module.__version__ == metadata.version(distribution)
         origins[module.__name__] = str(origin)
     assert callable(prosaic.validate_artifact_definition)
     assert callable(prosaic_runtime.validate_execution_artifact)

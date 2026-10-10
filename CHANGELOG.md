@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Prepare `b3-prosaic-harness` 0.7.0 and `b3-prosaic-harness-postgres` 0.2.0
+  candidate metadata. Harness selects Runtime 0.8.x through an index requirement;
+  the adapter selects Harness 0.7.x. Imports, CLI names and persisted formats
+  retain compatibility. Final release qualification and publication are pending.
+- Include Apache-2.0 SPDX metadata, LICENSE and NOTICE in both distributions,
+  export consistent source versions, and audit clean Git archive wheel metadata.
+- Document migration into fresh environments, avoiding shared import paths with
+  legacy distributions. Preserve historical release assets and verification.
+
 ## 0.6.2 — 2026-10-10
 
 - Add public WorkflowCatalog, WorkflowBindings, WorkflowPolicy and WorkflowFactory
