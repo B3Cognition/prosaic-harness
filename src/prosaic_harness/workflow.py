@@ -14,6 +14,7 @@ from prosaic_runtime.artifacts import inspect_artifact
 from prosaic_runtime.policy import READ_TOOLS, BUILTIN_TOOLS, requested_tools
 from .store import parse_json, read_bytes
 from .errors import WorkflowAdmissionError
+from .admission_data import snapshot_json
 from .graph_admission import validate_resolved_workflow
 
 
@@ -75,6 +76,20 @@ class Workflow:
     acquisitions: dict = field(default_factory=dict)
     custom_tools: dict = field(default_factory=dict)
     _tool_descriptors: dict = field(default_factory=dict, repr=False)
+
+    def prepare_inputs(self, inputs):
+        """Own and bound native input data before the host reserves a run.
+
+        ALWAYS repeat workflow admission without executing host bindings.
+        NEVER reserve storage or invoke a Runtime, validator or probe here.
+        """
+        from .factory import admit_workflow
+        admission = admit_workflow(self)
+        if admission is None:
+            raise WorkflowAdmissionError('binding_mismatch') from None
+        return snapshot_json(inputs, maximum_bytes=admission.policy.max_run_input_bytes,
+                             maximum_depth=admission.policy.max_json_depth,
+                             maximum_nodes=admission.policy.max_json_nodes)
 
     @property
     def tool_descriptors(self):

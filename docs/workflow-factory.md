@@ -405,6 +405,67 @@ list indices may appear. Locations are bounded at 256 characters and never deriv
 from parser messages, private paths or failed reference values. Existing error
 codes and the single-failure behavior remain compatible.
 
+## Preparing inputs and serving a human pause
+
+Call `workflow.prepare_inputs(inputs)` for a native admitted workflow before the
+application reserves a run. It returns owned, finite JSON bounded by
+`max_run_input_bytes`, `max_json_depth` and `max_json_nodes`. Preparation readmits
+the workflow without model calls, validators, storage, filesystem resolution or
+CLI discovery. Mutating the original inputs cannot change the prepared value.
+`harness.run(inputs=prepared_inputs)` repeats execution admission and input bounds.
+Trusted YAML workflows retain their existing `run` input behavior.
+
+Use `harness.interaction()` for the public waiting view. It reads `status()` once,
+verifies the checkpoint and receipts, and returns an immutable `PendingInteraction`
+or `None` for any nonwaiting state. `status()` remains the full operator view.
+The projection includes the run ID, committed revision, pause step ID, question,
+actual choice names and deadline. It excludes private inputs, bindings, evidence
+and history. Outputs and schema bodies are omitted by default.
+
+```python
+prepared_inputs = workflow.prepare_inputs({"query": "sample"})
+# Reserve the application run only after preparation succeeds.
+harness.run(inputs=prepared_inputs)
+interaction = harness.interaction(
+    review_outputs=("find",), include_response_schema=True,
+)
+if interaction is not None:
+    public_view = interaction.to_dict()
+    state = harness.resume(choice="accept", response={"entity_id": "sample-1"},
+                           expected_revision=interaction.revision)
+```
+
+The host authorizes access and selects which existing agent **step IDs** to expose
+through `review_outputs`; unknown, nonagent or unavailable outputs are rejected.
+ALWAYS select review content explicitly for the authorized human. NEVER interpret
+the projection or its digest as authentication or an execution grant.
+`include_response_schema=True` is a separate host disclosure choice. The schema
+digest uses the existing Harness recipe: SHA-256 of UTF-8
+`json.dumps(schema, sort_keys=True, allow_nan=False)` with its default separators
+and ASCII escaping. It is present for typed pauses even when the body is omitted.
+
+`to_dict()` uses camelCase keys: `version=1`, `runId`, `revision`, `stepId`,
+`question`, `choices`, `deadline`, and optional `responseSchemaDigest`,
+`responseSchema`, `reviewOutputs`. Scalar properties use snake_case; `choices`
+is a tuple. Nested properties and every `to_dict()` result are independently owned.
+`maximum_bytes` defaults to 262144, capped by the storage ceiling of 8388608 and
+native `max_state_bytes`. Native depth/node bounds also apply to the final view.
+Oversized views raise `WorkflowAdmissionError` with `limit_exceeded`; no question,
+choice, schema or selected output is truncated.
+
+Handle `HumanResponseError` as a `ValueError` with a stable `code` and at most five
+structural `{code, location}` issues. `to_dict()` returns only those safe fields.
+Codes are `expected_revision_required`, `invalid_choice`,
+`response_requires_choice`, `response_not_allowed`, `response_limit`,
+`response_schema_invalid`, `response_validation_failed`, `no_pending_choice` and
+`completed_run`. Raw values, schema prose, product-validator messages and callback
+exceptions never appear in that public error. `RevisionConflict` remains separate;
+refresh the interaction before retrying a stale decision. Missing required
+revisions, invalid choices and invalid responses do not commit human decisions.
+The view performs no validator dry run: actual response admission evaluates the
+schema and invokes each registered product validator once. Schema evaluator
+failure still blocks with `schema_error`; an expired deadline takes precedence.
+
 ## Optional monitoring
 
 Pass `observer=callback` to `Harness` for version-1, bounded monitoring records.

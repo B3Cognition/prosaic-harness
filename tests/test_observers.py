@@ -24,6 +24,39 @@ def test_waiting_commit_survives_observer_failure(tmp_path, monkeypatch):
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize('length', [129, 512])
+def test_custom_store_supported_revision_is_observed_exactly_and_resumes(tmp_path, monkeypatch, length):
+    from prosaic_harness import RunSnapshot
+    from prosaic_harness.run_store import validate_revision
+    records, revisions = [], []
+    def observe(record):
+        records.append(record)
+        revisions.append(h.status().revision)
+    h, calls = bound(tmp_path, monkeypatch, harness_options={'observer': observe})
+    suffix = 'a' * (length - 64)
+    class ExtendedRevisionStore:
+        def __init__(self, store):
+            self.store = store
+        def __getattr__(self, name):
+            return getattr(self.store, name)
+        def load_run(self, run_id):
+            snapshot = self.store.load_run(run_id)
+            return RunSnapshot(snapshot.state, snapshot.revision + suffix)
+        def create_run(self, *args):
+            return self.store.create_run(*args) + suffix
+        def save_run(self, run_id, state, revision, lease):
+            return self.store.save_run(run_id, state, revision[:-len(suffix)], lease) + suffix
+    h.store = ExtendedRevisionStore(h.store)
+    h.run({})
+    before = h.status()
+    validate_revision(before.revision)
+    assert len(before.revision.encode()) == length
+    assert [record.get('revision') for record in records] == revisions
+    assert records[-1]['revision'] == before.revision
+    assert h.resume(choice='accept', expected_revision=before.revision)['status'] == 'completed'
+    assert [record.get('revision') for record in records] == revisions and len(calls) == 1
+
+
 def test_observer_reads_the_committed_revision_and_private_data_stays_private(tmp_path, monkeypatch):
     records = []
     revisions = []

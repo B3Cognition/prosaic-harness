@@ -133,3 +133,16 @@ def test_status_rejects_identity_and_receipt_corruption(tmp_path, monkeypatch):
     receipt.write_text('{"bad":true}')
     with pytest.raises(ValueError):
         h.status()
+
+
+def test_response_error_requires_revision_and_stale_revision_remains_conflict(tmp_path, monkeypatch):
+    from prosaic_harness import HumanResponseError
+    h, runtime = harness(tmp_path, monkeypatch)
+    h.run({})
+    before = h.status()
+    with pytest.raises(HumanResponseError) as caught:
+        h.resume(choice='approve')
+    assert caught.value.code == 'expected_revision_required'
+    with pytest.raises(RevisionConflict):
+        h.resume(choice='PRIVATE', expected_revision='stale')
+    assert h.status() == before and len(runtime.calls) == 1

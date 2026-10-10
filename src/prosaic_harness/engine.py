@@ -18,7 +18,8 @@ from .workflow import digest
 from .contracts import seal, validate_state, validate_receipt, output_json
 from .validation import Validator, CheckContext
 from .admission_data import snapshot_json, parse_bounded_json
-from .errors import WorkflowAdmissionError
+from .errors import WorkflowAdmissionError, HumanResponseError, response_schema_issues
+from .interaction import project_interaction
 from .schema_validation import evaluate_schema, SchemaEvaluationError
 from .factory import admit_workflow, _config_from_json
 from .observations import CommittedObserver
@@ -297,13 +298,21 @@ class Harness:
         self._verify_ledger(snapshot.state)
         return snapshot
 
+    def interaction(self, *, review_outputs=(), include_response_schema=False, maximum_bytes=262_144):
+        """Return a bounded public view from one verified, read-only snapshot."""
+        snapshot = self.status()
+        return project_interaction(self.workflow, snapshot, review_outputs=review_outputs,
+                                   include_response_schema=include_response_schema,
+                                   maximum_bytes=maximum_bytes,
+                                   policy=self._admission.policy if self._admission else None)
+
     def _validate_address(self, state):
         if not self._legacy_file_mode and state['run_id'] != self._storage_run_id:
             raise StoreCorrupt('checkpoint identity does not match its storage address')
 
     def _check_expected_revision(self, expected_revision, *, human_action):
         if human_action and not self._legacy_file_mode and expected_revision is None:
-            raise ValueError('expected_revision is required for this response')
+            raise HumanResponseError('expected_revision_required')
         if expected_revision is not None:
             validate_revision(expected_revision)
             if expected_revision != self._revision:
@@ -325,7 +334,7 @@ class Harness:
         self._admit()
         self._check_custom_tools()
         if self._admission:
-            inputs = self._snapshot(inputs, self._admission.policy.max_run_input_bytes)
+            inputs = self.workflow.prepare_inputs(inputs)
         else:
             digest(inputs)  # JSON-serializable and finite before creating a run.
         with self._execution():
@@ -368,7 +377,7 @@ class Harness:
             self._resume_accounting(state)
             if state['status'] in {'completed', 'rejected'}:
                 if choice is not None or response is not None:
-                    raise ValueError('completed run has no pending choice')
+                    raise HumanResponseError('completed_run')
                 return state
             if state['status'] == 'blocked' and state['reason'] != 'interrupted_call':
                 return state
@@ -379,31 +388,39 @@ class Harness:
                 step = self.workflow.definition['steps'][state['current']]
                 if choice is None:
                     if response is not None:
-                        raise ValueError('response requires a declared choice')
+                        raise HumanResponseError('response_requires_choice')
                     return state
-                if choice not in step['choices']:
-                    raise ValueError('choice is not declared by the pending pause')
+                if type(choice) is not str or choice not in step['choices']:
+                    raise HumanResponseError('invalid_choice')
                 if 'response_schema' in step:
-                    response = (self._snapshot(response, self._admission.policy.max_human_response_bytes)
-                                if self._admission else output_json(json.dumps(response, allow_nan=False)))
+                    try:
+                        response = (self._snapshot(response, self._admission.policy.max_human_response_bytes)
+                                    if self._admission else output_json(json.dumps(response, allow_nan=False)))
+                    except (ValueError, TypeError, UnicodeError, RecursionError):
+                        raise HumanResponseError('response_limit') from None
                     try:
                         errors = evaluate_schema(self.workflow.schemas[state['current']], response,
                                                  profile=self._schema_profile(human=True))
                     except SchemaEvaluationError:
                         return self._block(state, self._resource_reason(state) or 'schema_error')
                     if errors:
-                        raise ValueError('human response failed schema validation')
-                    error = self._checks(state, state['current'], {'choice': choice, 'response': response}, step.get('validators', []))
+                        raise HumanResponseError('response_schema_invalid', response_schema_issues(errors))
+                    try:
+                        error = self._checks(state, state['current'], {'choice': choice, 'response': response}, step.get('validators', []))
+                    except StoreError:
+                        raise
+                    except ValueError:
+                        raise HumanResponseError('response_validation_failed') from None
                     if error:
-                        raise ValueError('human response failed validation: ' + error)
+                        raise HumanResponseError('response_validation_failed')
                 elif response is not None:
-                    raise ValueError('pause has no response schema')
+                    raise HumanResponseError('response_not_allowed')
                 self._event(state, 'human_decision', choice=choice, **({'response': response} if 'response_schema' in step else {}))
                 self._advance(state, step['choices'][choice])
                 if state['status'] == 'blocked':
                     return state
             elif choice is not None or response is not None:
-                raise ValueError('run has no pending human choice')
+                raise HumanResponseError('no_pending_choice')
             pending = state['pending']
             if pending is not None:
                 receipt = self.store.load_receipt(self._storage_run_id, pending['id'])
