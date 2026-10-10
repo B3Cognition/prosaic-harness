@@ -240,6 +240,64 @@ and operator checkpoints inside the application. Codes such as `policy_denied`,
 `unknown_reference`, `invalid_definition` and `limit_exceeded` let the service
 explain rejected proposals without exposing parser exceptions or host data.
 
+## Retaining frozen host bundles
+
+Use `WorkflowBundle` when a proposal must survive a deployment or resume in a
+fresh worker. Construction freezes the factory's complete private agent/schema
+catalogue, policy, effective Runtime configuration and declared tool/validator
+versions, including unused entries. Display-only public catalogue metadata is
+excluded. The opaque `identity` is a versioned SHA-256 digest of that material;
+changing execution material changes it even when the host version label stays
+the same. A version label is a nonempty opaque string, limited to 128 UTF-8 bytes
+with no Unicode control, format or surrogate characters.
+
+```python
+from prosaic_harness import WorkflowBundle, WorkflowReference
+
+bundle = WorkflowBundle("service-v1", factory)
+prepared = bundle.prepare_json(proposal_text)
+# Persist prepared.proposal_json exactly and prepared.reference.to_dict().
+workflow = prepared.workflow
+
+# In a fresh worker, the application resolves its retained immutable bundle.
+reference = WorkflowReference.from_dict(saved_reference_dict)
+workflow = retained_bundle.reconstruct(saved_proposal_json, reference)
+prepared_inputs = workflow.prepare_inputs({"query": "sample"})
+```
+
+`PreparedWorkflow` is frozen and contains `workflow`, `proposal_json` and
+`reference`. The proposal text is the original admitted envelope, canonicalized
+as `json-sort-keys-utf8-v1`: `json.dumps(envelope, ensure_ascii=False,
+sort_keys=True, separators=(",", ":"), allow_nan=False)`. Object keys are sorted
+recursively. Omitted `inline_agents`, graph limits and step defaults stay omitted;
+host catalogue bodies are never expanded into the retained proposal. The
+proposal digest hashes those exact UTF-8 bytes. Database JSON key ordering can
+change if the host reproduces the same canonical bytes. Transport, JSON
+depth/work and final canonical byte limits remain bounded; the historical ASCII
+encoding of other Harness snapshots and fingerprints is unchanged.
+
+`WorkflowReference` is a frozen validated scalar record. `to_dict()` uses
+`version=1`, `bundleVersion`, `bundleIdentity`,
+`canonicalization="json-sort-keys-utf8-v1"`, `proposalSha256`,
+`workflowFingerprint`, `admissionVersion=1` and `schemaProfile=1`. Digests are
+64-character lowercase hexadecimal strings. `from_dict()` admits exactly those
+keys and supported bounded scalar values, without hydrating host configuration,
+callbacks or endpoint data. Reconstruction verifies the format/profile, bundle
+version and identity, canonical proposal digest, then freshly admits the native
+workflow and checks its fingerprint. Malformed records/envelopes use
+`invalid_definition`; unsupported format/profile or identity mismatches use
+`identity_mismatch`; missing or invalid declared execution bindings use
+`binding_mismatch`. Existing graph, policy and resource admission errors retain
+their safe codes. No callbacks or model calls occur during this preparation.
+
+ALWAYS retain immutable historical bundle registrations and check current
+authorization/revocation before reconstructing or dispatching an old proposal.
+NEVER silently substitute the newest bundle for a retained reference. Bundle
+registries, missing-registration operator handling and persistence belong to the
+application. Callback implementation/version correspondence remains a trusted
+host obligation; hashes cannot establish that correspondence. References and
+bundle hashes are identity evidence, never authorization grants.
+
 ## Composing approved agents
 
 Approve each specialist and its output schema in the host catalogue, then enable

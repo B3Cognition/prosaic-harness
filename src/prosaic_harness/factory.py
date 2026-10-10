@@ -11,7 +11,7 @@ import unicodedata
 from types import MappingProxyType
 
 from prosaic import validate_artifact_definition
-from prosaic_runtime import (CliSandboxConfig, EndpointConfig, ProsaicArtifact,
+from prosaic_runtime import (CliSandboxConfig, CustomTool, EndpointConfig, ProsaicArtifact,
                              ProsaicRuntime, RunLimits, RuntimeConfig,
                              custom_descriptors, validate_custom_tools,
                              validate_execution_artifact)
@@ -256,7 +256,9 @@ class _AdmissionRecord:
 def _identity_payload(workflow, policy):
     # ALWAYS bound mutable execution objects before digest/asdict consumers.
     definition = snapshot_json(workflow.definition,
-        maximum_bytes=min(_STORAGE_BYTES, policy.max_proposal_bytes + 4096),
+        # Original UTF-8 proposals may expand under the historic ASCII seal
+        # encoding; normalized graph defaults also consume bounded overhead.
+        maximum_bytes=min(_STORAGE_BYTES, policy.max_proposal_bytes * 6 + 4096),
         maximum_depth=policy.max_json_depth, maximum_nodes=policy.max_json_nodes)
     expected_schemas = {name for name, step in definition.get('steps', {}).items()
                         if type(step) is dict and (step.get('kind') == 'agent'
@@ -368,6 +370,76 @@ class WorkflowFactory:
         for category, known in (('tools', self._tools), ('validators', self._validators)):
             if set(metadata.get(category, {})) - known.keys():
                 _fail('unknown_reference')
+
+    def _frozen_copy(self):
+        """Snapshot private execution bindings without invoking host callbacks."""
+        try:
+            def decoded(text):
+                return parse_bounded_json(text, maximum_bytes=_STORAGE_BYTES,
+                    maximum_depth=_HOST_DEPTH, maximum_nodes=_HOST_NODES)
+            catalog = WorkflowCatalog(
+                agents={name: decoded(text) for name, text in self._agents.items()},
+                schemas={name: decoded(text) for name, text in self._schemas.items()})
+            tools = {}
+            for name, tool in validate_custom_tools(self._tools).items():
+                tools[name] = CustomTool(tool.name, tool.description, decoded(tool._schema_json),
+                    tool.handler, tool.version, max_argument_bytes=tool.max_argument_bytes,
+                    max_result_bytes=tool.max_result_bytes, authorize=tool.authorize)
+            validators = {}
+            for name, value in self._validators.items():
+                if type(value) is not Validator:
+                    _fail('binding_mismatch')
+                validators[name] = Validator(value.version, value.check)
+            if type(self._policy) is not WorkflowPolicy:
+                _fail('binding_mismatch')
+            policy = WorkflowPolicy(**self._policy._identity())
+            bindings = WorkflowBindings(config=_config_from_json(_encode(decoded(self._config_json))),
+                                        custom_tools=tools, validators=validators)
+            return WorkflowFactory(catalog=catalog, bindings=bindings, policy=policy)
+        except WorkflowAdmissionError:
+            raise
+        except Exception:
+            _fail('binding_mismatch')
+
+    def _bundle_material(self):
+        """Complete private versioned material; public discovery is not identity."""
+        return _host_snapshot({'version': 1,
+            'agents': {name: json.loads(text) for name, text in self._agents.items()},
+            'schemas': {name: json.loads(text) for name, text in self._schemas.items()},
+            'policy': self._policy._identity(),
+            'runtime': runtime_identity(_config_from_json(self._config_json)),
+            'tools': custom_descriptors(self._tools),
+            'validators': {name: value.version for name, value in self._validators.items()}})
+
+    def _proposal_envelope(self, text):
+        """Own the original UTF-8 envelope separately from normalized admission."""
+        policy = self._policy
+        # Default ASCII snapshots can expand valid compact UTF-8 by up to 6x.
+        # Keep transport and canonical retention at the host's proposal cap.
+        expanded_bytes = min(_STORAGE_BYTES, policy.max_proposal_bytes * 6)
+        envelope = parse_bounded_json(text, maximum_bytes=policy.max_proposal_bytes,
+            maximum_depth=policy.max_json_depth, maximum_nodes=policy.max_json_nodes,
+            maximum_snapshot_bytes=expanded_bytes)
+        if (type(envelope) is not dict or set(envelope) - {'definition', 'inline_agents'}
+                or 'definition' not in envelope
+                or 'inline_agents' in envelope and type(envelope['inline_agents']) is not dict):
+            _fail('invalid_definition')
+        return envelope
+
+    def _admit_envelope(self, envelope):
+        """Normalize a separately owned, already bounded original envelope."""
+        policy = self._policy
+        owned = snapshot_json(envelope, maximum_bytes=min(_STORAGE_BYTES, policy.max_proposal_bytes * 6),
+            maximum_depth=policy.max_json_depth, maximum_nodes=policy.max_json_nodes)
+        try:
+            workflow = self._build(owned['definition'], owned.get('inline_agents', {}))
+        except WorkflowAdmissionError:
+            raise
+        except GraphAdmissionError as exc:
+            _fail('invalid_definition', exc.location)
+        except Exception:
+            _fail('invalid_definition')
+        return workflow
 
     def describe(self, *, include_schemas=False, maximum_bytes=262_144):
         """Return an owned policy projection with opt-in host-approved schemas."""

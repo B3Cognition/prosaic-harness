@@ -24,7 +24,8 @@ sys.path.insert(0, sys.argv[1])
 import prosaic, prosaic_runtime, prosaic_harness
 from prosaic_runtime import CustomTool, EndpointConfig, ProsaicArtifact, RuntimeConfig
 from prosaic_harness import (FileRunStore, Harness, WorkflowBindings,
-                            WorkflowCatalog, WorkflowFactory, WorkflowPolicy)
+                            WorkflowCatalog, WorkflowFactory, WorkflowPolicy,
+                            WorkflowBundle, WorkflowReference)
 
 assert 'site-packages' in Path(prosaic.__file__).resolve().parts
 assert 'site-packages' in Path(prosaic_runtime.__file__).resolve().parts
@@ -76,18 +77,28 @@ definition = {'version': 1, 'name': 'worker-selection', 'start': 'find', 'steps'
 serialized_definition = json.dumps(definition)
 assert endpoint_url not in serialized_definition and storage_root not in serialized_definition
 assert sys.argv[1] not in serialized_definition
-workflow = (factory.build(definition) if phase == 'run' else
-            factory.build_json(json.dumps({'definition': definition})))
+bundle = WorkflowBundle('workers-v1', factory)
+proposal_path, reference_path = Path('proposal.json'), Path('reference.json')
+if phase == 'run':
+    prepared = bundle.prepare_json(json.dumps({'definition': definition}))
+    proposal_path.write_bytes(prepared.proposal_json.encode('utf-8'))
+    reference_path.write_text(json.dumps(prepared.reference.to_dict()), encoding='utf-8')
+    workflow = prepared.workflow
+else:
+    reference = WorkflowReference.from_dict(json.loads(reference_path.read_text(encoding='utf-8')))
+    workflow = bundle.reconstruct(proposal_path.read_text(encoding='utf-8'), reference)
 assert workflow.path is None
 store = FileRunStore(Path(storage_root), namespace='workers')
 harness = Harness(workflow, store=store, run_id=run_id)
 assert type(harness.runtime) is prosaic_runtime.ProsaicRuntime
 revision_required = invalid_response_rejected = False
+waiting_revision = None
 if phase == 'run':
     state = harness.run({'query': 'sample'})
     assert state['status'] == 'waiting'
 else:
     before = harness.status()
+    waiting_revision = before.revision
     assert before.state['status'] == 'waiting'
     assert harness.status().revision == before.revision
     try:
@@ -123,7 +134,8 @@ print(json.dumps({'pid': os.getpid(), 'status': state['status'],
     'revision': snapshot.revision, 'invocation_id': invocation['id'],
     'receipt_sha256': receipt['sha256'], 'checkpoint_version': state['version'],
     'receipt_version': receipt['version'], 'tool_calls': tool_calls,
-    'revision_required': revision_required, 'invalid_response_rejected': invalid_response_rejected}))
+    'revision_required': revision_required, 'invalid_response_rejected': invalid_response_rejected,
+    'waiting_revision': waiting_revision}))
 store.close()
 '''
 
@@ -154,6 +166,14 @@ def test_fresh_native_worker_reconstructs_pause_and_resumes_without_inference(en
     assert requests[0]['model'] == 'synthetic-model'
     assert [tool['function']['name'] for tool in requests[0]['tools']] == ['lookup_item']
     assert 'sample-1' in json.dumps(requests[1]['messages'])
+    proposal_bytes = (consumer / 'proposal.json').read_bytes()
+    proposal = json.loads(proposal_bytes)
+    reference = json.loads((consumer / 'reference.json').read_bytes())
+    assert 'limits' not in proposal['definition'] and 'inline_agents' not in proposal
+    assert reference['bundleVersion'] == 'workers-v1'
+    assert reference['workflowFingerprint'] == first['fingerprint']
+    assert set(reference) == {'version', 'bundleVersion', 'bundleIdentity', 'canonicalization',
+                              'proposalSha256', 'workflowFingerprint', 'admissionVersion', 'schemaProfile'}
     directory = storage / 'workers' / run_id
     checkpoint = json.loads((directory / 'run.json').read_text())
     assert checkpoint['status'] == 'waiting' and checkpoint['version'] == 2
@@ -172,6 +192,8 @@ def test_fresh_native_worker_reconstructs_pause_and_resumes_without_inference(en
     assert second['checkpoint_version'] == 2 and second['receipt_version'] == 1
     assert second['revision'] != first['revision']
     assert receipt_path.read_bytes() == receipt_bytes
+    assert (consumer / 'proposal.json').read_bytes() == proposal_bytes
+    assert second['waiting_revision'] == first['revision']
     assert len(requests) == 2 and replies == [], 'fresh resume made another provider request'
     final = json.loads((directory / 'run.json').read_text())
     decisions = [event for event in final['history'] if event['event'] == 'human_decision']
