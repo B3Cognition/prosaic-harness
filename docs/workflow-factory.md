@@ -131,6 +131,72 @@ aliases from the permitted catalogue. It cannot supply policy, registrations,
 Runtime configuration or credentials. Application-generated definitions use the
 same admission boundary.
 
+The application constructs a tenant-specific factory using that tenant's trusted
+policy and registrations. `factory.describe()` returns a fresh public JSON
+document (`version=1`) with the permitted **and bound** `agents`, `schemas`,
+`tools` and `validators`, supported `stepKinds`, `allowInlineAgents`,
+`allowAgentComposition`, `modelTiers`, `defaultModelTierAllowed` and effective
+camelCase `limits`. Tool aliases also intersect Runtime's allowed tools; named
+tiers must be both policy-approved and configured. Omitted `model_tier` continues
+to select the host default, including when no named tier is approved.
+
+Descriptions are absent unless the host explicitly opts them into the catalogue:
+
+```python
+public_catalog = WorkflowCatalog(
+    agents={"finder": agent}, schemas={"entity": entity_schema},
+    public_metadata={
+        "agents": {"finder": {"description": "Find an approved entity"}},
+        "schemas": {"entity": {"description": "Entity result"}},
+        "tools": {"lookup_item": {"description": "Look up an approved entity"}},
+    },
+)
+```
+
+The optional categories are `agents`, `schemas`, `tools` and `validators`;
+entries contain exactly one string `description`, at most 4096 UTF-8 bytes.
+Unknown categories, fields, aliases, cycles and aggregate host-bound overflow
+are rejected. Agent/schema aliases are checked when the catalogue is constructed;
+tool/validator aliases are checked against registrations when the factory is
+constructed. Metadata is owned and excluded from execution identity, so changing
+a public description does not change a workflow fingerprint.
+
+Agent `requestedCapabilities.tools` includes only effective public tool aliases.
+Tools expose declared semantic versions, byte caps and `authorizationRequired`;
+validators expose their declared versions. These fields are host-approved public
+metadata. Discovery reads captured JSON and invokes no callbacks, descriptor or
+version properties, CLI discovery, endpoint probes or models. Private agent bodies,
+frontmatter, artifact IDs, resource content and physical Runtime bindings never
+appear. `describe(include_schemas=True)` adds catalogue `schema` bodies and native
+tool `parameters`; use this host-only opt-in only for schemas approved for disclosure.
+
+```python
+public_capabilities = factory.describe()
+authoring_schema = factory.proposal_schema()
+```
+
+`proposal_schema()` returns a Draft 2020-12 structural schema with versioned ID
+`urn:prosaic-harness:proposal:v1`. It closes the envelope, definition and each of
+the five step variants, bounds graph sizes and numeric limits, and projects
+schema/tool/validator references. Denied inline instructions permit an omitted
+or explicitly empty `inline_agents` mapping. Authorized inline entries retain the
+existing required `type`, `frontmatter`, `body` and optional embedded `resources`
+shape; canonical subagent metadata and configured permitted model tiers are
+reflected. Frontmatter extensions remain prompt metadata.
+
+ALWAYS submit proposals to `build_json` after structural validation. NEVER treat
+the authoring schema as admission or an execution grant. It cannot establish
+transition targets, freshness, composition counts or whether a local inline alias
+is supplied, used or collides with a private catalogue binding. Those checks stay
+in mandatory factory admission; hidden aliases are never published to enumerate
+collisions. A structurally valid graph with an unknown transition still fails
+admission.
+
+Both discovery methods accept `maximum_bytes` (default 262144; finite host ceiling
+8388608). They reject oversized semantic documents with `limit_exceeded` rather
+than truncating aliases or schemas. Every returned document is independently
+owned; editing it cannot change later discovery or execution.
+
 `build_json` accepts a strict JSON envelope with `definition` and optional
 `inline_agents`. Send the JSON itself, without Markdown fences. For example,
 this proposal uses the host's `finder`, `entity` schema and native lookup:
@@ -328,6 +394,11 @@ Admission raises `WorkflowAdmissionError`, with safe `code` and `location`
 attributes. Services should project logical summaries and safe errors rather
 than serialize workflow bindings, private configuration or raw checkpoints.
 Consumer authentication and request-specific policy selection remain host duties.
+Known native checks identify logical fields such as
+`$.definition.steps.find.agent`; arbitrary property names become `*`, and numeric
+list indices may appear. Locations are bounded at 256 characters and never derive
+from parser messages, private paths or failed reference values. Existing error
+codes and the single-failure behavior remain compatible.
 
 ## Offline installed-wheel check
 

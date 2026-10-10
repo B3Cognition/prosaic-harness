@@ -18,7 +18,7 @@ from prosaic_runtime import (CliSandboxConfig, EndpointConfig, ProsaicArtifact,
 from prosaic_runtime.policy import BUILTIN_TOOLS, requested_tools
 
 from .admission_data import parse_bounded_json, snapshot_json
-from .errors import WorkflowAdmissionError
+from .errors import WorkflowAdmissionError, GraphAdmissionError, logical_alias, logical_location
 from .graph_admission import validate_resolved_workflow
 from .schema_validation import admit_schema
 from .validation import Validator
@@ -44,9 +44,9 @@ def _host_snapshot(value):
                          maximum_depth=_HOST_DEPTH, maximum_nodes=_HOST_NODES)
 
 
-def _alias(value):
+def _alias(value, location='$'):
     if type(value) is not str or not _ALIAS.fullmatch(value):
-        _fail('invalid_definition')
+        _fail('invalid_definition', location)
 
 
 def _config_payload(config, *, native=False):
@@ -130,7 +130,7 @@ def _artifact_snapshot(artifact, *, maximum_bytes=_STORAGE_BYTES, maximum_depth=
 
 class WorkflowCatalog:
     """Host-approved content, captured independently of caller-owned containers."""
-    def __init__(self, *, agents=None, schemas=None):
+    def __init__(self, *, agents=None, schemas=None, public_metadata=None):
         agents = {} if agents is None else agents
         schemas = {} if schemas is None else schemas
         if not isinstance(agents, Mapping) or not isinstance(schemas, Mapping):
@@ -144,6 +144,9 @@ class WorkflowCatalog:
             schema_values[alias] = _encode(_host_snapshot(schema))
         self._agents = MappingProxyType(agent_values)
         self._schemas = MappingProxyType(schema_values)
+        from .discovery import public_metadata as snapshot_public_metadata
+        self._public_metadata_json = snapshot_public_metadata(public_metadata,
+                                                             agents=agent_values, schemas=schema_values)
 
 
 class WorkflowBindings:
@@ -159,6 +162,12 @@ class WorkflowBindings:
                     _fail('binding_mismatch')
             _host_snapshot({name: validator.version for name, validator in values.items()})
             self._validators = MappingProxyType(values)
+            self._discovery_json = _encode(_host_snapshot({
+                'tools': {name: {'version': tool.version, 'maxArgumentBytes': tool.max_argument_bytes,
+                    'maxResultBytes': tool.max_result_bytes, 'authorizationRequired': tool.authorize is not None,
+                    'parameters': json.loads(tool._schema_json)} for name, tool in self._tools.items()},
+                'validators': {name: {'version': validator.version} for name, validator in values.items()},
+            }))
         except WorkflowAdmissionError:
             raise
         except Exception:
@@ -319,26 +328,27 @@ def _policy_graph(workflow, policy, *, inline_names=frozenset()):
     if count > 1 and not policy.allow_agent_composition:
         _fail('policy_denied')
     for name, step in steps.items():
+        location = lambda field: logical_location('definition', 'steps', logical_alias(name), field)
         _alias(name)
         if step.get('max_visits', workflow.definition['limits']['max_visits']) > policy.max_visits:
-            _fail('limit_exceeded')
-        for validator in step.get('validators', []):
+            _fail('limit_exceeded', location('max_visits'))
+        for index, validator in enumerate(step.get('validators', [])):
             if validator not in policy.allowed_validators:
-                _fail('policy_denied')
+                _fail('policy_denied', logical_location('definition', 'steps', logical_alias(name), 'validators', index))
         if step.get('kind') == 'agent':
             if step['agent'] not in policy.allowed_agents and step['agent'] not in inline_names:
-                _fail('policy_denied')
+                _fail('policy_denied', location('agent'))
             if step['schema'] not in policy.allowed_schemas:
-                _fail('policy_denied')
+                _fail('policy_denied', location('schema'))
             if set(step.get('tools', [])) - policy.allowed_tools:
-                _fail('policy_denied')
+                _fail('policy_denied', location('tools'))
             if step.get('max_attempts', policy.max_attempts) > policy.max_attempts:
-                _fail('limit_exceeded')
+                _fail('limit_exceeded', location('max_attempts'))
             tier = workflow.artifacts[name].frontmatter.get('model_tier')
             if tier is not None and tier not in policy.allowed_model_tiers:
-                _fail('policy_denied')
+                _fail('policy_denied', location('agent'))
         elif 'response_schema' in step and step['response_schema'] not in policy.allowed_schemas:
-            _fail('policy_denied')
+            _fail('policy_denied', location('response_schema'))
 
 
 class WorkflowFactory:
@@ -351,7 +361,23 @@ class WorkflowFactory:
         self._config_json = bindings._config_json
         self._tools = MappingProxyType(dict(bindings._tools))
         self._validators = MappingProxyType(dict(bindings._validators))
+        self._discovery_json = bindings._discovery_json
         self._policy = policy
+        self._public_metadata_json = catalog._public_metadata_json
+        metadata = json.loads(self._public_metadata_json)
+        for category, known in (('tools', self._tools), ('validators', self._validators)):
+            if set(metadata.get(category, {})) - known.keys():
+                _fail('unknown_reference')
+
+    def describe(self, *, include_schemas=False, maximum_bytes=262_144):
+        """Return an owned policy projection with opt-in host-approved schemas."""
+        from .discovery import describe
+        return describe(self, include_schemas=include_schemas, maximum_bytes=maximum_bytes)
+
+    def proposal_schema(self, *, maximum_bytes=262_144):
+        """Return structural authoring guidance; build_json remains authoritative."""
+        from .discovery import proposal_schema
+        return proposal_schema(self, maximum_bytes=maximum_bytes)
 
     def build_json(self, text):
         envelope = parse_bounded_json(text, maximum_bytes=self._policy.max_proposal_bytes,
@@ -372,6 +398,8 @@ class WorkflowFactory:
             return self._build(envelope['definition'], envelope['inline_agents'])
         except WorkflowAdmissionError:
             raise
+        except GraphAdmissionError as exc:
+            _fail('invalid_definition', exc.location)
         except Exception:
             _fail('invalid_definition')
 
@@ -380,9 +408,9 @@ class WorkflowFactory:
         if type(definition) is not dict or type(inline_agents) is not dict:
             _fail('invalid_definition')
         if 'resources' in definition:
-            _fail('resource_not_bound')
+            _fail('resource_not_bound', logical_location('definition', 'resources'))
         if set(definition) - {'version', 'name', 'start', 'limits', 'steps'}:
-            _fail('invalid_definition')
+            _fail('invalid_definition', logical_location('definition', '*'))
         if inline_agents and not policy.allow_inline_agents:
             _fail('policy_denied')
         if set(inline_agents) & self._agents.keys():
@@ -406,20 +434,22 @@ class WorkflowFactory:
             cap = getattr(policy, name)
             value = limits.setdefault(name, cap)
             if type(value) is not int or value <= 0:
-                _fail('invalid_definition')
+                _fail('invalid_definition', logical_location('definition', 'limits', name))
             if value > cap:
-                _fail('limit_exceeded')
+                _fail('limit_exceeded', logical_location('definition', 'limits', name))
         config = _config_from_json(self._config_json)
         artifacts, schemas, used_inline = {}, {}, set()
         schema_total = artifact_total = 0
         for name, step in steps.items():
+            location = lambda field: logical_location('definition', 'steps', logical_alias(name), field)
             if 'resources' in step:
-                _fail('resource_not_bound')
-            if set(step) & {'acquisition', 'read_roots', 'require_reads'}:
-                _fail('resource_not_bound')
+                _fail('resource_not_bound', location('resources'))
+            for forbidden in ('acquisition', 'read_roots', 'require_reads'):
+                if forbidden in step:
+                    _fail('resource_not_bound', location(forbidden))
             if step.get('kind') == 'agent':
                 alias = step.get('agent')
-                _alias(alias)
+                _alias(alias, location('agent'))
                 if alias in inline_agents:
                     data = inline_agents[alias]
                     if type(data) is not dict:
@@ -437,7 +467,7 @@ class WorkflowFactory:
                         maximum_bytes=policy.max_artifact_bytes, maximum_depth=policy.max_json_depth,
                         maximum_nodes=policy.max_json_nodes)
                 else:
-                    _fail('unknown_reference')
+                    _fail('unknown_reference', location('agent'))
                 artifact_total += len(_encode(_artifact_data(artifact)))
                 if artifact_total > policy.max_artifact_bytes:
                     _fail('limit_exceeded')
@@ -453,10 +483,13 @@ class WorkflowFactory:
                 step.setdefault('max_attempts', policy.max_attempts)
             schema_alias = step.get('schema') if step.get('kind') == 'agent' else step.get('response_schema')
             if schema_alias is not None:
-                _alias(schema_alias)
+                _alias(schema_alias, location('schema' if step.get('kind') == 'agent' else 'response_schema'))
                 if schema_alias not in self._schemas:
-                    _fail('unknown_reference')
-                schema = admit_schema(json.loads(self._schemas[schema_alias]), profile=policy.schema_profile())
+                    _fail('unknown_reference', location('schema' if step.get('kind') == 'agent' else 'response_schema'))
+                try:
+                    schema = admit_schema(json.loads(self._schemas[schema_alias]), profile=policy.schema_profile())
+                except WorkflowAdmissionError as exc:
+                    _fail(exc.code, location('schema' if step.get('kind') == 'agent' else 'response_schema'))
                 schema_total += len(_encode(schema).encode())
                 if schema_total > policy.max_total_schema_bytes:
                     _fail('limit_exceeded')
@@ -465,7 +498,11 @@ class WorkflowFactory:
             _fail('invalid_artifact')
         needed = {validator for step in steps.values() for validator in step.get('validators', [])}
         if needed - self._validators.keys():
-            _fail('binding_mismatch')
+            for name, step in steps.items():
+                for index, validator in enumerate(step.get('validators', [])):
+                    if validator not in self._validators:
+                        _fail('binding_mismatch', logical_location('definition', 'steps',
+                            logical_alias(name), 'validators', index))
         workflow = _NativeWorkflow(None, definition, config, artifacts, schemas, '',
                                    custom_tools=self._tools)
         descriptors = custom_descriptors(self._tools)
