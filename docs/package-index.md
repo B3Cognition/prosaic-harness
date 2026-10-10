@@ -21,8 +21,8 @@ only after downloading and verifying the first published release.
 
 ## Trusted publisher registration
 
-Register these exact pending publishers in the owning PyPI account, then retain
-them as trusted publishers after their first release. All use GitHub owner
+The family uses these exact publisher identities. Register pending entries in
+the stages below, then retain the normal publishers. All use GitHub owner
 `B3Cognition`, workflow filename `publish.yml`, and environment `pypi`:
 
 | PyPI project | GitHub repository |
@@ -32,6 +32,25 @@ them as trusted publishers after their first release. All use GitHub owner
 | `b3-prosaic-runtime-postgres` | `prosaic-runtime` |
 | `b3-prosaic-harness` | `prosaic-harness` |
 | `b3-prosaic-harness-postgres` | `prosaic-harness` |
+
+PyPI permits only one pending project for the same GitHub
+owner/repository/workflow/environment tuple. Bootstrap the family in stages:
+
+1. Register `b3-prosaic`, `b3-prosaic-runtime` and `b3-prosaic-harness` as the
+   initial pending entries for their three repositories.
+2. Promote Core first. For each paired SDK release, its first successful OIDC
+   exchange creates the main project and converts its pending publisher. That
+   first paired attempt may publish matching main-package files and then fail
+   because the adapter is not yet authorized.
+3. Once that conversion is visible in the owning account, register the adapter's
+   pending entry with the same tuple and repeat the guarded promotion using the
+   original successful qualification run. The next exchange adds the adapter to
+   the existing publisher; digest checks allow matching partial uploads to finish.
+
+Retrying alone cannot register the adapter. GitHub release waits for the complete
+verified pair. After bootstrap, one normal publisher can authorize both projects.
+See PyPI's [pending uniqueness and publisher reuse implementation](https://github.com/pypi/warehouse/blob/f43a0f79dbaf40e4888110ad5b1d5e0ad87121b6/warehouse/oidc/models/github.py#L373-L416)
+and [token exchange and scope](https://github.com/pypi/warehouse/blob/f43a0f79dbaf40e4888110ad5b1d5e0ad87121b6/warehouse/oidc/views.py#L208-L368).
 
 Create the `pypi` environment in each SDK repository and restrict deployment to
 the intended version tags. No long-lived PyPI API token is required. The official
