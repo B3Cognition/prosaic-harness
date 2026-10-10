@@ -552,6 +552,54 @@ durable evidence, authorization or an outbox. `KeyboardInterrupt` and other
 process-control exceptions propagate. The existing `on_event` callback remains a
 critical, propagating hook, and Runtime receipt capture still uses that hook.
 
+## Host Runtime controls
+
+`WorkflowPolicy` accepts `max_provider_requests_per_invocation` and
+`max_tool_calls_per_invocation`. Each is an exact nonnegative integer or `None`;
+zero permits no dispatch of that unit. These are host controls. `describe()`
+includes enabled controls in `limits` with `limitUnits` set to `perInvocation`.
+The client proposal's graph `limits` cannot set either control. `max_calls`
+continues to count Harness invocations. Omitted and explicit `None` controls
+retain the historic workflow fingerprints and descriptors.
+
+Before each native invocation Harness passes the remaining workflow reported
+token allowance and remaining persisted run time to Runtime, alongside the host
+provider/tool caps. Runtime counts actual outgoing provider requests and tool
+dispatch attempts. A final response exactly at the token allowance may succeed;
+unknown or over-cap terminal usage blocks further work. The completed receipt
+and invocation ledger retain incurred/unknown usage even on failure.
+
+Native adapters must advertise `invocation_budgets_v1` and `tool_context_v1`;
+journal bindings additionally require `tool_journal_v1`. Admission checks these
+before creating run state or calling the model. Ordinary trusted adapters keep
+their existing call keywords when these native controls are disabled.
+
+Contextual tools receive a dedicated `InvocationScope`, with the persisted
+attempt ID as `invocation_id`, the run/step IDs, and an optional host namespace.
+Configure operation bindings through the host:
+
+```python
+bindings = WorkflowBindings(config=config, custom_tools=tools,
+    operation_namespace='owned-business-domain-v1', tool_journal=journal)
+```
+
+Journaled tools require both bindings. Harness reads Runtime's static journal
+descriptor, rejecting property-backed declarations without evaluating them, and
+seals the opaque identity, contract version and namespace in workflow/bundle
+material. Fresh registrations with the same declarations reconstruct the same
+identity. Status, resume and dispatch recheck bindings. Host ledger objects stay
+private; checkpoint v2 and receipt v1 contain no operation binding extensions.
+
+ALWAYS make the journal's declared identity refer to the same durable ledger
+across replicas and deployments. NEVER derive a business idempotency key from a
+Harness attempt ID, provider call ID or argument hash. Key resolution and
+reconciliation belong to the trusted tool and its consuming application.
+
+ALWAYS preserve an uncertain effect for explicit host resolution. NEVER use
+`retry_interrupted=True`, a graph retry or a monitoring event to reconcile it.
+Runtime uncertainty failures produce terminal invocation failure receipts;
+Harness does not implement a business journal or automatic model retry.
+
 ## Offline installed-wheel check
 
 Use the exact candidate checkout for the smoke script and a fresh environment

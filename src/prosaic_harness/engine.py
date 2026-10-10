@@ -754,15 +754,25 @@ class Harness:
                                    read_roots=tuple(step.get('read_roots', [])),
                                    timeout_s=timeout, max_tool_rounds=self.workflow.config.limits.max_tool_rounds,
                                    **({'max_input_bytes': self._admission.policy.max_invocation_bytes} if self._admission else {}),
+                                   **({'max_provider_requests': self._admission.policy.max_provider_requests_per_invocation,
+                                       'max_tool_calls': self._admission.policy.max_tool_calls_per_invocation,
+                                       'max_reported_tokens': limits['max_tokens'] - sum(
+                                           i['token_usage'] for i in state['invocations'] if i['status'] == 'complete')}
+                                      if self._admission else {}),
                                    **({'initial_tool': 'read_file'} if step.get('require_reads') and
                                       'initial_tool_v1' in getattr(self.runtime, 'capabilities', ()) else {}))
                 self._check_ownership()
+                self._admit()
                 observation_options = {}
-                if self._observations.observer is not None:
+                if self._admission or self._observations.observer is not None:
                     from prosaic_runtime import InvocationScope
-                    observation_options = {'observer': self._observations.observer,
-                        'operation_context': InvocationScope(attempt_id, run_id=state['run_id'],
-                            step_id=name if self._admission else None)}
+                    observation_options = {'operation_context': InvocationScope(attempt_id, run_id=state['run_id'],
+                        step_id=name if self._admission else None,
+                        operation_namespace=self._admission.operation_namespace if self._admission else None)}
+                    if self._observations.observer is not None:
+                        observation_options['observer'] = self._observations.observer
+                    if self._admission and self._admission.tool_journal is not None:
+                        observation_options['tool_journal'] = self._admission.tool_journal
                 result = self.runtime.run(self.workflow.artifacts[name], json.dumps(arguments),
                                           cwd=self._cwd, policy=policy, on_event=record,
                                           cancelled=lambda: bool(event_failure) or self._runtime_cancelled(state),

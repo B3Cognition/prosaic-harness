@@ -211,10 +211,12 @@ def test_removed_runtime_observation_capability_cannot_silently_drop_observer(tm
     assert not (tmp_path / 'run').exists() and calls == []
 
 
-def test_unconfigured_observer_preserves_legacy_runtime_options(tmp_path, monkeypatch):
+def test_unconfigured_observer_keeps_native_scope_independent(tmp_path, monkeypatch):
     h, calls = bound(tmp_path, monkeypatch)
     assert h.run({})['status'] == 'waiting'
-    assert 'observer' not in calls[0][1] and 'operation_context' not in calls[0][1]
+    assert 'observer' not in calls[0][1]
+    assert calls[0][1]['operation_context'].invocation_id == h.status().state['invocations'][0]['id']
+    assert 'context' not in calls[0][1] and 'accounting' not in calls[0][1]
 
 
 def test_critical_waiting_hook_still_propagates_before_commit(tmp_path, monkeypatch):

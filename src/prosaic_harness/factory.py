@@ -14,7 +14,8 @@ from prosaic import validate_artifact_definition
 from prosaic_runtime import (CliSandboxConfig, CustomTool, EndpointConfig, ProsaicArtifact,
                              ProsaicRuntime, RunLimits, RuntimeConfig,
                              custom_descriptors, validate_custom_tools,
-                             validate_execution_artifact)
+                             validate_execution_artifact, InvocationScope,
+                             tool_journal_descriptor)
 from prosaic_runtime.policy import BUILTIN_TOOLS, requested_tools
 
 from .admission_data import parse_bounded_json, snapshot_json
@@ -29,6 +30,8 @@ _STORAGE_BYTES = 8_388_608
 _HOST_DEPTH = 512
 _HOST_NODES = 1_048_576
 _ALIAS = re.compile(r'[A-Za-z][A-Za-z0-9_-]{0,63}')
+_INVOCATION_CAPS = frozenset({'max_provider_requests_per_invocation',
+                             'max_tool_calls_per_invocation'})
 
 
 def _fail(code, location='$'):
@@ -47,6 +50,21 @@ def _host_snapshot(value):
 def _alias(value, location='$'):
     if type(value) is not str or not _ALIAS.fullmatch(value):
         _fail('invalid_definition', location)
+
+
+def _operation_bindings(namespace, journal):
+    """Static declarations only; the host owns the actual durable ledger domain."""
+    try:
+        InvocationScope('admission', operation_namespace=namespace)
+        descriptor = tool_journal_descriptor(journal) if journal is not None else {}
+        if journal is not None and namespace is None:
+            _fail('binding_mismatch')
+        return ({'operation_namespace': namespace} if namespace is not None else {}) | (
+            {'tool_journal': descriptor} if descriptor else {})
+    except WorkflowAdmissionError:
+        raise
+    except Exception:
+        _fail('binding_mismatch')
 
 
 def _config_payload(config, *, native=False):
@@ -151,8 +169,13 @@ class WorkflowCatalog:
 
 class WorkflowBindings:
     """Native effective configuration and trusted registrations, without probes."""
-    def __init__(self, *, config, custom_tools=None, validators=None):
+    def __init__(self, *, config, custom_tools=None, validators=None,
+                 operation_namespace=None, tool_journal=None):
         self._config_json = _encode(_config_payload(config, native=True))
+        operation = _operation_bindings(operation_namespace, tool_journal)
+        self._operation_namespace = operation_namespace
+        self._tool_journal = tool_journal
+        self._operation_json = _encode(operation)
         try:
             self._tools = MappingProxyType(validate_custom_tools(custom_tools))
             values = dict(validators or {})
@@ -205,10 +228,16 @@ class WorkflowPolicy:
     max_metadata_bytes: int = 65536
     max_receipt_bytes: int = 1048576
     max_state_bytes: int = 4194304
+    max_provider_requests_per_invocation: int | None = None
+    max_tool_calls_per_invocation: int | None = None
 
     def __post_init__(self):
         for item in fields(self):
             value = getattr(self, item.name)
+            if item.name in _INVOCATION_CAPS:
+                if value is not None and (type(value) is not int or value < 0):
+                    _fail('invalid_definition')
+                continue
             if item.name.startswith('allowed_'):
                 if type(value) not in (frozenset, set, tuple, list):
                     _fail('invalid_definition')
@@ -233,7 +262,8 @@ class WorkflowPolicy:
 
     def _identity(self):
         return {item.name: sorted(getattr(self, item.name)) if item.name.startswith('allowed_')
-                else getattr(self, item.name) for item in fields(self)}
+                else getattr(self, item.name) for item in fields(self)
+                if item.name not in _INVOCATION_CAPS or getattr(self, item.name) is not None}
 
     def schema_profile(self, human=False):
         return {'version': 1, 'dialect': '2020-12', 'refs': 'acyclic-local-static',
@@ -251,9 +281,12 @@ class _AdmissionRecord:
     validators: Mapping
     validator_versions: Mapping
     content_json: str
+    operation_namespace: str | None = None
+    tool_journal: object = None
+    operation_json: str = '{}'
 
 
-def _identity_payload(workflow, policy):
+def _identity_payload(workflow, policy, *, operation=None):
     # ALWAYS bound mutable execution objects before digest/asdict consumers.
     definition = snapshot_json(workflow.definition,
         # Original UTF-8 proposals may expand under the historic ASCII seal
@@ -294,9 +327,14 @@ def _identity_payload(workflow, policy):
     config = _config_from_json(_encode(_config_payload(workflow.config)))
     descriptors = snapshot_json(workflow.tool_descriptors, maximum_bytes=_STORAGE_BYTES,
                                 maximum_depth=policy.max_json_depth, maximum_nodes=policy.max_json_nodes)
+    if operation is None:
+        record = getattr(workflow, '_admission', None)
+        operation = (_operation_bindings(record.operation_namespace, record.tool_journal)
+                     if type(record) is _AdmissionRecord else {})
     return {'workflow': definition, 'runtime': runtime_identity(config),
             'schemas': schemas, 'prose': artifacts,
             **({'custom_tools': descriptors} if descriptors else {}),
+            **({'operation_bindings': operation} if operation else {}),
             'admission': {'version': 1, 'profile': 1, 'policy': policy._identity()}}
 
 
@@ -364,6 +402,10 @@ class WorkflowFactory:
         self._tools = MappingProxyType(dict(bindings._tools))
         self._validators = MappingProxyType(dict(bindings._validators))
         self._discovery_json = bindings._discovery_json
+        self._operation_namespace = bindings._operation_namespace
+        self._tool_journal = bindings._tool_journal
+        self._operation_json = bindings._operation_json
+        self._check_operation_bindings()
         self._policy = policy
         self._public_metadata_json = catalog._public_metadata_json
         metadata = json.loads(self._public_metadata_json)
@@ -371,9 +413,16 @@ class WorkflowFactory:
             if set(metadata.get(category, {})) - known.keys():
                 _fail('unknown_reference')
 
+    def _check_operation_bindings(self):
+        current = _operation_bindings(self._operation_namespace, self._tool_journal)
+        if _encode(current) != self._operation_json:
+            _fail('binding_mismatch')
+        return current
+
     def _frozen_copy(self):
         """Snapshot private execution bindings without invoking host callbacks."""
         try:
+            self._check_operation_bindings()
             def decoded(text):
                 return parse_bounded_json(text, maximum_bytes=_STORAGE_BYTES,
                     maximum_depth=_HOST_DEPTH, maximum_nodes=_HOST_NODES)
@@ -384,7 +433,8 @@ class WorkflowFactory:
             for name, tool in validate_custom_tools(self._tools).items():
                 tools[name] = CustomTool(tool.name, tool.description, decoded(tool._schema_json),
                     tool.handler, tool.version, max_argument_bytes=tool.max_argument_bytes,
-                    max_result_bytes=tool.max_result_bytes, authorize=tool.authorize)
+                    max_result_bytes=tool.max_result_bytes, authorize=tool.authorize,
+                    with_context=tool.with_context, operation_key=tool.operation_key)
             validators = {}
             for name, value in self._validators.items():
                 if type(value) is not Validator:
@@ -394,7 +444,9 @@ class WorkflowFactory:
                 _fail('binding_mismatch')
             policy = WorkflowPolicy(**self._policy._identity())
             bindings = WorkflowBindings(config=_config_from_json(_encode(decoded(self._config_json))),
-                                        custom_tools=tools, validators=validators)
+                                        custom_tools=tools, validators=validators,
+                                        operation_namespace=self._operation_namespace,
+                                        tool_journal=self._tool_journal)
             return WorkflowFactory(catalog=catalog, bindings=bindings, policy=policy)
         except WorkflowAdmissionError:
             raise
@@ -408,7 +460,9 @@ class WorkflowFactory:
             # The admitted config identity retains this supported tuple for
             # historic workflow seals. Bundle material must be plain JSON.
             runtime['cli_sandbox']['runtime_roots'] = list(runtime['cli_sandbox']['runtime_roots'])
+        operation = self._check_operation_bindings()
         return _host_snapshot({'version': 1,
+            **({'operation_bindings': operation} if operation else {}),
             'agents': {name: json.loads(text) for name, text in self._agents.items()},
             'schemas': {name: json.loads(text) for name, text in self._schemas.items()},
             'policy': self._policy._identity(),
@@ -482,6 +536,7 @@ class WorkflowFactory:
 
     def _build(self, definition, inline_agents):
         policy = self._policy
+        operation = self._check_operation_bindings()
         if type(definition) is not dict or type(inline_agents) is not dict:
             _fail('invalid_definition')
         if 'resources' in definition:
@@ -587,13 +642,16 @@ class WorkflowFactory:
                                                profile=policy.schema_profile(), native=True)
         _policy_graph(workflow, policy, inline_names=frozenset(used_inline))
         workflow._tool_descriptors = demanded
-        payload = _identity_payload(workflow, policy)
+        if any(item.get('journaled') for item in demanded.values()) and (
+                self._tool_journal is None or self._operation_namespace is None):
+            _fail('binding_mismatch')
+        payload = _identity_payload(workflow, policy, operation=operation)
         seal = digest(payload)
         workflow.fingerprint = seal
         workflow._admission = _AdmissionRecord(seal, self._config_json, policy, self._tools,
             MappingProxyType({name: self._validators[name] for name in needed}),
             MappingProxyType({name: self._validators[name].version for name in sorted(needed)}),
-            _encode(payload))
+            _encode(payload), self._operation_namespace, self._tool_journal, self._operation_json)
         return workflow
 
 
@@ -602,6 +660,13 @@ def _check_adapter(workflow, runtime, descriptors, *, native):
         return
     if native and (type(runtime) is not ProsaicRuntime or runtime.cli_tool_names):
         _fail('binding_mismatch')
+    if native:
+        record = workflow._admission
+        required = {'invocation_budgets_v1', 'tool_context_v1'}
+        if record.tool_journal is not None or any(d.get('journaled') for d in descriptors.values()):
+            required.add('tool_journal_v1')
+        if required - getattr(runtime, 'capabilities', frozenset()):
+            _fail('binding_mismatch')
     actual_config = getattr(runtime, 'config', None)
     if native or isinstance(actual_config, RuntimeConfig):
         if _encode(_config_payload(actual_config)) != _encode(_config_payload(workflow.config)):
@@ -621,6 +686,8 @@ def admit_workflow(workflow, *, runtime=None, validators=None):
             record = getattr(workflow, '_admission', None)
             if type(record) is not _AdmissionRecord or workflow.path is not None or workflow.acquisitions:
                 _fail('identity_mismatch')
+            if _encode(_operation_bindings(record.operation_namespace, record.tool_journal)) != record.operation_json:
+                _fail('binding_mismatch')
             current = _identity_payload(workflow, record.policy)
             if (workflow.fingerprint != record.original_seal or digest(current) != record.original_seal
                     or _encode(current) != record.content_json

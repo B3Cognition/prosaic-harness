@@ -94,7 +94,12 @@ def describe(factory, *, include_schemas=False, maximum_bytes=262_144):
         modelTiers=selected['modelTiers'],
         defaultModelTierAllowed=True,
         limits={_camel(item.name): getattr(policy, item.name) for item in fields(policy)
-                if not item.name.startswith(('allow_', 'allowed_'))})
+                if not item.name.startswith(('allow_', 'allowed_')) and getattr(policy, item.name) is not None})
+    units = {_camel(name): 'perInvocation' for name in (
+        'max_provider_requests_per_invocation', 'max_tool_calls_per_invocation')
+        if getattr(policy, name) is not None}
+    if units:
+        document['limitUnits'] = units
     return _bounded(document, maximum_bytes)
 
 

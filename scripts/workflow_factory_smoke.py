@@ -23,7 +23,8 @@ import prosaic_runtime
 import prosaic_harness
 from prosaic_runtime import CustomTool, EndpointConfig, ProsaicArtifact, RuntimeConfig
 from prosaic_harness import (FileRunStore, Harness, Validator, WorkflowBindings,
-                             WorkflowCatalog, WorkflowFactory, WorkflowPolicy)
+                             WorkflowCatalog, WorkflowFactory, WorkflowPolicy,
+                             WorkflowBundle, WorkflowReference)
 
 
 def installed_origins():
@@ -46,6 +47,8 @@ def installed_origins():
     assert callable(prosaic_runtime.validate_execution_artifact)
     assert callable(prosaic_runtime.validate_custom_tools)
     assert callable(prosaic_runtime.custom_descriptors)
+    assert callable(prosaic_runtime.InvocationScope)
+    assert callable(prosaic_runtime.tool_journal_descriptor)
     return origins
 
 
@@ -106,7 +109,9 @@ def proposal():
 
 
 def make_factory(endpoint_url, tool_calls):
-    def lookup(arguments):
+    def lookup(arguments, context):
+        assert context.scope.operation_namespace == 'smoke-domain-v1'
+        assert context.scope.step_id == 'find'
         tool_calls.append(arguments)
         return {'entity_id': 'sample-1', 'label': 'Synthetic item'}
 
@@ -136,15 +141,17 @@ def make_factory(endpoint_url, tool_calls):
     tool = CustomTool('lookup_item', 'Find a synthetic entity', {
         'type': 'object', 'properties': {'query': {'type': 'string', 'maxLength': 128}},
         'required': ['query'], 'additionalProperties': False,
-    }, lookup, 'v1')
+    }, lookup, 'v1', with_context=True)
     return WorkflowFactory(
         catalog=WorkflowCatalog(agents={'finder': agent}, schemas=schemas),
         bindings=WorkflowBindings(config=config, custom_tools={'lookup_item': tool},
-                                  validators={'selection': Validator('v1', selection)}),
+                                  validators={'selection': Validator('v1', selection)},
+                                  operation_namespace='smoke-domain-v1'),
         policy=WorkflowPolicy(allowed_agents=frozenset({'finder'}),
             allowed_schemas=frozenset({'entity', 'confirmation'}),
             allowed_tools=frozenset({'lookup_item'}), allowed_validators=frozenset({'selection'}),
-            allowed_model_tiers=frozenset({'fast'}), max_calls=2, max_tokens=128, max_run_s=60),
+            allowed_model_tiers=frozenset({'fast'}), max_calls=2, max_tokens=128, max_run_s=60,
+            max_provider_requests_per_invocation=2, max_tool_calls_per_invocation=1),
     )
 
 
@@ -159,16 +166,31 @@ def exercise_factory():
             store = FileRunStore(Path(folder).resolve() / 'runs', namespace='smoke')
             run_id = uuid.uuid4().hex
             definition = proposal()
-            workflow = make_factory(url, tool_calls).build(definition)
+            factory = make_factory(url, tool_calls)
+            description = factory.describe(include_schemas=True)
+            assert description['defaultModelTierAllowed'] is True
+            assert description['limits']['maxProviderRequestsPerInvocation'] == 2
+            assert description['limitUnits']['maxToolCallsPerInvocation'] == 'perInvocation'
+            assert 'lookup_item' in description['tools'] and 'entity' in description['schemas']
+            assert factory.proposal_schema()['type'] == 'object'
+            bundle = WorkflowBundle('smoke-v1', factory)
+            prepared = bundle.prepare_json(json.dumps({'definition': definition}))
+            workflow = prepared.workflow
             assert workflow.path is None
+            request = workflow.prepare_inputs({'query': 'sample'})
+            assert request == {'query': 'sample'}
             harness = Harness(workflow, store=store, run_id=run_id, on_event=events.append)
-            state = harness.run({'query': 'sample'})
+            state = harness.run(request)
             assert state['status'] == 'waiting', state.get('reason')
             assert state['calls'] == 1 and state['pending'] is None
             assert state['outputs']['find'] == {'entity_id': 'sample-1', 'label': 'Synthetic item'}
             waiting = harness.status()
+            interaction = harness.interaction(review_outputs=('find',), include_response_schema=True)
+            assert interaction.revision == waiting.revision
+            assert interaction.to_dict()['choices'] == ['accept', 'reject']
             assert waiting.revision == harness.status().revision, 'status changed the checkpoint'
-            rebuilt = make_factory(url, tool_calls).build_json(json.dumps({'definition': definition}))
+            rebuilt = WorkflowBundle('smoke-v1', make_factory(url, tool_calls)).reconstruct(
+                prepared.proposal_json, WorkflowReference.from_dict(prepared.reference.to_dict()))
             assert rebuilt.fingerprint == workflow.fingerprint, 'reconstruction changed identity'
             resumed = Harness(rebuilt, store=store, run_id=run_id)
             before_invalid = resumed.status().revision
@@ -189,6 +211,9 @@ def exercise_factory():
             assert invocation['status'] == 'complete' and invocation['token_usage'] == 14
             receipt = store.load_receipt(run_id, invocation['id'])
             assert receipt['version'] == 1 and receipt['sha256'] == invocation['receipt_sha256']
+            assert receipt['result']['metadata']['invocation_budgets_v1'] == {
+                'provider_requests': 2, 'tool_calls': 1, 'reported_tokens': 14, 'usage_complete': True}
+            assert 'accounting_context' not in completed
             assert tool_calls == [{'query': 'sample'}]
             assert len(requests) == 2 and replies == [], 'resume dispatched another provider call'
             assert all(request['path'] == '/v1/chat/completions' for request in requests)
@@ -196,6 +221,8 @@ def exercise_factory():
             store.close()
         return {'status': 'completed', 'harness_invocations': 1, 'provider_requests': 2,
                 'native_tool_calls': 1, 'checkpoint_version': 2, 'receipt_version': 1,
+                'discovery': True, 'bundle_reconstruction': True,
+                'input_preparation': True, 'interaction': True,
                 'node_on_path': False, 'prosaic_cli_on_path': False}
     finally:
         if original_path is None:
