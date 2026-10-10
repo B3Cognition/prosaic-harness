@@ -113,39 +113,46 @@ class PostgresRunStore:
             if len(self._sessions) + self._acquiring >= self._max_active_leases:
                 raise StoreBusy('active execution capacity exhausted')
             self._acquiring += 1
-        session = PostgresLease(self, run_id, time.monotonic())
+        session = None
         registered = False
+        primary = None
         try:
+            session = PostgresLease(self, run_id, time.monotonic())
             session.generation = self._transport.call(lambda conn: self._acquire(conn, session))
             session.check_valid()
             with self._mutex:
                 self._sessions.add(session)
                 self._acquiring -= 1
                 registered = True
-            self._transport.submit(session.maintain())
-        finally:
-            if not registered:
-                with self._mutex:
-                    self._acquiring -= 1
-        primary = None
-        try:
+            # Retain the coroutine even if submission is interrupted before it
+            # returns. stop() closes an unstarted runner on its owning loop or
+            # drains a started renewal before ownership can be released.
+            session._renewal = session.maintain()
+            self._transport.submit(session._renewal)
             yield session
         except BaseException as exc:
             primary = exc
             raise
         finally:
             try:
-                session.stop()
-                session._active = False
-                self._transport.call(lambda conn: self._release(conn, session), renewal=True)
-            except Exception:
+                if session is not None and session.generation is not None:
+                    if session._renewal is None:
+                        session._stopped.set()
+                    else:
+                        session.stop()
+                    self._transport.call(lambda conn: self._release(conn, session), renewal=True)
+            except BaseException:
                 session._lost = True
                 if primary is None:
                     raise
                 primary.add_note('database lease cleanup failed; reconcile ownership before retrying')
             finally:
-                if session._stopped.is_set():
-                    with self._mutex:
+                if session is not None:
+                    session._active = False
+                with self._mutex:
+                    if not registered:
+                        self._acquiring -= 1
+                    if session is not None and session._stopped.is_set():
                         self._sessions.discard(session)
 
     def _token(self, run_id, revision):
