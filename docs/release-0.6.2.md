@@ -13,7 +13,7 @@ introduce filesystem/CLI access or physical resource bindings. Human decisions,
 durable failure receipts and reconstruction across workers retain checkpoint
 version 2 and receipt version 1. Historical YAML workflows remain supported.
 
-Pins Runtime 0.7.1 at `6ac8768de3dd69abdbbfbe6f15107a0504762691`, which
+Pins Runtime 0.7.1 at `47ac9952638249dc78ec037a485ba5104cf1ec8c`, which
 pins Core 0.3.2 at `af7d90e178f61d53ba71bcc61c41c3ef7f941b4c`.
 The separately installed PostgreSQL store remains 0.1.1.
 
