@@ -1,8 +1,10 @@
 # Validated workflow factory: implementation verification
 
-Date: 2026-10-10. Candidate versions: Prosaic 0.3.2, Runtime 0.7.1,
+Initial local checkpoint: 2026-10-10. Candidate versions: Prosaic 0.3.2, Runtime 0.7.1,
 Harness 0.6.2. Implementation is local on `codex/validated-workflow-factory`
-in all three repositories; no push, merge, release or live provider call occurred.
+in all three repositories; no push, merge, release or live provider call had occurred
+at this checkpoint. Subsequent platform qualification and publication are recorded
+in [the 0.6.2 release notes](release-0.6.2.md) and its verification asset.
 
 The [normative design](superpowers/specs/2026-10-09-workflow-mvp-design.md)
 and [API guide](workflow-factory.md) describe the supported boundary. Host policy,

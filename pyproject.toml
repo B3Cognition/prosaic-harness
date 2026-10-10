@@ -12,7 +12,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{name = "B3 Cognition"}]
 dependencies = [
-  "prosaic-runtime @ git+https://github.com/B3Cognition/prosaic-runtime.git@833ace8dc01c125e653e451287d2fcc316b33627",
+  "prosaic-runtime @ git+https://github.com/B3Cognition/prosaic-runtime.git@6ac8768de3dd69abdbbfbe6f15107a0504762691",
   "PyYAML>=6.0",
   "jsonschema>=4.23",
   "referencing>=0.28.4",

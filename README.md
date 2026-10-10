@@ -96,7 +96,7 @@ environment so another application's older runtime cannot be picked up by accide
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.6.1
+git checkout v0.6.2
 python3 -m venv .venv
 .venv/bin/python -m pip install .
 
@@ -107,7 +107,7 @@ prosaic --help
 
 In a future terminal, return to the repository and add its `.venv/bin` to PATH
 again. Node.js and npm are not required. The dependency pin installs Prosaic
-Runtime v0.7.0, Python Prosaic v0.3.1, PyYAML and jsonschema automatically.
+Runtime v0.7.1, Python Prosaic v0.3.2, PyYAML, jsonschema and referencing automatically.
 No sibling checkout or manual Prosaic installation is needed. Older Harness
 tags retain their historical installation docs.
 
@@ -350,7 +350,7 @@ integration. Live runs are opt-in examples, not part of the offline suite.
 
 ## Structured JSON tools
 
-This revision pins Prosaic Runtime 0.7.0, which supplies `StructuredToolLoop` for
+This revision pins Prosaic Runtime 0.7.1, which supplies `StructuredToolLoop` for
 explicit JSON tool-request transport. Product adapters can yield one Runtime
 turn per Harness invocation while retaining application-owned result validators.
 Register the same `CustomTool` descriptors with the workflow and adapter so

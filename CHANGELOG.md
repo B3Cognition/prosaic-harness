@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.6.2 — candidate
+## 0.6.2 — 2026-10-10
 
 - Add public WorkflowCatalog, WorkflowBindings, WorkflowPolicy and WorkflowFactory
   for validated native in-memory assembly and admitted client-generated graphs.
