@@ -138,21 +138,23 @@ class Harness:
             raise ValueError('accounting context run_id conflicts with run identity')
         return replace(context, run_id=run_id)
 
-    def _resume_accounting(self, state):
+    def _resume_accounting(self, state, *, persist=True):
+        """Validate accounting identity, optionally staging migration until admission."""
         if 'accounting_context' not in state and not self._accounting_enabled:
-            return
+            return False
         scope = self._accounting_scope()
         if 'accounting_scope' in state and scope is not None and scope != state['accounting_scope']:
             raise ValueError('accounting scope conflicts with saved scope')
         from prosaic_runtime.accounting import ATTRIBUTION, ResolvedContext
+        changed = False
         if 'accounting_context' not in state:
             if not self._accounting_enabled:
-                return
+                return False
             state['accounting_context'] = self._resolved_accounting_context(state['run_id']).to_dict()
             state['accounting_migration'] = {'source': 'legacy_checkpoint', 'time': self.clock()}
             if scope is not None:
                 state['accounting_scope'] = scope
-            self._save(state)
+            changed = True
         else:
             saved = ResolvedContext.from_dict(state['accounting_context'])
             if self.context is not None:
@@ -162,7 +164,10 @@ class Harness:
                         raise ValueError('supplied accounting context conflicts with saved context')
             if scope is not None and 'accounting_scope' not in state:
                 state['accounting_scope'] = scope
-                self._save(state)
+                changed = True
+        if changed and persist:
+            self._save(state)
+        return changed
 
     def _invocation_accounting(self, state, attempt_id, step):
         if 'accounting_context' not in state:
@@ -374,12 +379,18 @@ class Harness:
             self._verify_ledger(state)
             if self._observations.observer is not None:
                 self._observations.begin(state['run_id'])
-            self._resume_accounting(state)
+            # Invalid human actions must not persist even an accounting upgrade.
+            # Keep identity/conflict admission early, staging its owned state
+            # changes until choice/schema/product validation has succeeded.
+            human_action = choice is not None or response is not None
+            accounting_changed = self._resume_accounting(state, persist=not human_action)
             if state['status'] in {'completed', 'rejected'}:
                 if choice is not None or response is not None:
                     raise HumanResponseError('completed_run')
                 return state
             if state['status'] == 'blocked' and state['reason'] != 'interrupted_call':
+                if human_action and accounting_changed:
+                    self._save(state)
                 return state
             reason = self._resource_reason(state)
             if reason and state['pending'] is None:
@@ -415,6 +426,10 @@ class Harness:
                         raise HumanResponseError('response_validation_failed')
                 elif response is not None:
                     raise HumanResponseError('response_not_allowed')
+                if accounting_changed:
+                    self._save(state)
+                    if state['status'] == 'blocked':
+                        return state
                 self._event(state, 'human_decision', choice=choice, **({'response': response} if 'response_schema' in step else {}))
                 self._advance(state, step['choices'][choice])
                 if state['status'] == 'blocked':

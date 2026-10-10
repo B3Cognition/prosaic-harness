@@ -462,6 +462,10 @@ Codes are `expected_revision_required`, `invalid_choice`,
 exceptions never appear in that public error. `RevisionConflict` remains separate;
 refresh the interaction before retrying a stale decision. Missing required
 revisions, invalid choices and invalid responses do not commit human decisions.
+When accounting is newly enabled or a recorder scope is attached, migration is
+validated early and staged until human response admission succeeds. A rejected
+response preserves the checkpoint bytes and revision even during that upgrade;
+plain `resume()` continues to persist accounting migration normally.
 The view performs no validator dry run: actual response admission evaluates the
 schema and invokes each registered product validator once. Schema evaluator
 failure still blocks with `schema_error`; an expired deadline takes precedence.

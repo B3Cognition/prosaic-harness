@@ -156,3 +156,105 @@ def test_upgrade_legacy_saved_receipt_does_not_dispatch(tmp_path, monkeypatch):
     assert not runtime.calls
     assert state['accounting_migration']['source'] == 'legacy_checkpoint'
     assert len(state['invocations']) == 1
+
+
+@pytest.mark.parametrize('context_exists', [False, True])
+@pytest.mark.parametrize('action,code,checked', [
+    ({'choice': 'private'}, 'invalid_choice', []),
+    ({'choice': 'accept', 'response': {'found': 'private'}}, 'response_schema_invalid', []),
+    ({'choice': 'accept', 'response': {'found': False}}, 'response_validation_failed', [False]),
+    ({'response': {'found': True}}, 'response_requires_choice', []),
+    ({'choice': 'accept', 'response': {'found': 'x' * 100}}, 'response_limit', []),
+])
+def test_accounting_upgrade_does_not_commit_rejected_human_response(
+        tmp_path, monkeypatch, context_exists, action, code, checked):
+    from prosaic_harness import (WorkflowCatalog, WorkflowBindings, WorkflowPolicy,
+                                 WorkflowFactory, HumanResponseError, Validator)
+    from test_native_execution import bound
+    from test_workflow_factory import agent, config, graph, tools
+    proposal = graph()
+    proposal['steps']['review'].update(response_schema='result', validators=['guard'])
+    responses = []
+    def check(value, context):
+        responses.append(value['response']['found'])
+        return [] if value['response']['found'] else ['private product validation detail']
+    workflow = WorkflowFactory(
+        catalog=WorkflowCatalog(agents={'finder': agent()}, schemas={'result': {
+            'type': 'object', 'properties': {'found': {'type': 'boolean'}},
+            'required': ['found'], 'additionalProperties': False}}),
+        bindings=WorkflowBindings(config=config(), custom_tools=tools(),
+                                 validators={'guard': Validator('v1', check)}),
+        policy=WorkflowPolicy(allowed_agents=frozenset({'finder'}),
+            allowed_schemas=frozenset({'result'}), allowed_tools=frozenset({'lookup_entity'}),
+            allowed_validators=frozenset({'guard'}), allowed_model_tiers=frozenset({'fast'}),
+            max_human_response_bytes=50)).build(proposal)
+    template, calls = bound(tmp_path, monkeypatch)
+    old = Harness(workflow, tmp_path / 'run', runtime=template.runtime,
+                  context=ExecutionContext(tenant_id='original') if context_exists else None)
+    old.run({})
+    recorder = MemoryRecorder(defaults=ExecutionContext(tenant_id='upgraded'))
+    upgraded = Harness(workflow, tmp_path / 'run', runtime=template.runtime, accounting=recorder)
+    before = upgraded.status()
+    content = upgraded.file.read_bytes()
+    receipt = next((tmp_path / 'run/attempts').glob('*.json'))
+    receipt_content = receipt.read_bytes()
+    from prosaic_harness import RevisionConflict
+    with pytest.raises(RevisionConflict):
+        upgraded.resume(choice='accept', response={'found': True}, expected_revision='stale')
+    assert upgraded.status() == before and responses == []
+    with pytest.raises(HumanResponseError) as caught:
+        upgraded.resume(**action, expected_revision=before.revision)
+    assert caught.value.code == code
+    assert upgraded.status() == before and upgraded.file.read_bytes() == content
+    assert responses == checked and len(calls) == 1
+    # The same interaction revision still authorizes a corrected actual response.
+    state = upgraded.resume(choice='accept', response={'found': True},
+                            expected_revision=before.revision)
+    assert state['status'] == 'completed' and len(calls) == 1
+    assert responses == checked + [True]
+    assert state['accounting_scope'] == {'namespace': recorder.namespace, 'environment': recorder.environment}
+    assert state['accounting_context']['tenant_id'] == ('original' if context_exists else 'upgraded')
+    assert ('accounting_migration' in state) is (not context_exists)
+    assert upgraded.status().state == state
+    assert receipt.read_bytes() == receipt_content
+
+
+def test_accepted_response_cannot_advance_after_accounting_migration_hits_state_limit(tmp_path, monkeypatch):
+    from test_native_execution import bound
+    old, calls = bound(tmp_path, monkeypatch, max_state_bytes=7000)
+    assert old.run({})['status'] == 'waiting'
+    events = []
+    upgraded = Harness(old.workflow, tmp_path / 'run', runtime=old.runtime,
+                       accounting=MemoryRecorder(), on_event=events.append)
+    state = upgraded.resume(choice='accept', expected_revision=upgraded.status().revision)
+    assert state['status'] == 'blocked' and state['reason'] == 'state_limit'
+    assert not any(event['event'] == 'human_decision' for event in state['history'])
+    assert not any(event['event'] == 'human_decision' for event in events)
+    assert upgraded.status().state == state and len(calls) == 1
+
+
+@pytest.mark.parametrize('expires,reason', [(False, 'schema_error'), (True, 'run_deadline')])
+def test_accounting_upgrade_preserves_human_schema_error_and_deadline_precedence(
+        tmp_path, monkeypatch, expires, reason):
+    from test_native_execution import bound
+    from test_workflow_factory import graph
+    from prosaic_harness.schema_validation import evaluate_schema, SchemaEvaluationError
+    proposal = graph()
+    proposal['steps']['review']['response_schema'] = 'result'
+    old, calls = bound(tmp_path, monkeypatch, proposal=proposal, max_human_response_bytes=50)
+    old.run({})
+    upgraded = Harness(old.workflow, tmp_path / 'run', runtime=old.runtime,
+                       accounting=MemoryRecorder())
+    def fail_response(schema, value, **kwargs):
+        if kwargs['profile']['maximum_instance_bytes'] == 50:
+            if expires:
+                upgraded.clock = lambda: 10**15
+            raise SchemaEvaluationError()
+        return evaluate_schema(schema, value, **kwargs)
+    monkeypatch.setattr('prosaic_harness.engine.evaluate_schema', fail_response)
+    state = upgraded.resume(choice='accept', response={'found': True},
+                            expected_revision=upgraded.status().revision)
+    assert state['status'] == 'blocked' and state['reason'] == reason
+    assert 'accounting_migration' in state
+    assert not any(event['event'] == 'human_decision' for event in state['history'])
+    assert upgraded.status().state == state and len(calls) == 1
