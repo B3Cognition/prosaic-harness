@@ -197,7 +197,11 @@ def curated_candidates(release_tool, tmp_path):
     return directory, wheelhouse
 
 
-def test_owned_container_uses_only_verified_opt_in_wheelhouse(monkeypatch, tmp_path):
+def test_owned_container_uses_only_verified_opt_in_wheelhouse(
+        monkeypatch, tmp_path, curated_candidates):
+    # Reproduce the receipt-directory setting inherited by the required CI lane.
+    directory, _ = curated_candidates
+    monkeypatch.setenv('HARNESS_TEST_RELEASE_DIRECTORY', str(directory))
     spec = importlib.util.spec_from_file_location('local_cluster',
         SCRIPT.parents[1] / 'adapters/postgres/tests/support/local_cluster.py')
     module = importlib.util.module_from_spec(spec)
@@ -210,6 +214,7 @@ def test_owned_container_uses_only_verified_opt_in_wheelhouse(monkeypatch, tmp_p
     calls = []
     monkeypatch.setattr(cluster, '_run', lambda *args, **kwargs: calls.append(args) or 'container')
     monkeypatch.setenv('HARNESS_TEST_WHEELHOUSE', str(tmp_path))
+    monkeypatch.delenv('HARNESS_TEST_RELEASE_DIRECTORY', raising=False)
     with pytest.raises(ValueError, match='verified'):
         cluster.linux_wheel_smoke(SCRIPT.parents[1])
     assert calls == []
