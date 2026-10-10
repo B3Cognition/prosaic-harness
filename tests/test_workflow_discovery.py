@@ -226,3 +226,47 @@ def test_inline_permission_keeps_denied_catalogue_aliases_private_and_requires_a
     with pytest.raises(WorkflowAdmissionError) as caught:
         build.build_json(json.dumps(envelope))
     assert caught.value.code == 'invalid_artifact'
+
+
+@pytest.mark.parametrize('requested', ['', 'none', 'read', 'write', [],
+                                     ['read_file'], ['write_file'], ['lookup_entity']])
+def test_inline_requested_tools_preserve_admitted_declarations_without_grants(requested):
+    build = factory(allow_inline_agents=True)
+    definition = graph()
+    step = definition['steps']['find']
+    step['agent'] = 'inline'
+    del step['tools']
+    del step['require_tools']
+    envelope = {'definition': definition, 'inline_agents': {
+        'inline': {'type': 'command', 'frontmatter': {'tools': requested}, 'body': 'Return JSON.'}}}
+    workflow = build.build_json(json.dumps(envelope))
+    assert workflow.definition['steps']['find'].get('tools', []) == []
+    Draft202012Validator(build.proposal_schema()).validate(envelope)
+
+
+@pytest.mark.parametrize('granted', [['read_file'], ['write_file'], ['unregistered']])
+def test_inline_prose_requests_never_broaden_structural_step_grants(granted):
+    build = factory(allow_inline_agents=True)
+    definition = graph()
+    definition['steps']['find'].update(agent='inline', tools=granted, require_tools=[])
+    envelope = {'definition': definition, 'inline_agents': {
+        'inline': {'type': 'command', 'frontmatter': {'tools': 'write'}, 'body': 'Return JSON.'}}}
+    assert not Draft202012Validator(build.proposal_schema()).is_valid(envelope)
+    with pytest.raises(WorkflowAdmissionError):
+        build.build_json(json.dumps(envelope))
+
+
+def test_requested_tools_schema_does_not_disclose_denied_registration_aliases():
+    from prosaic_runtime import CustomTool
+    registry = tools()
+    registry['private_lookup'] = CustomTool('private_lookup', 'Private host lookup',
+        {'type': 'object', 'additionalProperties': False}, lambda args: args, 'v1')
+    build = factory(allow_inline_agents=True, registry=registry)
+    definition = graph()
+    definition['steps']['find'].update(agent='inline', tools=[], require_tools=[])
+    envelope = {'definition': definition, 'inline_agents': {
+        'inline': {'type': 'command', 'frontmatter': {'tools': ['private_lookup']}, 'body': 'Return JSON.'}}}
+    schema = build.proposal_schema()
+    assert 'private_lookup' not in json.dumps(schema)
+    build.build_json(json.dumps(envelope))
+    Draft202012Validator(schema).validate(envelope)

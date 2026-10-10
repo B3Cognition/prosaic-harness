@@ -183,6 +183,11 @@ or explicitly empty `inline_agents` mapping. Authorized inline entries retain th
 existing required `type`, `frontmatter`, `body` and optional embedded `resources`
 shape; canonical subagent metadata and configured permitted model tiers are
 reflected. Frontmatter extensions remain prompt metadata.
+Inline `frontmatter.tools` is a request declaration: it accepts `""`, `"none"`,
+`"read"`, `"write"` or a list of strings, with registration checks retained in
+factory admission. Requests confer no step grant. Step `tools` and `require_tools`
+stay restricted to effective permitted native aliases; denied registration names
+are never enumerated in the public schema.
 
 ALWAYS submit proposals to `build_json` after structural validation. NEVER treat
 the authoring schema as admission or an execution grant. It cannot establish

@@ -159,7 +159,9 @@ def proposal_schema(factory, *, maximum_bytes=262_144):
         }}
     frontmatter = {'type': 'object', 'properties': {
         'model_tier': _enum(manifest['modelTiers']), 'effort': {'enum': ['low', 'medium', 'high']},
-        'tools': {'anyOf': [tools, {'enum': ['', 'none']}]},
+        # Prose requests do not grant capabilities. Registration semantics stay
+        # in admission; enumerating private requested names would disclose them.
+        'tools': {'anyOf': [_names({'type': 'string'}), {'enum': ['', 'none', 'read', 'write']}]},
     }}
     inline_agent = {'type': 'object', 'additionalProperties': False,
         'required': ['type', 'frontmatter', 'body'], 'properties': {
