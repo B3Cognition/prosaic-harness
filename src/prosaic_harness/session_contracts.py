@@ -538,3 +538,29 @@ def freeze_workflow_command(document, command):
                       'invocationId':attempt['invocationId'],'command':bounded}
     state['turns'][-1]['recoveryStatus']='workflowCommand'
     return verify_session(_consume_headroom(state,before_bytes,before_nodes))
+
+
+def finish_host_turn(document, *, answer=None, failure_code=None, interaction=None):
+    """Commit a bounded host clarification/outcome, never interpreter JSON."""
+    state=verify_session(document)
+    if state['pending'] is None: raise StoreCorrupt('no pending host phase')
+    turn=state['turns'][-1]
+    if answer is not None:
+        if type(answer) is not str or len(answer.encode())>state['policy']['maxAssistantBytes']:
+            raise StoreCorrupt('host answer bounds')
+        turn['status']='completed'
+        turn['history']=[{'role':'user','turnStatus':'completed','content':[{'type':'text','text':turn['message']}]},
+                         {'role':'assistant','content':[{'type':'text','text':answer}]}]
+    else:
+        if failure_code not in _FAILURES: raise StoreCorrupt('host failure code')
+        turn['status']='failed'
+        turn['history']=[{'role':'user','turnStatus':'failed','failureCode':failure_code,
+                         'content':[{'type':'text','text':turn['message']}]}]
+    turn['answer']=answer
+    turn['failureCode']=failure_code
+    turn['pendingInteraction']=owned(interaction,maximum=state['policy']['maxPublicBytes'],
+        depth=state['policy']['maxJsonDepth']-8,nodes=public_node_limit(state['policy']))
+    turn['recoveryStatus']=None
+    turn['historyReservation']=turn['stateReservation']=turn['stateNodeReservation']=0
+    state['pending']=None
+    return verify_session(_with_counters(state))

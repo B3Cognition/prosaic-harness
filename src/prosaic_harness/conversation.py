@@ -11,6 +11,7 @@ from .session_store import SessionSnapshot
 from .session_codec import encode, decode, digest, reference
 from .session_contracts import (new_session, reserve_attempt, mark_dispatch, make_receipt,
     adopt_receipt, history_of, public_node_limit, mark_interrupted)
+from .conversation_workflow import ConversationWorkflow
 
 
 @dataclass(frozen=True, init=False, repr=False)
@@ -22,7 +23,7 @@ class ConversationReply:
     def document(self): return decode(self._encoded)
 
 
-class Conversation:
+class Conversation(ConversationWorkflow):
     """The embedding host authenticates and authorizes every operation first."""
     def __init__(self, bindings, *, store, scope, context=None, accounting=None, observer=None):
         if type(bindings) is not ConversationBindings or type(scope) is not ConversationScope:
@@ -92,6 +93,7 @@ class Conversation:
 
     def _reply(self, snapshot, turn=None):
         state=snapshot.state
+        replay=turn is not None
         if turn is None and state['turns']: turn=state['turns'][-1]
         view={'version':1,'sessionId':snapshot.session_id,'revision':snapshot.revision,
               'status':'ready','pendingInteraction':None,'recoveryStatus':None}
@@ -99,7 +101,7 @@ class Conversation:
             view.update({key:turn[key] for key in ('messageId','status','failureCode','pendingInteraction','recoveryStatus')})
             view['turnSequence']=turn['sequence']
             if turn['answer'] is not None: view['answer']=turn['answer']
-        if state['workflow'] is not None:
+        if state['workflow'] is not None and not replay:
             view['pendingInteraction']=self._interaction(state)
         p=state['policy']
         return ConversationReply(view,maximum=p['maxPublicBytes'],depth=p['maxJsonDepth']-8,

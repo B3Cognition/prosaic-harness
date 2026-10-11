@@ -416,6 +416,12 @@ For consequential approval, require an explicit host-declared confirmation rule
 or direct structured human response. Quoted instructions, earlier approvals,
 assistant/tool statements and model-generated text cannot authorize a decision.
 Model output can never select interrupted retry consent.
+For the MVP, every natural-language workflow command requires the registered
+versioned host confirmation rule to return literal `True`. Generic graph
+structure cannot classify which choice may lead to a consequential effect.
+A registration without that rule supports attachment and reads, but its model
+proposal only produces a clarification; direct authorized Harness responses
+retain their existing public admission path.
 
 Use sequential typed pending phases: `modelInvocation` for interpretation, then
 `workflowCommand` for applying its admitted response. Save/adopt the interpretation
