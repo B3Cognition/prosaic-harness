@@ -70,7 +70,7 @@ class _Directories:
         self.fds=[]
 
 
-def _read(parent,name,*,maximum=_MAX_BYTES):
+def _read(parent,name,*,maximum=_MAX_BYTES,mutable_snapshot=False):
     fd=os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=parent)
     try:
         before=os.fstat(fd)
@@ -86,7 +86,9 @@ def _read(parent,name,*,maximum=_MAX_BYTES):
             remaining-=len(chunk)
         after=os.fstat(fd)
         named=os.stat(name,dir_fd=parent,follow_symlinks=False)
-        if ((before.st_dev,before.st_ino)!=(named.st_dev,named.st_ino) or
+        try: _private(named)
+        except StoreUnavailable: raise StoreCorrupt() from None
+        if ((not mutable_snapshot and (before.st_dev,before.st_ino)!=(named.st_dev,named.st_ino)) or
                 (before.st_size,before.st_mtime_ns)!=(after.st_size,after.st_mtime_ns)):
             raise StoreCorrupt()
         content=b''.join(chunks)
@@ -235,7 +237,7 @@ class FileSessionStore:
         finally:
             if paths is not None: paths.close()
     def _snapshot(self,session_id,parent,owner):
-        try: content=_read(parent,'session.json')
+        try: content=_read(parent,'session.json',mutable_snapshot=True)
         except FileNotFoundError: raise SessionNotFound() from None
         try: state=decode(content)
         except (ValueError,TypeError,UnicodeError): raise StoreCorrupt() from None

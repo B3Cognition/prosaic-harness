@@ -6,6 +6,7 @@ from .session_codec import encode, decode, digest, owned, reference
 from .session_contracts import (seal, verify_session, freeze_workflow_command,
     finish_host_turn, public_node_limit)
 from .schema_validation import evaluate_schema, SchemaEvaluationError
+from .conversation_bindings import encoded_answer_bound
 
 
 class ConversationWorkflow:
@@ -38,14 +39,15 @@ class ConversationWorkflow:
     def _interaction(self,state,*,sequence=None):
         registration,harness=self._workflow(state)
         p=state['policy']
+        answer_bound=encoded_answer_bound(p['maxAssistantBytes'],p['maxTurnBytes'])
         raw=harness.interaction(review_outputs=tuple(registration.readmit()['reviewOutputs']),
-            include_response_schema=True,maximum_bytes=p['maxPublicBytes']-p['maxAssistantBytes']-8192)
+            include_response_schema=True,maximum_bytes=p['maxPublicBytes']-answer_bound-8192)
         if raw is None: return None
         view=raw.to_dict()
         presented=len(state['turns']) if sequence is None else sequence
         view['reference']=digest({'sessionId':state['sessionId'],'registration':state['workflow']['registration'],
             'presentedTurn':presented,'interaction':view})
-        return owned(view,maximum=p['maxPublicBytes']-p['maxAssistantBytes']-4096,
+        return owned(view,maximum=p['maxPublicBytes']-answer_bound-4096,
                      depth=p['maxJsonDepth']-8,nodes=public_node_limit(p)-128)
 
     def attach_workflow(self,session_id,*,registration,run_id,expected_revision):

@@ -373,10 +373,17 @@ not discard the remaining terminal headroom. Exhaustion still permits adoption
 of an already allocated receipt and exact replay.
 Version1 stores impose hard8MiB snapshot/receipt and65,536-node ceilings.
 Smaller receipt limits derive a smaller Runtime evidence allowance after reserving
-the complete turn, duplicated final answer and8KiB correlation framing. Reject
+the complete turn, duplicated canonically encoded final answer and8KiB correlation
+framing. The encoded answer bound is `min(6*maxAssistantBytes+2,maxTurnBytes)`,
+including JSON control-character escaping and the complete-turn ceiling. Reject
 policies that cannot represent those bounds during pure binding admission.
 Public interaction views reserve final-answer/envelope space inside the whole
 public reply allowance, rather than using that allowance independently per field.
+Before admitting each message, also bound its full failed/interrupted user record
+against the turn allowance. Failed source framing cannot be deferred until after
+inference. Atomic snapshot replacement permits a complete validated snapshot
+from an already pinned file descriptor; immutable receipts retain pathname-inode
+checks and replacement is never accepted as ordinary mutable state.
 
 Private Runtime tool evidence may retain `callIndex`, `signature`,
 `operationNamespace` and `operationKey`, alongside its neutral call ID and safe

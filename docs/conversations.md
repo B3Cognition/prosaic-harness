@@ -219,9 +219,11 @@ Default limits are sealed into the session:
 The first exhausted bound wins; these limits do not guarantee that every session
 can reach 64 turns. Version 1 has hard ceilings of 8 MiB for each snapshot/receipt
 and 65,536 outer JSON nodes, matching all three store codecs; custom policies
-cannot enlarge them. A public view must reserve the assistant cap plus 8 KiB of
-envelope space, and a receipt must have more room than the complete-turn cap plus
-assistant cap plus 8 KiB. Smaller receipt limits also narrow the effective Runtime
+cannot enlarge them. Public and receipt envelopes reserve a canonical encoded
+answer bound: the smaller of six times the UTF-8 assistant cap plus two bytes,
+and the complete-turn cap. This includes JSON escaping. A public view reserves
+that encoded bound plus 8 KiB; a receipt needs the complete-turn cap, the encoded
+answer bound and 8 KiB before evidence. Smaller receipt limits narrow the effective Runtime
 evidence allowance. Oversized/incompatible policies fail during pure binding
 admission. Reserve terminal history/snapshot space, JSON work, receipt
 capacity and the invocation's maximum provider/tool allowance before dispatch.

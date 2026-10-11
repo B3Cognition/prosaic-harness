@@ -14,7 +14,7 @@ from test_conversation_recovery import Crash
 @pytest.fixture
 def workflow_fixture(conversation_fixture,tmp_path):
     @contextmanager
-    def create(*,confirmation=True):
+    def create(*,confirmation=True,response_schema=False):
         with conversation_fixture() as fx:
             fx.effects=[]
             fx.authorizations=[]
@@ -33,16 +33,25 @@ def workflow_fixture(conversation_fixture,tmp_path):
                 'approval':{'kind':'pause','question':'Approve the selected result?',
                     'choices':{'approve':'done','reject':'rejected'}},
                 'done':{'kind':'finish'},'rejected':{'kind':'finish','outcome':'rejected'}}}
-            workflow=WorkflowFactory(catalog=WorkflowCatalog(),
-                bindings=WorkflowBindings(config=cfg),policy=WorkflowPolicy()).build(graph)
+            schemas={}
+            if response_schema:
+                graph['steps']['select']['response_schema']='selected'
+                schemas={'selected':{'type':'object','properties':{'playerId':{'enum':['player-a','player-b']}},
+                    'required':['playerId'],'additionalProperties':False}}
+            workflow=WorkflowFactory(catalog=WorkflowCatalog(schemas=schemas),
+                bindings=WorkflowBindings(config=cfg),policy=WorkflowPolicy(allowed_schemas=frozenset(schemas))).build(graph)
             runstore=FileRunStore(tmp_path/'workflow-store',namespace='test')
             runstore.initialize()
             runid=uuid4().hex
             fx.harness=Harness(workflow,store=runstore,run_id=runid)
             assert fx.harness.run({})['status']=='waiting'
             fx.allowed=True
+            fx.confirmation_mode=None
             def grant(scope,rid): return fx.allowed and rid==runid
             def confirm(source,proposal,view):
+                if fx.confirmation_mode=='throw': raise RuntimeError('private confirmation failure')
+                if fx.confirmation_mode=='mutate': proposal['choice']='first'; return True
+                if fx.confirmation_mode=='revoke': fx.allowed=False; return True
                 return (view['stepId']=='select' and source=='the second result' and proposal.get('choice')=='second'
                     or view['stepId']=='approval' and source=='approve' and proposal.get('choice')=='approve')
             registration=WorkflowRegistration(workflow,store=runstore,
@@ -151,3 +160,49 @@ def test_missing_confirmation_rule_cannot_advance_a_workflow(workflow_fixture):
         reply=fx.send('the second result',{'choice':'second'})
         assert reply.document['failureCode']=='confirmationRequired'
         assert fx.harness.status().state['current']=='select'
+
+
+@pytest.mark.parametrize('proposal',[
+    {'sourceMessageId':'different','choice':'second'},
+    {'interactionRef':'forged','choice':'second'}, {'choice':'not-offered'}])
+def test_wrong_source_reference_or_membership_never_resumes(workflow_fixture,proposal):
+    with workflow_fixture() as fx:
+        reply=fx.send('the second result',proposal)
+        assert reply.document['failureCode']=='invalidInterpretation'
+        assert fx.harness.status().state['current']=='select' and fx.provider_calls==1
+
+
+def test_actual_interaction_response_schema_rejects_unoffered_entity(workflow_fixture):
+    with workflow_fixture(response_schema=True) as fx:
+        reply=fx.send('the second result',{'choice':'second','response':{'playerId':'forged'}})
+        assert reply.document['failureCode']=='invalidInterpretation'
+        assert fx.harness.status().state['current']=='select'
+
+
+@pytest.mark.parametrize('mode',['throw','mutate','revoke'])
+def test_confirmation_callback_cannot_mutate_command_or_bypass_revocation(workflow_fixture,mode):
+    with workflow_fixture() as fx:
+        fx.confirmation_mode=mode
+        if mode=='revoke':
+            with pytest.raises(ConversationError,match='identityMismatch'):
+                fx.send('the second result',{'choice':'second'})
+            assert fx.harness.status().state['current']=='select'
+        else:
+            reply=fx.send('the second result',{'choice':'second'})
+            if mode=='throw':
+                assert reply.document['failureCode']=='confirmationRequired'
+                assert 'private' not in json.dumps(reply.document) and fx.harness.status().state['current']=='select'
+            else:
+                decisions=[e for e in fx.harness.status().state['history'] if e['event']=='human_decision']
+                assert decisions[-1]['choice']=='second' and reply.document['pendingInteraction']['stepId']=='approval'
+        assert fx.effects==[] and fx.provider_calls==1
+
+
+def test_saved_interpretation_receipt_recovery_does_not_interpret_again(workflow_fixture):
+    with workflow_fixture() as fx:
+        def crash(event):
+            if event['event']=='receiptSaved': raise Crash()
+        with pytest.raises(Crash): fx.send('the second result',{'choice':'second'},on_event=crash)
+        reply=fx.fresh_controller().recover(fx.session_id)
+        assert reply.document['pendingInteraction']['stepId']=='approval' and fx.provider_calls==1
+        assert fx.fresh_controller().recover(fx.session_id).document==reply.document

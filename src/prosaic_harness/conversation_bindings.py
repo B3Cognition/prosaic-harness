@@ -100,12 +100,18 @@ class ConversationPolicy:
                 raise ConversationError('bindingMismatch')
         if (self.max_json_depth > 64 or self.max_json_nodes>65536
                 or self.max_state_bytes>8388608 or self.max_receipt_bytes>8388608
-                or self.max_public_bytes<self.max_assistant_bytes+8192
-                or self.max_receipt_bytes<=self.max_turn_bytes+self.max_assistant_bytes+8192):
+                or self.max_public_bytes<encoded_answer_bound(self.max_assistant_bytes,self.max_turn_bytes)+8192
+                or self.max_receipt_bytes<=self.max_turn_bytes+encoded_answer_bound(self.max_assistant_bytes,self.max_turn_bytes)+8192):
             raise ConversationError('bindingMismatch')
     def to_dict(self):
         self.__post_init__()
         return {f.name: getattr(self, f.name) for f in fields(self)}
+
+
+def encoded_answer_bound(assistant_bytes,turn_bytes):
+    # ensure_ascii=False still escapes control characters up to six bytes each.
+    # A successful answer is also contained in the bounded complete turn.
+    return min(6*assistant_bytes+2,turn_bytes)
 
 
 def _rule(value, cls):
@@ -275,7 +281,8 @@ class ConversationBindings:
             # record framing. Reserve structural capacity before any effects.
             shared['max_json_depth'] = policy.max_json_depth - 8
             shared['max_json_nodes'] = (policy.max_json_nodes - 8192) // 2
-            evidence_room=policy.max_receipt_bytes-policy.max_turn_bytes-policy.max_assistant_bytes-8192
+            evidence_room=policy.max_receipt_bytes-policy.max_turn_bytes-encoded_answer_bound(
+                policy.max_assistant_bytes,policy.max_turn_bytes)-8192
             limits = TurnLimits(**shared,max_evidence_bytes=min(TurnLimits().max_evidence_bytes,evidence_room)) if turn_limits is None else turn_limits
             if type(limits) is not TurnLimits:
                 raise ConversationError('bindingMismatch')

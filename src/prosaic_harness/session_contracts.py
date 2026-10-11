@@ -334,6 +334,13 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
     if invocation_id in state['attempts']: raise ConversationError('messageConflict')
     if type(message) is not str or not message or len(message.encode())>p['maxUserBytes']:
         raise ConversationError('invalidMessage')
+    # This complete user record must survive every supported failure, even when
+    # no assistant group can be admitted. Raw UTF-8 input size is insufficient.
+    try:
+        longest=max(_FAILURES,key=len)
+        encode([{'role':'user','content':[{'type':'text','text':message}],
+                 'turnStatus':'failed','failureCode':longest}],maximum=p['maxTurnBytes'])
+    except (ValueError,UnicodeError): raise ConversationError('contextLimit','maxTurnBytes') from None
     for count in (provider_allowance,tool_allowance): integer(count)
     if interaction_ref is not None: reference(interaction_ref)
     if retry:
