@@ -146,7 +146,9 @@ versioned registrations, cancellation, observation, accounting and invocation
 budgets. Reuse existing tier routing; the MVP binds one approved agent/profile to
 each session. Different approved bindings and workflow specialists can select
 different tiers. Per-turn agent/profile switching is deferred rather than adding
-another routing language.
+another routing language. Optional workflow-reply interpretation has a separate
+fixed host-approved instruction artifact and profile, sealed with the session;
+it cannot borrow the conversational agent's tool grant.
 
 ## Harness: graph-free sessions
 
@@ -157,15 +159,28 @@ workflow. Its session may reference an existing admitted workflow when needed.
 
 Bindings snapshot the approved artifact, relevant Runtime configuration, requested
 tool descriptors and semantic versions, execution/context policy and approved
-workflow registrations. Derive identity from those validated inputs. Secrets,
-handler source/repr and private storage paths are not public identity material.
-Construction invokes no handlers, authorizers, validators or provider probes.
+workflow registrations, including any fixed interpretation artifact/profile and
+its tool-free policy. Following `WorkflowBindings`, also seal `operation_namespace`
+and the tool journal descriptor's logical `identity` and `contract_version`,
+including their absence. A journal requires an explicit operation namespace.
+Read static declarations using the existing journal descriptor contract; do not
+call journal methods during admission. Derive identity from all those validated
+inputs. Secrets, handler source/repr, journal DSNs and private storage paths are
+not public identity material. Construction invokes no handlers, authorizers,
+validators or provider probes.
 
 Persist the original binding identity and logical version. Another worker must
 reconstruct that exact binding to execute or recover a session. Missing versions
 and semantic drift fail explicitly; never reinterpret an old turn with current
 defaults. Host permission revocation still applies at execution, even when the
 binding identity matches. Fingerprints detect inconsistency, not authentication.
+Reject adding/removing a journal or changing its namespace, logical identity or
+contract before dispatch, receipt adoption or interrupted retry. Check the actual
+static descriptor against the sealed declaration at those boundaries, including
+when reusing an existing bindings object. Rotating private credentials does not
+change logical identity; the host must preserve the same
+actual effect ledger behind that declared identity. A matching descriptor cannot
+prove that an embedding application has honored this responsibility.
 
 Sessions begin with a host-generated opaque ID and frozen trusted scope:
 namespace/environment, application, tenant, actor and optional billing account.
@@ -226,10 +241,24 @@ was lost, reconcile authoritative store state first; local pending state alone
 cannot justify dispatch. Receipt adoption and repeated recovery are idempotent,
 including their accounting and allowance updates.
 
-Failed/canceled/interrupted user turns remain auditable. They do not contribute
-partial assistant/tool groups to the next successful model context. Block new
-effect-producing turns while an unresolved operation exists. Read-only status and
-recovery inspection remain available. Unknown usage is preserved, never zeroed.
+Retain every complete admitted user message in turn order, including a known
+failed or canceled turn. Its history record carries the authoritative terminal
+status and a bounded public failure code, not raw provider errors. A rejected
+message was never admitted and is not history. Successful turns contribute their
+complete assistant/tool groups; unsuccessful turns contribute only their admitted
+user message and status, never
+partial assistant output or tool exchanges. Encode unsuccessful status as bounded
+unprivileged data alongside the user-role content, not as a system instruction or
+fabricated assistant answer. Adapters must preserve this meaning when consecutive
+user records occur.
+
+This preserves corrections such as "I meant Prague" when answering that message
+failed. Historical user text may inform context, but is not a fresh command,
+confirmation or retry consent. Admission and confirmation always require the
+current source message and current interaction checks. Pending/interrupted input
+and partial effects remain available for recovery inspection. Block new turns
+while an unresolved operation exists; read-only status and recovery inspection
+remain available. Unknown usage is preserved, never zeroed.
 
 All streamed text is provisional, including text preceding a tool request.
 Runtime completion does not mean session commit. Emit a distinct committed-turn
@@ -239,35 +268,87 @@ delta is outside the MVP.
 
 ## Bounds and memory
 
-Require finite host limits. Recommended initial defaults are 64 user turns,
-8 MiB sealed session state, 16 KiB individual user text, 64 KiB final assistant
-text and 192 KiB selected context, all measured in UTF-8 bytes. Bound intermediate
-tool blocks and receipts using existing Runtime/tool/storage limits. Enforce the
-limits before admission and again before result commit. Exact limits form part of
-the sealed policy; clients and model text cannot increase them.
+Bound retained history, model input and execution evidence separately. Require
+finite host limits, captured in the sealed policy; clients and model text cannot
+increase them. Recommended initial defaults are:
 
-Before dispatch, reserve encoded-state capacity for the maximum admitted terminal
-turn and bounded error/recovery metadata, plus separate bounded receipt capacity.
-Use a default 128 KiB completed-turn record cap and 8 MiB receipt cap; include
-canonical serialization overhead and reserve a bounded terminal failure record.
-If the bounded
-result exceeds that contract, retain a terminal failure receipt and known effect/
-usage evidence; do not admit partial assistant history. Storage availability may
-still change after admission, so a failed/unknown receipt write preserves the
-dispatch marker and requires reconciliation rather than assuming rollback.
+| Bound | Default | What counts |
+| --- | --- | --- |
+| Admitted user turns | 64 | Every distinct admitted message, including failed/canceled turns |
+| Retained history | 4 MiB | Canonically encoded user records/statuses and complete successful assistant/tool groups |
+| Whole sealed snapshot | 8 MiB | History, request identities, counters, attempt ledger, pending input and workflow reference |
+| Individual user text | 16 KiB | UTF-8 text before admission |
+| Final assistant text | 64 KiB | UTF-8 text before commit |
+| Complete turn record | 128 KiB | Canonical encoding, including user text and assistant/tool exchanges |
+| Model request/context | 192 KiB | Actual provider encoding of instructions, history, new input, current exchanges, tool schemas and request envelope |
+| Runtime invocation attempts per user turn | 3 | Initial invocation and any explicitly authorized retries or additional model phases |
+| Runtime invocation attempts per session | 128 | Ordinary turns, interpretation and every other conversation-owned Runtime call, even with zero provider/tool calls |
+| Individual invocation receipt | 8 MiB | Complete canonical encoded receipt |
+| Retained/reserved invocation receipt bytes | 64 MiB | All immutable receipts plus outstanding reservations across the session's lifetime |
 
-The first context policy includes all complete successful turn groups and the
-new user message, with separately bound trusted instructions. If it does not fit,
-return explicit `contextLimit` before dispatch. Never silently drop history,
-truncate a pending selection or discard one side of a tool exchange. Byte bounds
-do not establish exact model token-window capacity; provider context rejection
-remains an explicit failure, without automatic hidden shortening/retry.
+These are independent ceilings: 64 turns is a maximum, not a promise that 64
+worst-case turns fit. Text bounds measure UTF-8; encoded-record bounds include
+serialization overhead. Intermediate blocks, events, parsing depth/node counts
+and transport responses retain finite Runtime/tool/storage limits. Effective
+request limits are the stricter conversation and Runtime transport limits.
+Duplicate message replay, reconnect and receipt adoption add no turns or attempts.
+A retry retains the original turn sequence but consumes a new attempt slot.
+Allow exactly one immutable invocation receipt per allocated attempt, hence at
+most 128 retained receipts; identical writes are idempotent and conflicting writes
+fail. Workflow command evidence stays within the bounded snapshot and does not
+create a second conversation invocation receipt.
+
+Before dispatch, durably reserve an attempt slot, maximum encoded receipt bytes,
+and history/snapshot space for the maximum terminal turn plus bounded failure and
+recovery metadata. Reserve before each new attempt, not just the initial send.
+Use bounded failure records so a failed answer can always retain its admitted
+user text and status. Replace reserved receipt bytes with the actual committed
+encoded size in a fenced CAS exactly once after authoritative matching evidence;
+unknown writes or unfinished attempts retain their reservation. No automatic
+receipt eviction or reuse of consumed attempt slots. Keep terminal history/snapshot
+headroom through interpretation and any subsequent workflow-command phase until
+the user turn reaches its final adopted state; an interpretation receipt alone
+cannot release it. Receipt recovery/adoption, duplicate replay
+and read-only inspection remain available when capacity is exhausted.
+
+If a result exceeds its turn contract, retain a bounded terminal failure receipt
+and known effect/usage evidence; do not admit partial assistant history. Storage
+availability may still change after admission, so a failed/unknown receipt write
+preserves the dispatch marker and requires reconciliation rather than assuming
+rollback. Enforce limits before admission, before every provider dispatch and
+again before result adoption. Exhaustion returns a typed `sessionLimit` or
+`contextLimit`, identifies the exhausted limit and preserves the existing history
+and evidence. It never silently deletes older turns to accept a new one.
+
+The MVP context mode is explicitly `fullHistory`: all admitted user records with
+their statuses, all complete successful assistant/tool groups, and the new user
+message. Trusted instructions remain in their separate privileged role. Freeze
+this projection and its identity at admission; replay/retry uses that original
+context rather than rebuilding it from later session state. Construct and bound
+the initial provider payload before admission/inference. If it cannot fit, return
+`contextLimit` without admitting or dispatching the new message.
+
+For `turn()` in this mode, explicitly disable request-time tool-result compaction
+in the shared execution loop for both historical and newly produced tool results,
+regardless of endpoint `tool_result_compaction` defaults or feature settings.
+This is a per-invocation mode; do not mutate shared endpoint configuration.
+Legacy `run()` keeps its current compaction behavior. Recheck the fully encoded
+payload before every subsequent provider request. If a growing tool exchange no
+longer fits, stop with `contextLimit`, retain admitted user text, known effects
+and usage in the failure receipt, and exclude that partial assistant/tool exchange
+from future history. Never silently summarize, truncate a pending selection or
+discard one side of a tool exchange. Byte bounds do not establish exact model
+token-window capacity; provider context rejection remains an explicit failure,
+without automatic hidden shortening/retry.
 
 Automatic summarization, vector memory and long-term semantic retrieval are
 deferred. A future context selector must report its retained source range and
 identity, preserve the full transcript separately, and treat summaries as data.
 Model-generated summaries would add paid inference, uncertainty and lossy memory;
 they require a separate explicit effect contract.
+An opt-in recent-history window is also deferred. Filling context therefore stops
+new work explicitly; the host may offer a new session, but cannot claim that it
+inherits the old session's remembered context or consent.
 
 Each invocation has finite provider-request/tool-call/deadline limits. The session
 also bounds cumulative provider and tool allowances. Reserve an invocation's
@@ -296,10 +377,25 @@ schema. Store that interaction reference in the conversation turn that displays
 it. A reply such as "the second result" must target that exact reference; a new
 search or reordering cannot silently change its meaning.
 
+Reply interpretation uses the fixed admitted interpreter binding with
+`allowed_tools=frozenset()`, `max_tool_calls=0`, `initial_tool=None`, no acquisition
+and no filesystem/CLI capabilities. Interpreter admission also rejects an
+artifact requesting tools. This sealed policy is mandatory even when
+the ordinary conversational turn or workflow has tools. Send no tool definitions
+to the provider. Reject any returned tool request with `invalidToolRequest`
+before dispatching a handler, tool authorizer, operation-key resolver or journal
+claim. Never fall back to the session's ordinary policy or pass its effect journal
+to interpretation. Provider-request/deadline/output limits and session accounting
+still apply. These are enforceable execution limits; prose asking the interpreter
+to avoid tools is insufficient.
+
 A model may propose a structured interpretation bound to the actual source
-message and interaction reference. Validate allowed entity membership, response
-schema, freshness and current host authorization before applying it. Ambiguous
-interpretations ask for clarification. Model confidence is not consent.
+message and interaction reference. Admit a bounded closed response schema, then
+validate allowed entity membership, freshness and current host authorization
+before applying it. The interpreter artifact and schema version are included in
+binding identity. Ambiguous interpretations ask for clarification. Model
+confidence is not consent. A direct structured human response may bypass model
+interpretation but must pass the same admission and confirmation checks.
 For consequential approval, require an explicit host-declared confirmation rule
 or direct structured human response. Quoted instructions, earlier approvals,
 assistant/tool statements and model-generated text cannot authorize a decision.
@@ -352,10 +448,15 @@ policy. Do not add automatic deletion or expiry in the first release; document
 private storage growth bounds and operator lifecycle responsibility. A future
 purge must preserve necessary idempotency tombstones and unresolved/linked
 evidence, so deletion cannot make an old message dispatch again.
-The reference host also enforces finite owner/deployment session-creation limits
-and bounded simultaneous work using its existing service admission mechanisms.
-At capacity it rejects new sessions explicitly. Per-session bounds alone do not
-bound total retained storage when sessions have no automatic expiry.
+The reference host also enforces finite owner/deployment retained-session quotas,
+including completed, failed and unresolved sessions, and bounded simultaneous work
+using its existing service admission mechanisms. At capacity it rejects new
+sessions explicitly. Creation rate limits and concurrency limits alone do not
+bound total retained storage when sessions have no automatic expiry. The proposed
+defaults cap controller-owned logical records at 8 MiB snapshot plus 64 MiB
+receipts/reservations per session. Physical database/file overhead, WAL, backups,
+accounting, external tool journals and linked workflow stores have separate host
+capacity and lifecycle policies; the logical cap is not a disk-space guarantee.
 
 Existing Core formats, `Runtime.run()`, workflow constructors, RunStore, saved
 workflow runs and CLI commands retain their behavior. New conversation APIs are
@@ -375,6 +476,16 @@ behavior and installed-wheel public imports/examples.
 Include repeated native tool IDs across turns and invalid tool batches, contrasting
 the new fail-closed behavior with legacy correction and proving no early handler
 effect in a partly invalid batch.
+Test full-history input that triggers the existing compactor: at least nine tool
+outcomes and an older successful JSON result exceeding 96,000 characters, outside
+the latest four results. Explicitly enlarge tool, turn-record and request limits
+for this fixture.
+Assert that historical and current tool content reaches the provider unchanged,
+compaction remains disabled even when endpoint features enable it, and `run()`
+still compacts under the same feature settings. Test overflow before the first
+request and after a completed tool call: no extra provider dispatch, no hidden
+shortening, and known effects/usage retained. Exercise unsuccessful user records
+and consecutive user-role content on both transports.
 
 ### 2. Harness sessions and optional persistence
 
@@ -387,6 +498,16 @@ original roles/schema and conversation readiness failures without fallback.
 Cover lost dispatch-marker acknowledgements, safely undispatched pending recovery,
 saved uncertainty receipts, terminal capacity reservation and repeated recovery
 without duplicate counters or allowance release.
+Reject a changed operation namespace, journal identity/contract or journal
+presence on reconstruction, adoption and retry before any model/tool dispatch;
+construction must not invoke journal methods. Reject changed interpreter bindings
+or a policy attempting to grant tools. Prove that an admitted correction survives
+a known failed answer and is supplied to the next successful query with its
+failure status, without partial assistant/tool history or inferred consent.
+Test each history/snapshot/text/attempt/cumulative-receipt boundary, including
+Unicode/serialization overhead, zero-call attempts, retries, unknown write
+reservations, exact duplicate receipt writes and rejection without eviction.
+At capacity, duplicate replay and saved receipt adoption must still succeed.
 
 ### 3. Lab adoption and workflow bridge
 
@@ -405,6 +526,12 @@ hosted tiers only through explicit opt-in and a shared bounded allowance; label
 actual provider/model results separately from synthetic correctness evidence.
 Verify interpretation/handoff phases independently and enforce creation/concurrency
 capacity without counting workflow invocations as conversation-budget usage.
+Add a quoted-approval regression with a consequential tool registered for the
+ordinary session: the interpreter must receive no tools, and a fabricated native
+tool request must invoke zero handlers, authorizers, operation-key resolvers and
+journal claims. A quoted or historical approval cannot resume the workflow.
+Test a failed correction followed by a successful query, retained-session quotas
+including terminal sessions, and explicit history/context/receipt capacity errors.
 
 Publish consumer installation, minimal memory usage, durable store initialization,
 host bindings, streaming commit semantics, workflow replies and uncertainty
@@ -426,6 +553,13 @@ bounded full history, single-actor sessions and one optional approved workflow.
 It omits shared editing, background tasks, automatic summaries, retrieval indexes,
 multimodal content, dynamic profile changes and a graphical workflow editor.
 Runtime remains stateless across calls; optional Harness sessions supply memory.
+
+The follow-up design review seals the operation namespace and journal contract,
+makes interpretation tool-free, disables inherited compaction for full-history
+turns, and retains admitted corrections after failure. Qualification cases above
+cover each rule. History is bounded independently from model context, and attempts
+and cumulative receipt storage are bounded as well. These are design requirements;
+their regression tests have not been implemented or run yet.
 
 The material decisions for maintainer review are extending the existing
 repositories/artifact kinds, bounded full history with a fixed session binding,
