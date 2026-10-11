@@ -11,7 +11,7 @@ The candidate `b3-prosaic-harness` distribution selects
 which adds a separate conversation schema while preserving existing workflow storage.
 Imports (`prosaic_harness`) and CLI commands (`prosaic-harness`) remain unchanged.
 Conversation candidates still require linked Runtime/Harness/Lab qualification
-and publication; the released baseline remains Harness0.7.1/Runtime0.8.1.
+and publication; the released baseline remains Harness 0.7.1/Runtime 0.8.1.
 See [the conversation installation guide](docs/conversations.md#install-the-compatible-candidate-train)
 and [package migration](docs/package-migration.md) for fresh environments.
 

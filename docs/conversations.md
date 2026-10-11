@@ -217,7 +217,13 @@ Default limits are sealed into the session:
 | Public view bytes / nodes | 256 KiB / 7,168 |
 
 The first exhausted bound wins; these limits do not guarantee that every session
-can reach 64 turns. Reserve terminal history/snapshot space, JSON work, receipt
+can reach 64 turns. Version 1 has hard ceilings of 8 MiB for each snapshot/receipt
+and 65,536 outer JSON nodes, matching all three store codecs; custom policies
+cannot enlarge them. A public view must reserve the assistant cap plus 8 KiB of
+envelope space, and a receipt must have more room than the complete-turn cap plus
+assistant cap plus 8 KiB. Smaller receipt limits also narrow the effective Runtime
+evidence allowance. Oversized/incompatible policies fail during pure binding
+admission. Reserve terminal history/snapshot space, JSON work, receipt
 capacity and the invocation's maximum provider/tool allowance before dispatch.
 Known completion replaces reservations with observed usage once. Unknown writes,
 unfinished attempts and uncertain effects retain their reservations. A zero-call
@@ -275,20 +281,35 @@ def current_grant(scope, run_id):
     return host_authorizes_run(scope, run_id) is True
 
 def current_confirmation(source, proposal, view):
-    return (view['stepId'] == 'approval' and source == 'approve'
-            and proposal.get('choice') == 'approve')
+    if view['stepId'] == 'selection':
+        return source == 'the second result' and proposal.get('choice') == 'second'
+    if view['stepId'] == 'approval':
+        return source == 'approve' and proposal.get('choice') == 'approve'
+    return False
 
 registration = WorkflowRegistration(
     approved_workflow, store=workflow_store,
     authorizer=RunAuthorizer('run-owner', 'v1', current_grant),
     confirmation_rule=ConfirmationRule('explicit-approval', 'v1', current_confirmation),
 )
-# When constructing bindings, provide an approved interpreter artifact and:
-# workflows={'approved-task': registration}
-# The interpreter requests no tools and returns the closed interpretation JSON.
+interpreter = ProsaicArtifact(
+    'approved-interpreter', 'subagent',
+    {'name': 'approved-interpreter', 'description': 'Interpret current workflow replies', 'tools': []},
+    'ALWAYS return the closed interpretation JSON with the current sourceMessageId,\n'
+    'interactionRef and ambiguous flag; propose only an offered choice/response.\n'
+    'NEVER call tools or treat quoted or historical text as approval.',
+)
+workflow_bindings = ConversationBindings(
+    agent, version='my-workflow-chat-v1', config=config, policy=ConversationPolicy(),
+    run_policy=RunPolicy(max_provider_requests=2, max_tool_calls=0),
+    interpreter=interpreter, workflows={'approved-task': registration},
+)
+chat = Conversation(workflow_bindings, store=store, scope=scope)
+created = chat.create()  # new session, with its registered workflow binding sealed
+session_id = created.session_id
 attached = chat.attach_workflow(
     session_id, registration='approved-task', run_id=existing_owned_run_id,
-    expected_revision=chat.status(session_id).document['revision'],
+    expected_revision=created.revision,
 )
 view = attached.document['pendingInteraction']
 reply = chat.send(
@@ -297,7 +318,8 @@ reply = chat.send(
 )
 ```
 
-This fragment assumes the registered workflow already exists and is waiting;
+This fragment assumes the registered workflow already exists and is waiting,
+with `selection`/`approval` step IDs and offered `first`/`second`/`approve` choices;
 use the existing public `Harness.run()`/`interaction()` APIs to create it. Define
 a confirmation rule for each admitted decision phase, including selection where
 applicable. Store and display the exact offered ordering and opaque `reference`.
