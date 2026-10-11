@@ -27,3 +27,7 @@ from .conversation_errors import (ConversationError, SessionNotFound, SessionAlr
 __all__ += ['ConversationBindings', 'ConversationPolicy', 'ConversationScope', 'RunAuthorizer',
             'ConfirmationRule', 'WorkflowRegistration', 'ConversationError', 'SessionNotFound',
             'SessionAlreadyExists', 'SessionBusy']
+
+from .session_store import SessionStore, SessionSnapshot
+from .memory_session_store import MemorySessionStore
+__all__ += ['SessionStore', 'SessionSnapshot', 'MemorySessionStore']

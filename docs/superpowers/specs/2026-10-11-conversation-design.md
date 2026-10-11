@@ -363,6 +363,22 @@ including reply interpretation. Attached workflow execution retains its own
 existing run allowances. A combined tenant/deployment allowance is the host's
 responsibility; the session cap must not be presented as including workflow calls.
 
+Reserve JSON work capacity as well as UTF-8 bytes before dispatch. The outer
+session/receipt allowance is depth64 and65,536 nodes; the default effective
+Runtime allowance is depth56 and28,672 nodes, leaving room for record framing,
+coexisting completed history/evidence and bounded host views. Host views use a
+separately derived7,168-node allowance. These effective limits are sealed.
+Materialized interpretation/command evidence consumes its reservation; it does
+not discard the remaining terminal headroom. Exhaustion still permits adoption
+of an already allocated receipt and exact replay.
+
+Private Runtime tool evidence may retain `callIndex`, `signature`,
+`operationNamespace` and `operationKey`, alongside its neutral call ID and safe
+completion/uncertainty status. These logical references locate the original
+journal record after a lost acknowledgment. They are private recovery evidence,
+never part of a public conversation reply; a hash alone cannot locate or prove
+completion of the actual ledger record.
+
 ## Workflow interactions and natural-language replies
 
 Keep conversation history separate from Harness run state. Attach at most one

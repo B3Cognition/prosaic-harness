@@ -31,9 +31,15 @@ def test_frozen_version_and_all_effective_limits(binding_factory):
     with pytest.raises((AttributeError, TypeError)):
         binding.version = 'new'
     assert binding.identity != binding_factory(version='chat-v2').identity
-    assert binding.identity != binding_factory(turn_limits=replace(TurnLimits(), max_event_bytes=1024)).identity
+    assert binding.identity != binding_factory(turn_limits=replace(binding.turn_limits, max_event_bytes=1024)).identity
     with pytest.raises(ConversationError):
         binding_factory(turn_limits=replace(TurnLimits(), max_input_bytes=1024))
+
+
+def test_effective_structural_limits_reserve_outer_record_framing(binding_factory):
+    binding=binding_factory()
+    assert binding.turn_limits.max_json_depth+8<=binding.policy.max_json_depth
+    assert binding.turn_limits.max_json_nodes*2+8192<=binding.policy.max_json_nodes
 
 
 def test_workspace_requires_logical_identity(binding_factory, tmp_path):

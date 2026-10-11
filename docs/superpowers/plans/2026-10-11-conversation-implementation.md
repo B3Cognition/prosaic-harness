@@ -93,6 +93,15 @@ class ConversationBindings:
 
 Expose the bounded host logical `.version` and derived `.identity`; logical binding version is separate from storage/record version 1. Snapshot all effective Runtime TurnLimits, including metadata/event/evidence/depth/node limits. Derive shared byte limits from ConversationPolicy and reject a conflicting explicit TurnLimits; never recover with new Runtime defaults. A configured private workspace requires a stable logical workspace_identity; seal its identity/capability meaning, exclude physical paths/credentials and require the host to preserve the same resource behind it across reconstruction.
 
+Derive structural Runtime limits below the outer record limits: depth minus8,
+nodes `(max_json_nodes-8192)//2`. Default effective limits are56/28,672.
+Reserve terminal state nodes, UTF-8 bytes and derived host-view nodes before
+dispatch; host views/commands use `(max_json_nodes-8192)//8` nodes (7,168 by
+default). Materialized intermediate evidence consumes only its used headroom.
+Conversation binding admission explicitly rejects CLI manifest directories while
+Runtime construction performs filesystem discovery; existing Runtime/workflow
+CLI execution remains available with its documented preparation boundary.
+
 The registry seals approved original workflow admission/config/tool/validator/operation material, not a fixed run ID. Runs may be created after a session. At attach, linked read and resume, recheck that material, authorize the actual run, and use standard Harness with the stored run ID. Preserve the run's original accounting context/budgets; do not replace them with conversation attribution. If saved accounting ownership exists, compare relevant trusted scope; otherwise the versioned host authorizer supplies application ownership evidence. Store/Runtime/credential references remain private. No opaque workflow wrappers or parallel engine.
 
 Interpreter defaults are one provider request, zero tool calls, max_tool_rounds 1, timeout 30 seconds and the same finite input bounds. Its artifact requests no tools; no acquisition/workspace/CLI/effect journal. Seal its profile, artifact, policy and closed response schema. `interpretation_schema` admits only `{sourceMessageId, interactionRef, choice, response, ambiguous}` with required source/reference/ambiguous fields, bounded choice/response and no unknown fields; validate its proposed response again against the actual interaction schema/membership before applying it.

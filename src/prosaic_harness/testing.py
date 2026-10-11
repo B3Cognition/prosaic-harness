@@ -30,3 +30,26 @@ def assert_run_store_contract(store, *, state, receipt):
         assert store.load_receipt(run_id, receipt['id']) == receipt
         changed = seal(receipt | {'events': [{'event': 'different'}]})
         _raises(ReceiptConflict, lambda: store.save_receipt(run_id, receipt['id'], changed, lease))
+
+
+def assert_session_store_contract(store, *, scope, state, receipt):
+    """Caller owns provisioning/cleanup and supplies a pending allocated attempt."""
+    from .session_contracts import mark_dispatch, seal as session_seal
+    from .conversation_errors import SessionAlreadyExists
+    sid,aid=state['sessionId'],receipt['invocationId']
+    with store.lease(sid,scope=scope) as lease:
+        revision=store.create_session(sid,state,lease,scope=scope)
+        loaded=store.load_session(sid,scope=scope)
+        assert loaded.state==state and loaded.revision==revision
+        loaded.state['turns'].append({'forged':True})
+        assert store.load_session(sid,scope=scope).state==state
+        _raises(SessionAlreadyExists,lambda:store.create_session(sid,state,lease,scope=scope))
+        running=mark_dispatch(state,aid)
+        newer=store.save_session(sid,running,revision,lease,scope=scope)
+        assert newer!=revision
+        _raises(RevisionConflict,lambda:store.save_session(sid,running,revision,lease,scope=scope))
+        store.save_receipt(sid,aid,receipt,lease,scope=scope)
+        store.save_receipt(sid,aid,deepcopy(receipt),lease,scope=scope)
+        assert store.load_receipt(sid,aid,scope=scope)==receipt
+        changed=session_seal(receipt|{'result':receipt['result']|{'answer':'changed'}})
+        _raises(ReceiptConflict,lambda:store.save_receipt(sid,aid,changed,lease,scope=scope))

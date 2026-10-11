@@ -171,7 +171,7 @@ def _interpretation_schema(schema):
     return {'allOf': [base, data]}
 
 
-@dataclass(frozen=True, init=False)
+@dataclass(frozen=True, init=False, repr=False)
 class WorkflowRegistration:
     _encoded: bytes
     _workflow: object
@@ -232,7 +232,7 @@ class WorkflowRegistration:
             raise ConversationError('bindingMismatch') from None
 
 
-@dataclass(frozen=True, init=False)
+@dataclass(frozen=True, init=False, repr=False)
 class ConversationBindings:
     _encoded: bytes
     _config: bytes
@@ -268,6 +268,10 @@ class ConversationBindings:
                 raise ConversationError('bindingMismatch')
             shared = {f.name: getattr(policy, f.name) for f in fields(TurnLimits)
                       if hasattr(policy, f.name)}
+            # Both retained history and private evidence fit inside their new
+            # record framing. Reserve structural capacity before any effects.
+            shared['max_json_depth'] = policy.max_json_depth - 8
+            shared['max_json_nodes'] = (policy.max_json_nodes - 8192) // 2
             limits = TurnLimits(**shared) if turn_limits is None else turn_limits
             if type(limits) is not TurnLimits:
                 raise ConversationError('bindingMismatch')

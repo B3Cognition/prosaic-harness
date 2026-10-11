@@ -79,3 +79,16 @@ def owned(value, **limits):
 
 def digest(value):
     return hashlib.sha256(encode(value)).hexdigest()
+
+
+def node_count(value):
+    # Call only after finite canonical admission; count occurrences, not aliases.
+    stack=[value]
+    count=0
+    while stack:
+        child=stack.pop()
+        count+=1
+        if type(child) is dict: stack.extend(child.values())
+        elif type(child) is list: stack.extend(child)
+        if count>65_536: raise ValueError('JSON node limit')
+    return count
