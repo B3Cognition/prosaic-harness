@@ -46,12 +46,19 @@ def main():
     try:
         for args in [('init',), ('init',), ('doctor',), ('doctor', '--check-write')]:
             call([str(cli), *args, '--dsn-env', 'WHEEL_DSN'])
+        from prosaic_harness_postgres import PostgresSessionStore
+        with PostgresSessionStore(dsn, namespace='conversation-wheel') as sessions:
+            sessions.initialize()
         identifier = sql.Identifier(role)
         with psycopg.connect(dsn) as admin:
             admin.execute(sql.SQL('GRANT USAGE ON SCHEMA prosaic_harness TO {}').format(identifier))
             admin.execute(sql.SQL('GRANT SELECT ON ALL TABLES IN SCHEMA prosaic_harness TO {}').format(identifier))
             admin.execute(sql.SQL('GRANT INSERT,UPDATE ON prosaic_harness.leases,prosaic_harness.runs TO {}').format(identifier))
             admin.execute(sql.SQL('GRANT INSERT ON prosaic_harness.receipts TO {}').format(identifier))
+            admin.execute(sql.SQL('GRANT USAGE ON SCHEMA prosaic_harness_conversations TO {}').format(identifier))
+            admin.execute(sql.SQL('GRANT SELECT ON prosaic_harness_conversations.schema_version TO {}').format(identifier))
+            admin.execute(sql.SQL('GRANT SELECT,INSERT,UPDATE ON prosaic_harness_conversations.leases,prosaic_harness_conversations.sessions TO {}').format(identifier))
+            admin.execute(sql.SQL('GRANT SELECT,INSERT ON prosaic_harness_conversations.receipts TO {}').format(identifier))
         env['WHEEL_DSN'] = make_conninfo(dsn, user=role)
         run_id = uuid.uuid4().hex
         common = ['--dsn-env', 'WHEEL_DSN', '--namespace', 'linux-smoke', '--run-id', run_id]
@@ -60,9 +67,14 @@ def main():
         revision = call([sys.executable, runner, 'status', *common])['revision']
         assert call([sys.executable, runner, 'resume', *common, '--choice', 'approve',
                      '--expected-revision', revision])['state']['status'] == 'completed'
+        conversations = call([sys.executable, '-I', '/fixture/conversation_smoke.py',
+                              '--postgres-dsn-env', 'WHEEL_DSN'])
+        assert set(conversations['stores']) == {'memory', 'file', 'postgres'}
+        assert conversations['stores']['postgres']['savedReceiptAdoptedWithoutDispatch'] is True
         print(json.dumps({'platform': platform.system(), 'architecture': platform.machine(),
                           'psycopg': psycopg.__version__, 'libpq': psycopg.pq.version(),
-                          'installed_wheel_quickstart': 'passed'}))
+                          'installed_wheel_quickstart': 'passed',
+                          'installed_conversations': 'passed'}))
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
             admin.execute(sql.SQL('DROP OWNED BY {}').format(sql.Identifier(role)))

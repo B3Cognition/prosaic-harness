@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ['ubuntu-24.04', 'ubuntu-24.04-arm']
+        os: ['ubuntu-24.04', 'ubuntu-24.04-arm', 'macos-latest']
         python: ['3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
@@ -19,6 +19,7 @@ jobs:
       - name: Install Harness and its compatible index dependencies
         run: python -m pip install -e '.[test]'
       - name: Install Linux CLI sandbox backend
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y bubblewrap meson ninja-build pkg-config libcap-dev gcc
@@ -32,6 +33,7 @@ jobs:
           sudo install -m 0644 .github/ci/bwrap.apparmor /etc/apparmor.d/prosaic-ci-bwrap
           sudo apparmor_parser -r /etc/apparmor.d/prosaic-ci-bwrap
       - name: Require an operational Linux sandbox
+        if: runner.os == 'Linux'
         run: |
           python - <<'PY'
           import platform, subprocess, sys, tempfile
@@ -54,6 +56,14 @@ jobs:
                   print('Sandbox probe exit:', result.returncode)
                   print(result.stderr)
               raise
+          PY
+      - name: Require an operational macOS sandbox
+        if: runner.os == 'macOS'
+        run: |
+          python - <<'PY'
+          from prosaic_runtime import CliSandboxConfig
+          from prosaic_runtime.sandbox import require_backend
+          require_backend(CliSandboxConfig(mode='required'))
           PY
       - run: prosaic --version
       - name: Run all required Harness sandbox cases
@@ -94,14 +104,16 @@ jobs:
       - name: Verify installed native workflow
         run: |
           python -m venv "$RUNNER_TEMP/harness-wheel"
-          "$RUNNER_TEMP/harness-wheel/bin/python" -m pip install dist/b3_prosaic_harness-0.7.1-py3-none-any.whl
+          "$RUNNER_TEMP/harness-wheel/bin/python" -m pip install dist/b3_prosaic_harness-0.8.0-py3-none-any.whl
           "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/workflow_factory_smoke.py
+          "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/conversation_smoke.py
   postgres:
-    runs-on: ubuntu-latest
+    runs-on: '${{ matrix.os }}'
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
+        os: ['ubuntu-24.04', 'ubuntu-24.04-arm']
         postgres: ['16', '18']
     steps:
       - uses: actions/checkout@v4
@@ -117,8 +129,8 @@ jobs:
           python -m build "$RUNNER_TEMP/harness-source/adapters/postgres" --outdir adapters/postgres/dist
       - name: Install local core wheel before adapter
         run: |
-          python -m pip install dist/b3_prosaic_harness-0.7.1-py3-none-any.whl
-          python -m pip install adapters/postgres/dist/b3_prosaic_harness_postgres-0.2.1-py3-none-any.whl
+          python -m pip install dist/b3_prosaic_harness-0.8.0-py3-none-any.whl
+          python -m pip install adapters/postgres/dist/b3_prosaic_harness_postgres-0.3.0-py3-none-any.whl
           prosaic --version
       - name: Required real-database, owned crash/standby and clean-wheel gates
         env:

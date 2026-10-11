@@ -1,10 +1,19 @@
 # Prosaic Harness
 
-Version **0.7.1** is the candidate `b3-prosaic-harness` index distribution, with
-`b3-prosaic-runtime>=0.8,<0.9` and optional `b3-prosaic-harness-postgres` **0.2.1**.
+Version **0.8.0** adds [graph-free conversation sessions](docs/conversations.md)
+with bounded full history, memory/file storage, immutable receipts and explicit
+uncertainty recovery. An optional bridge accepts natural-language replies to
+existing workflow pauses through a tool-free interpreter and current host admission.
+No new graph, framework, Markdown kind or distribution is required for ordinary chat.
+
+The candidate `b3-prosaic-harness` distribution selects
+`b3-prosaic-runtime>=0.9,<0.10` and optional `b3-prosaic-harness-postgres` **0.3.0**,
+which adds a separate conversation schema while preserving existing workflow storage.
 Imports (`prosaic_harness`) and CLI commands (`prosaic-harness`) remain unchanged.
-The five-package release train is pending final qualification and publication;
-see [package migration](docs/package-migration.md) for fresh-environment installs.
+Conversation candidates still require linked Runtime/Harness/Lab qualification
+and publication; the released baseline remains Harness0.7.1/Runtime0.8.1.
+See [the conversation installation guide](docs/conversations.md#install-the-compatible-candidate-train)
+and [package migration](docs/package-migration.md) for fresh environments.
 
 Version **0.6.2** added a [validated in-memory workflow factory](docs/workflow-factory.md)
 for approved agents, native tool registries and client-generated graphs. The host
@@ -32,12 +41,12 @@ Installation and CI no longer require Node.js or npm.
 
 Version 0.4.0 adds [manifest-defined CLI tools](examples/README.md#custom-command-line-tools)
 through the normal workflow CLI, with offline availability checks and required
-native execution evidence. Current candidates select the compatible Runtime 0.8 series.
+native execution evidence. Current candidates select the compatible Runtime 0.9 series.
 
 ## CLI permissions and sandboxing
 
-Harness **0.7.1** retains CLI sandbox policy enforcement and selects Runtime
-**0.8.x**, which provides `cli_sandbox_v1`. Follow the
+Harness **0.8.0** retains CLI sandbox policy enforcement and selects Runtime
+**0.9.x**, which provides `cli_sandbox_v1`. Follow the
 [sandboxed workflow walkthrough](examples/README.md#sandboxed-cli-workflow-harness-042)
 for installation, offline validation and live execution.
 The complete blueprint is [cli-tool-sandboxed.yml](examples/cli-tool-sandboxed.yml).
@@ -81,7 +90,7 @@ JSON outputs, and resume from local checkpoints. Apache-2.0.
 | --- | --- |
 | [Prosaic](https://github.com/B3Cognition/prosaic) | Markdown agents and resource inspection |
 | [Prosaic Runtime](https://github.com/B3Cognition/prosaic-runtime) | One model invocation, model tiers, tools, streaming, permissions |
-| Prosaic Harness | Steps, validation, transitions, review loops, human pauses, run evidence |
+| Prosaic Harness | Optional conversations, durable receipts, steps, validation, human pauses, run evidence |
 
 The initial release supports Linux and macOS with Python 3.11+. It needs an
 existing OpenAI-compatible endpoint and the Python Prosaic CLI. Windows
@@ -114,9 +123,9 @@ prosaic --help
 ALWAYS use a fresh clone/environment for migration; NEVER reuse an environment
 containing legacy distributions. In a future terminal, return to the repository and add its `.venv/bin` to PATH
 again. Node.js and npm are not required. Candidate dependency metadata selects
-`b3-prosaic-runtime` 0.8.x, `b3-prosaic` 0.4.x, PyYAML, jsonschema and referencing.
+`b3-prosaic-runtime` 0.9.x, `b3-prosaic` 0.4.x, PyYAML, jsonschema and referencing.
 Use only the manifest-selected b3 wheels in the curated wheelhouse. Candidate
-installation requires the Runtime 0.8 producer; it is not yet a published index install.
+installation requires the qualified Runtime 0.9 producer; it is not yet a published index install.
 No sibling checkout or manual Prosaic installation is needed. Older Harness
 tags retain their historical installation docs.
 

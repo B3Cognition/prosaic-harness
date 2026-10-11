@@ -40,7 +40,7 @@ def candidate_wheels(root):
     spec.loader.exec_module(release)
     release.verify_upstream(Path(receipt_directory).resolve(strict=True), wheelhouse)
     return [wheelhouse / 'b3_prosaic-0.4.1-py3-none-any.whl',
-            wheelhouse / 'b3_prosaic_runtime-0.8.1-py3-none-any.whl']
+            wheelhouse / 'b3_prosaic_runtime-0.9.0-py3-none-any.whl']
 
 
 class LocalCluster:
@@ -177,11 +177,12 @@ class LocalCluster:
 set -eu
 apt-get update -qq
 python -m venv /tmp/core
-/tmp/core/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.7.1-py3-none-any.whl >/dev/null
+/tmp/core/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.8.0-py3-none-any.whl >/dev/null
 /tmp/core/bin/python -I -c 'import importlib.util,prosaic_harness; assert importlib.util.find_spec("psycopg") is None; assert importlib.util.find_spec("prosaic_harness_postgres") is None'
 /tmp/core/bin/python -I /fixture/workflow_factory_smoke.py
+/tmp/core/bin/python -I /fixture/conversation_smoke.py
 python -m venv /tmp/both
-/tmp/both/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.7.1-py3-none-any.whl /adapter-wheels/b3_prosaic_harness_postgres-0.2.1-py3-none-any.whl >/dev/null
+/tmp/both/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.8.0-py3-none-any.whl /adapter-wheels/b3_prosaic_harness_postgres-0.3.0-py3-none-any.whl >/dev/null
 /tmp/both/bin/python -I /fixture/linux_wheel_smoke.py
 '''
         if dependencies:
@@ -197,6 +198,7 @@ python -m venv /tmp/both
             '-v', str(root / 'examples/postgres') + ':/examples:ro',
             '-v', str(root / 'adapters/postgres/tests/support/linux_wheel_smoke.py') + ':/fixture/linux_wheel_smoke.py:ro',
             '-v', str(root / 'scripts/workflow_factory_smoke.py') + ':/fixture/workflow_factory_smoke.py:ro',
+            '-v', str(root / 'scripts/conversation_smoke.py') + ':/fixture/conversation_smoke.py:ro',
             *candidate_mounts,
             'docker.io/library/python:3.12-slim', 'sh', '-ec', candidate_setup + command)
         self.containers.append({'id': container_id, 'name': name})

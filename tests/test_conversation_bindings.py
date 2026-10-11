@@ -178,3 +178,17 @@ def test_capability_and_mutated_finite_policy_are_readmitted(binding_factory, mo
     object.__setattr__(policy,'max_provider_requests',None)
     with pytest.raises(ConversationError):
         binding_factory(run_policy=policy)
+
+
+def test_receipt_capacity_also_bounds_effective_runtime_evidence(binding_factory):
+    policy=replace(ConversationPolicy(),max_receipt_bytes=524288)
+    binding=binding_factory(policy=policy)
+    assert binding.turn_limits.max_evidence_bytes<=policy.max_receipt_bytes-policy.max_turn_bytes-policy.max_assistant_bytes-8192
+
+
+@pytest.mark.parametrize('changes',[
+    {'max_receipt_bytes':131072},{'max_public_bytes':1024},
+    {'max_json_nodes':131072},{'max_state_bytes':16777216}])
+def test_unrepresentable_outer_policy_rejects_at_pure_binding_admission(binding_factory,changes):
+    with pytest.raises(ConversationError,match='bindingMismatch'):
+        binding_factory(policy=replace(ConversationPolicy(),**changes))

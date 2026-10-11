@@ -98,7 +98,10 @@ class ConversationPolicy:
             minimum = 0 if f.name in {'max_provider_requests', 'max_tool_calls'} else 1
             if type(value) is not int or value < minimum:
                 raise ConversationError('bindingMismatch')
-        if self.max_json_depth > 64:
+        if (self.max_json_depth > 64 or self.max_json_nodes>65536
+                or self.max_state_bytes>8388608 or self.max_receipt_bytes>8388608
+                or self.max_public_bytes<self.max_assistant_bytes+8192
+                or self.max_receipt_bytes<=self.max_turn_bytes+self.max_assistant_bytes+8192):
             raise ConversationError('bindingMismatch')
     def to_dict(self):
         self.__post_init__()
@@ -272,12 +275,14 @@ class ConversationBindings:
             # record framing. Reserve structural capacity before any effects.
             shared['max_json_depth'] = policy.max_json_depth - 8
             shared['max_json_nodes'] = (policy.max_json_nodes - 8192) // 2
-            limits = TurnLimits(**shared) if turn_limits is None else turn_limits
+            evidence_room=policy.max_receipt_bytes-policy.max_turn_bytes-policy.max_assistant_bytes-8192
+            limits = TurnLimits(**shared,max_evidence_bytes=min(TurnLimits().max_evidence_bytes,evidence_room)) if turn_limits is None else turn_limits
             if type(limits) is not TurnLimits:
                 raise ConversationError('bindingMismatch')
             limits.__post_init__()
             if any(getattr(limits, key) != val for key, val in shared.items()):
                 raise ConversationError('bindingMismatch')
+            if limits.max_evidence_bytes>evidence_room: raise ConversationError('bindingMismatch')
             tools = validate_custom_tools(custom_tools)
             runtime = ProsaicRuntime(_config_from_json(encode(config_data).decode()), custom_tools=tools)
             approved = _artifact_snapshot(agent, maximum_depth=policy.max_json_depth,

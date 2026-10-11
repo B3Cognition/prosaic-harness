@@ -92,13 +92,13 @@ jobs:
                       path = source.joinpath(*release.safe_path(name).parts)
                       path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(content)
                   release.audit_artifacts(source, pathlib.Path('release/artifacts'),
-                                          {project['name']: project['version'], 'b3-prosaic-harness-postgres': '0.2.1'},
+                                          {project['name']: project['version'], 'b3-prosaic-harness-postgres': '0.3.0'},
                                           ('.', 'adapters/postgres'))
           else:
               subprocess.run(['python', 'scripts/release_artifacts.py', 'build', '--ref',
                               os.environ['SOURCE_COMMIT'], '--output', 'release', '--expect',
                               project['name'] + '=' + project['version'], '--expect',
-                              'b3-prosaic-harness-postgres=0.2.1', '--project', '.',
+                              'b3-prosaic-harness-postgres=0.3.0', '--project', '.',
                               '--project', 'adapters/postgres'], check=True)
           PY
       - name: Bind verified upstream candidates to the selected Harness bytes
@@ -172,7 +172,7 @@ jobs:
           sudo apparmor_parser -r /etc/apparmor.d/prosaic-ci-bwrap
       - name: Require an operational Linux sandbox
         run: |
-          python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.1-py3-none-any.whl
+          python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.0-py3-none-any.whl
           python - <<'PY'
           import platform, subprocess, sys, tempfile
           from pathlib import Path
@@ -202,11 +202,12 @@ jobs:
           PIP_FIND_LINKS: ${{ github.workspace }}/release/upstream-wheels
         run: |
           python -m venv .venv
-          .venv/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.1-py3-none-any.whl -e '.[test]'
+          .venv/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.0-py3-none-any.whl -e '.[test]'
           .venv/bin/python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$SOURCE_COMMIT" --label "${LANE}-source" --junit "$RUNNER_TEMP/harness-source.xml" -- .venv/bin/python -m pytest -q --junitxml="$RUNNER_TEMP/harness-source.xml"
           python -m venv .wheel-test
-          .wheel-test/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.1-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.7.1-py3-none-any.whl
-          .venv/bin/python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$SOURCE_COMMIT" --label "${LANE}-wheel" -- .wheel-test/bin/python -I scripts/workflow_factory_smoke.py
+          .wheel-test/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.0-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.8.0-py3-none-any.whl
+          .wheel-test/bin/python -m pip check
+          .venv/bin/python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$SOURCE_COMMIT" --label "${LANE}-wheel" -- .wheel-test/bin/python -I -c "import runpy; runpy.run_path('scripts/workflow_factory_smoke.py', run_name='__main__'); runpy.run_path('scripts/conversation_smoke.py', run_name='__main__')"
       - name: Reject skipped or incomplete Harness sandbox coverage
         id: sandbox_report
         run: |
@@ -239,11 +240,73 @@ jobs:
           PIP_FIND_LINKS: ${{ github.workspace }}/release/upstream-wheels
         run: |
           python -m venv .floor-test
-          .floor-test/bin/python -m pip install 'PyYAML==6.0' 'pyuca==1.2' 'markdown-it-py==3.0.0' 'jsonschema==4.23.0' 'referencing==0.28.4' 'psycopg[binary]==3.2.3' 'psycopg-pool==3.2.0' release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime_postgres-0.2.1-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.7.1-py3-none-any.whl release/artifacts/b3_prosaic_harness_postgres-0.2.1-py3-none-any.whl
-          python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$GITHUB_SHA" --label floor-${{ matrix.os }} -- .floor-test/bin/python -I -c "from prosaic_harness_postgres import PostgresRunStore; store = PostgresRunStore('postgresql://invalid.invalid/unused', namespace='floor'); store.close(); import runpy; runpy.run_path('scripts/workflow_factory_smoke.py', run_name='__main__')"
+          .floor-test/bin/python -m pip install 'PyYAML==6.0' 'pyuca==1.2' 'markdown-it-py==3.0.0' 'jsonschema==4.23.0' 'referencing==0.28.4' 'psycopg[binary]==3.2.3' 'psycopg-pool==3.2.0' release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.0-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime_postgres-0.3.0-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.8.0-py3-none-any.whl release/artifacts/b3_prosaic_harness_postgres-0.3.0-py3-none-any.whl
+          .floor-test/bin/python -m pip check
+          python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$GITHUB_SHA" --label floor-${{ matrix.os }} -- .floor-test/bin/python -I -c "from prosaic_harness_postgres import PostgresRunStore, PostgresSessionStore; store = PostgresRunStore('postgresql://invalid.invalid/unused', namespace='floor'); store.close(); sessions = PostgresSessionStore('postgresql://invalid.invalid/unused', namespace='floor'); sessions.close(); import runpy; runpy.run_path('scripts/workflow_factory_smoke.py', run_name='__main__'); runpy.run_path('scripts/conversation_smoke.py', run_name='__main__')"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: qualified-linux-${{ matrix.os }}-${{ matrix.python }}
+          path: release/artifacts/qualification-*.json
+          if-no-files-found: error
+          retention-days: 90
+
+  macos:
+    needs: artifacts
+    runs-on: macos-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: release-bytes
+          path: release/artifacts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: curated-upstream
+          path: release/upstream-wheels
+      - name: Verify the curated dependency payload
+        run: |
+          python -m pip install packaging
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('release', 'scripts/release_artifacts.py')
+          release = importlib.util.module_from_spec(spec); spec.loader.exec_module(release)
+          release.verify_upstream(Path('release/artifacts'), Path('release/upstream-wheels'))
+          PY
+      - name: Require an operational macOS sandbox
+        run: |
+          python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.0-py3-none-any.whl
+          python - <<'PY'
+          from prosaic_runtime import CliSandboxConfig
+          from prosaic_runtime.sandbox import require_backend
+          require_backend(CliSandboxConfig(mode='required'))
+          PY
+      - name: Qualify source and the transported wheel
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          LANE: macos-macos-latest-${{ matrix.python }}
+          PIP_FIND_LINKS: ${{ github.workspace }}/release/upstream-wheels
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.0-py3-none-any.whl -e '.[test]'
+          .venv/bin/python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$SOURCE_COMMIT" --label "${LANE}-source" --junit "$RUNNER_TEMP/harness-source.xml" -- .venv/bin/python -m pytest -q --junitxml="$RUNNER_TEMP/harness-source.xml"
+          python -m venv .wheel-test
+          .wheel-test/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.0-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.8.0-py3-none-any.whl
+          .wheel-test/bin/python -m pip check
+          .venv/bin/python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$SOURCE_COMMIT" --label "${LANE}-wheel" -- .wheel-test/bin/python -I -c "import runpy; runpy.run_path('scripts/workflow_factory_smoke.py', run_name='__main__'); runpy.run_path('scripts/conversation_smoke.py', run_name='__main__')"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: qualified-macos-${{ matrix.python }}
           path: release/artifacts/qualification-*.json
           if-no-files-found: error
           retention-days: 90
@@ -284,9 +347,9 @@ jobs:
           release.verify_upstream(Path('release/artifacts'), Path('release/upstream-wheels'))
           PY
           mkdir -p dist adapters/postgres/dist
-          cp release/artifacts/b3_prosaic_harness-0.7.1-py3-none-any.whl dist/
-          cp release/artifacts/b3_prosaic_harness_postgres-0.2.1-py3-none-any.whl adapters/postgres/dist/
-          python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.8.1-py3-none-any.whl dist/b3_prosaic_harness-0.7.1-py3-none-any.whl adapters/postgres/dist/b3_prosaic_harness_postgres-0.2.1-py3-none-any.whl
+          cp release/artifacts/b3_prosaic_harness-0.8.0-py3-none-any.whl dist/
+          cp release/artifacts/b3_prosaic_harness_postgres-0.3.0-py3-none-any.whl adapters/postgres/dist/
+          python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.0-py3-none-any.whl dist/b3_prosaic_harness-0.8.0-py3-none-any.whl adapters/postgres/dist/b3_prosaic_harness_postgres-0.3.0-py3-none-any.whl
           prosaic --version
       - name: Required real database source, installed wheel, crash and standby gates
         env:
@@ -307,7 +370,7 @@ jobs:
           retention-days: 90
 
   gate:
-    needs: [linux, postgres]
+    needs: [linux, macos, postgres]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -335,14 +398,18 @@ jobs:
           labels = [f'linux-{os_name}-{version}-{kind}'
                     for os_name in ('ubuntu-24.04', 'ubuntu-24.04-arm')
                     for version in ('3.11', '3.12', '3.13') for kind in ('source', 'wheel')]
+          labels += [f'macos-macos-latest-{version}-{kind}'
+                     for version in ('3.11', '3.12', '3.13') for kind in ('source', 'wheel')]
           labels += [f'postgres-{os_name}-{version}' for os_name in ('ubuntu-24.04', 'ubuntu-24.04-arm') for version in ('16', '18')]
           labels += [f'floor-{os_name}' for os_name in ('ubuntu-24.04', 'ubuntu-24.04-arm')]
           assert Path('release/artifacts/upstream-receipt.json').is_file()
           release.require_qualification(Path('release/artifacts'), os.environ['GITHUB_SHA'], labels)
           for label in labels:
               record = json.loads(Path('release/artifacts', 'qualification-' + label + '.json').read_text())
-              expected_machine = 'aarch64' if 'ubuntu-24.04-arm' in label else 'x86_64'
-              assert record['platform'] == 'linux' and record['machine'] == expected_machine
+              expected_machine = ('arm64' if label.startswith('macos-') else
+                                  'aarch64' if 'ubuntu-24.04-arm' in label else 'x86_64')
+              expected_platform = 'darwin' if label.startswith('macos-') else 'linux'
+              assert record['platform'] == expected_platform and record['machine'] == expected_machine
               if label.endswith('-source') or label.startswith('postgres-'):
                   counts = record['result_counts']
                   assert counts['tests'] > 0 and all(counts[key] == 0 for key in ('failures', 'errors', 'skipped'))

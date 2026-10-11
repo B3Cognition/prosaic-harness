@@ -1,6 +1,7 @@
 recursive-include examples *.md *.yml *.json *.py
 recursive-include docs *.md
 include scripts/workflow_factory_smoke.py
+include scripts/conversation_smoke.py
 include scripts/release_artifacts.py
 include .github/workflows/publish.yml .github/ci/bwrap.apparmor
 include LICENSE NOTICE

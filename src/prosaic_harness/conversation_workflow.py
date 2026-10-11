@@ -39,13 +39,14 @@ class ConversationWorkflow:
         registration,harness=self._workflow(state)
         p=state['policy']
         raw=harness.interaction(review_outputs=tuple(registration.readmit()['reviewOutputs']),
-            include_response_schema=True,maximum_bytes=p['maxPublicBytes'])
+            include_response_schema=True,maximum_bytes=p['maxPublicBytes']-p['maxAssistantBytes']-8192)
         if raw is None: return None
         view=raw.to_dict()
         presented=len(state['turns']) if sequence is None else sequence
         view['reference']=digest({'sessionId':state['sessionId'],'registration':state['workflow']['registration'],
             'presentedTurn':presented,'interaction':view})
-        return owned(view,maximum=p['maxPublicBytes'],depth=p['maxJsonDepth']-8,nodes=public_node_limit(p))
+        return owned(view,maximum=p['maxPublicBytes']-p['maxAssistantBytes']-4096,
+                     depth=p['maxJsonDepth']-8,nodes=public_node_limit(p)-128)
 
     def attach_workflow(self,session_id,*,registration,run_id,expected_revision):
         reference(registration)
