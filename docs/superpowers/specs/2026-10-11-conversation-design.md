@@ -384,6 +384,10 @@ against the turn allowance. Failed source framing cannot be deferred until after
 inference. Atomic snapshot replacement permits a complete validated snapshot
 from an already pinned file descriptor; immutable receipts retain pathname-inode
 checks and replacement is never accepted as ordinary mutable state.
+Interpretation admission also bounds the user plus a fixed64-byte host-rendered
+clarification/outcome record; an interpreter binding requires an assistant text
+allowance of at least64 bytes. Short invalid model JSON cannot consume the space
+needed for a safe host clarification after the receipt is saved.
 
 Private Runtime tool evidence may retain `callIndex`, `signature`,
 `operationNamespace` and `operationKey`, alongside its neutral call ID and safe

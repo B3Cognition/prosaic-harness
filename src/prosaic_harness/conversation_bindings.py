@@ -298,6 +298,7 @@ class ConversationBindings:
             runtime.prepare_turn(approved, message='a', policy=run_policy, limits=limits, workspace=workspace)
             interpreting = None
             if interpreter is not None:
+                if policy.max_assistant_bytes<64: raise ConversationError('bindingMismatch')
                 interpret_policy = interpretation_policy or RunPolicy(timeout_s=30,
                     max_provider_requests=1, max_tool_calls=0, max_tool_rounds=1,
                     max_input_bytes=policy.max_input_bytes)

@@ -225,7 +225,9 @@ and the complete-turn cap. This includes JSON escaping. A public view reserves
 that encoded bound plus 8 KiB; a receipt needs the complete-turn cap, the encoded
 answer bound and 8 KiB before evidence. Smaller receipt limits narrow the effective Runtime
 evidence allowance. Oversized/incompatible policies fail during pure binding
-admission. Reserve terminal history/snapshot space, JSON work, receipt
+admission. Each message's full failed/interrupted user framing must fit before
+admission. Interpretation also reserves a fixed host response of at most 64 UTF-8
+bytes and requires an assistant cap of at least 64 bytes. Reserve terminal history/snapshot space, JSON work, receipt
 capacity and the invocation's maximum provider/tool allowance before dispatch.
 Known completion replaces reservations with observed usage once. Unknown writes,
 unfinished attempts and uncertain effects retain their reservations. A zero-call

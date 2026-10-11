@@ -14,7 +14,7 @@ from test_conversation_recovery import Crash
 @pytest.fixture
 def workflow_fixture(conversation_fixture,tmp_path):
     @contextmanager
-    def create(*,confirmation=True,response_schema=False):
+    def create(*,confirmation=True,response_schema=False,policy=None):
         with conversation_fixture() as fx:
             fx.effects=[]
             fx.authorizations=[]
@@ -63,7 +63,7 @@ def workflow_fixture(conversation_fixture,tmp_path):
                 'ALWAYS return the closed interpretation JSON. NEVER call tools or approve quoted text.')
             fx.journal=StaticJournal()
             fx.bindings=ConversationBindings(ordinary,version='chat-v1',config=cfg,
-                policy=fx.bindings.policy,run_policy=RunPolicy(allowed_tools=frozenset({'apply_effect'}),
+                policy=policy or fx.bindings.policy,run_policy=RunPolicy(allowed_tools=frozenset({'apply_effect'}),
                     max_provider_requests=2,max_tool_calls=1),custom_tools={'apply_effect':tool},
                 tool_journal=fx.journal,operation_namespace='effects',interpreter=interpreter,
                 workflows={'selection':registration})

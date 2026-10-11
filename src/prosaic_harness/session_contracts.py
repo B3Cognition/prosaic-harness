@@ -15,6 +15,7 @@ _FAILURES = frozenset({'providerFailure','invalidToolRequest','cancelled','timeo
     'toolEffectUncertain','toolJournalFailure','toolFailure','incompleteGeneration',
     'bindingMismatch','interrupted','invalidInterpretation','confirmationRequired','interactionStale'})
 _UNCERTAIN = frozenset({'toolEffectUncertain', 'toolJournalFailure', 'interrupted'})
+HOST_ANSWER_BYTES = 64
 
 
 def camel(name):
@@ -340,6 +341,10 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
         longest=max(_FAILURES,key=len)
         encode([{'role':'user','content':[{'type':'text','text':message}],
                  'turnStatus':'failed','failureCode':longest}],maximum=p['maxTurnBytes'])
+        if purpose=='interpretation':
+            encode([{'role':'user','content':[{'type':'text','text':message}],'turnStatus':'completed'},
+                    {'role':'assistant','content':[{'type':'text','text':'x'*HOST_ANSWER_BYTES}]}],
+                   maximum=p['maxTurnBytes'])
     except (ValueError,UnicodeError): raise ConversationError('contextLimit','maxTurnBytes') from None
     for count in (provider_allowance,tool_allowance): integer(count)
     if interaction_ref is not None: reference(interaction_ref)
@@ -553,7 +558,7 @@ def finish_host_turn(document, *, answer=None, failure_code=None, interaction=No
     if state['pending'] is None: raise StoreCorrupt('no pending host phase')
     turn=state['turns'][-1]
     if answer is not None:
-        if type(answer) is not str or len(answer.encode())>state['policy']['maxAssistantBytes']:
+        if type(answer) is not str or len(answer.encode())>min(HOST_ANSWER_BYTES,state['policy']['maxAssistantBytes']):
             raise StoreCorrupt('host answer bounds')
         turn['status']='completed'
         turn['history']=[{'role':'user','turnStatus':'completed','content':[{'type':'text','text':turn['message']}]},

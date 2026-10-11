@@ -5,6 +5,7 @@ import pytest
 from prosaic_harness import ConversationPolicy, ConversationError, FileSessionStore
 from support.conversation_host import conversation_fixture
 from support.conversations import scope, binding_factory
+from test_conversation_workflow import workflow_fixture
 
 
 @pytest.mark.parametrize('message',['x'*1000,'\\'*500,'\x00'*200])
@@ -37,6 +38,21 @@ def test_compatible_envelopes_save_and_project_escaped_answers(conversation_fixt
         assert fx.controller.send(snapshot.session_id,**arguments).document==reply.document
         assert fx.controller.recover(snapshot.session_id).document==reply.document
         assert fx.provider_calls==1
+
+
+def test_interpretation_reserves_host_clarification_before_admission(workflow_fixture):
+    with workflow_fixture(policy=replace(ConversationPolicy(),max_turn_bytes=1000)) as fx:
+        before=fx.attached.document
+        fx.queue_text('null')
+        with pytest.raises(ConversationError):
+            fx.controller.send(fx.session_id,message_id='long',message='x'*828,
+                interaction_ref=before['pendingInteraction']['reference'],expected_revision=before['revision'])
+        assert fx.provider_calls==0 and fx.controller.status(fx.session_id).document==before
+
+
+def test_interpreter_policy_must_allow_bounded_host_rendering(workflow_fixture):
+    with pytest.raises(ConversationError,match='bindingMismatch'):
+        with workflow_fixture(policy=replace(ConversationPolicy(),max_assistant_bytes=32)): pass
 
 
 def test_concurrent_atomic_snapshot_reads_never_report_corruption(tmp_path,scope,binding_factory,monkeypatch):
