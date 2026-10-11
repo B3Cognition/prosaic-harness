@@ -4,11 +4,11 @@ Run on worker A, inspect/resume on worker B, without a shared writable run
 directory. Core remains database-free; install this separate adapter only when
 you need shared durable state. The API is synchronous; a private I/O thread
 bounds network waits. Model execution holds no database connection/transaction.
-The current candidate is `b3-prosaic-harness-postgres` **0.2.0**, selecting
-`b3-prosaic-harness>=0.7,<0.8`. The adapter is maintained in this repository but
+The conversation candidate is `b3-prosaic-harness-postgres` **0.3.0**, selecting
+`b3-prosaic-harness>=0.8,<0.9`. The adapter is maintained in this repository but
 installed and versioned separately, keeping PostgreSQL drivers optional for
 Harness users. Imports and CLI names remain unchanged. Final qualification and
-publication of the b3 release train are pending. The historical
+publication of this conversation release train are pending. The historical
 [Harness v0.6.1 release](https://github.com/B3Cognition/prosaic-harness/releases/tag/v0.6.1)
 retains its original 0.6.1/0.1.1 package names and receipts.
 
@@ -29,7 +29,7 @@ prosaic-harness-postgres --help
 
 ALWAYS migrate using a fresh environment or image; NEVER install legacy and b3
 distributions together because they own the same import paths. See
-[package migration](../../docs/package-migration.md). The Runtime 0.8 candidate
+[package migration](../../docs/package-migration.md). The Runtime 0.9 candidate
 must be available before this installation can resolve.
 
 Harness does **not** provision PostgreSQL, create databases/users, start a
@@ -200,3 +200,88 @@ session capacity atomically under the existing store mutex. A registering lease
 can no longer be counted twice while maintenance is scheduled. The database
 storage/fencing contract is unchanged. A unit scheduling-boundary regression and
 an owned PostgreSQL 16/18 race regression cover the transition.
+
+## Optional conversation sessions
+
+The conversation candidate adds `PostgresSessionStore` to this same optional
+distribution. It implements the public Harness `SessionStore` contract and uses
+the independent, logged `prosaic_harness_conversations` schema, storage version 1.
+Existing `PostgresRunStore` tables, grants and CLI `init`/`doctor` behavior remain
+compatible; those CLI commands continue to address workflow storage.
+
+Initialize conversation storage once with the schema owner's credentials:
+
+```python
+from prosaic_harness_postgres import PostgresSessionStore
+
+with PostgresSessionStore.from_env(
+    'HARNESS_MIGRATION_DSN', namespace='my-chat'
+) as owner:
+    owner.initialize()
+```
+
+Apply these grants as the owner, replacing `chat_runtime` with the existing
+application role. Role, database and secret creation remain operator tasks.
+
+```sql
+GRANT USAGE ON SCHEMA prosaic_harness_conversations TO chat_runtime;
+GRANT SELECT ON prosaic_harness_conversations.schema_version,
+    prosaic_harness_conversations.leases,
+    prosaic_harness_conversations.sessions,
+    prosaic_harness_conversations.receipts TO chat_runtime;
+GRANT INSERT, UPDATE ON prosaic_harness_conversations.leases,
+    prosaic_harness_conversations.sessions TO chat_runtime;
+GRANT INSERT ON prosaic_harness_conversations.receipts TO chat_runtime;
+```
+
+The runtime role needs no schema CREATE, schema-version UPDATE, receipt UPDATE
+or DELETE. A role with only workflow grants can continue using `PostgresRunStore`
+and cannot use conversation storage until it receives the separate grants.
+Readiness performs no migration or fallback:
+
+```python
+from prosaic_harness import Conversation, ConversationScope
+from prosaic_harness_postgres import PostgresSessionStore
+
+scope = ConversationScope('my-chat', 'production', 'my-service', tenant, actor)
+with PostgresSessionStore.from_env(
+    'HARNESS_RUNTIME_DSN', namespace=scope.namespace
+) as sessions:
+    sessions.check_ready()
+    chat = Conversation(approved_bindings, store=sessions, scope=scope)
+    created = chat.create()
+```
+
+Derive `tenant`, `actor` and any billing account from current authenticated host
+state before each public operation. Scope ownership filters every session and
+receipt read; leases, revisions and writes also bind to the exact scope and
+address. A foreign owner sees `session_not_found`. The SQL role can still access
+its granted tables directly: namespaces and scope hashes do not replace host
+authorization or database row-level security.
+
+Use the same sealed bindings and logical workspace/journal identities on every
+worker. The default bounded pools and lease timings documented above apply.
+Each operation checks the writable primary and WAL settings, acquires a short
+transaction, then returns its connection. A conversation's model, tool and
+linked workflow execution holds no transaction or checked-out connection.
+Database generations fence late writes after ownership changes; they cannot
+cancel an external effect already in progress.
+
+Snapshots and immutable receipts use the common finite canonical UTF-8 session
+codec, with at most 8 MiB each. Their addresses and receipts are checked against
+allocated attempts, dispatch markers and the frozen scope/binding/input/context.
+Exact receipt repeats are idempotent under a live lease; conflicts fail without
+overwriting evidence. A lost COMMIT acknowledgement raises `store_unavailable`
+with `outcome_unknown` and invalidates the lease. Recover by reading authoritative
+state with fresh ownership; never blindly repeat inference or business effects.
+
+The session policy bounds retained/reserved logical records. PostgreSQL indexes,
+WAL, tool journals, replicas and backups add physical storage. The host must also
+enforce retained-session quotas and own any explicit retention/deletion policy;
+this adapter never automatically expires or deletes records.
+
+The required adapter suite includes both the existing workflow backend and the
+conversation backend. Run the owned PostgreSQL 16 and 18 fixtures shown above
+with `--require-postgres`. Missing infrastructure or any skipped required case
+fails qualification. Installed Linux AMD64 and ARM64 acceptance is required
+before claiming the conversation candidate is ready for production.
