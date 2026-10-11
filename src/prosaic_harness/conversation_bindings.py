@@ -283,7 +283,7 @@ class ConversationBindings:
             approved = _artifact_snapshot(agent, maximum_depth=policy.max_json_depth,
                 maximum_nodes=policy.max_json_nodes)
             invocation = _policy(run_policy)
-            runtime.prepare_turn(approved, message='admission', policy=run_policy, limits=limits, workspace=workspace)
+            runtime.prepare_turn(approved, message='a', policy=run_policy, limits=limits, workspace=workspace)
             interpreting = None
             if interpreter is not None:
                 interpret_policy = interpretation_policy or RunPolicy(timeout_s=30,
@@ -298,7 +298,7 @@ class ConversationBindings:
                 interpreting = _artifact_snapshot(interpreter)
                 if interpreting.frontmatter.get('tools') not in (None, '', 'none', []):
                     raise ConversationError('bindingMismatch')
-                runtime.prepare_turn(interpreting, message='admission', policy=interpret_policy, limits=limits)
+                runtime.prepare_turn(interpreting, message='a', policy=interpret_policy, limits=limits)
                 interpreting = {'artifact': _artifact_data(interpreting), 'policy': material,
                                 'schema': _interpretation_schema(interpretation_schema)}
             elif interpretation_policy is not None or interpretation_schema is not None:
@@ -365,11 +365,11 @@ class ConversationBindings:
                     or data['workflows'] != {k: v.readmit() for k,v in self._workflows.items()}):
                 raise ValueError()
             runtime = ProsaicRuntime(self.config, custom_tools=self._tools)
-            runtime.prepare_turn(self.agent, message='admission', policy=self.run_policy,
+            runtime.prepare_turn(self.agent, message='a', policy=self.run_policy,
                                  limits=self.turn_limits, workspace=self._workspace)
             if data['interpreter']:
                 runtime.prepare_turn(ProsaicArtifact.from_inspection(data['interpreter']['artifact']),
-                    message='admission', policy=self.interpretation_policy, limits=self.turn_limits)
+                    message='a', policy=self.interpretation_policy, limits=self.turn_limits)
             return data
         except Exception:
             raise ConversationError('bindingMismatch') from None

@@ -127,7 +127,7 @@ def verify_session(document):
     try:
         state=owned(document)
         closed(state,{'version','recordType','sessionId','scope','bindingIdentity','bindingVersion','policy',
-            'accounting','turns','attempts','pending','workflow','sha256',*_counters_empty()})
+            'accounting','accountingScope','turns','attempts','pending','workflow','sha256',*_counters_empty()})
         verify_seal(state)
         if type(state['version']) is not int or state['version']!=1 or state['recordType']!='session':
             raise ValueError('record version')
@@ -146,6 +146,10 @@ def verify_session(document):
                     attribution.billing_account_id,attribution.run_id)!=(
                     owner['application'],owner['tenant'],owner['actor'],owner['billingAccount'],state['sessionId']):
                 raise ValueError('accounting owner')
+        if state['accountingScope'] is not None:
+            closed(state['accountingScope'],{'namespace','environment'})
+            for value in state['accountingScope'].values(): reference(value)
+            if state['accounting'] is None: raise ValueError('accounting scope absent')
         if type(state['turns']) is not list or type(state['attempts']) is not dict:
             raise ValueError('turn ledger')
         ids=set()
@@ -198,7 +202,7 @@ def verify_session(document):
         for aid,attempt in state['attempts'].items():
             validate_id(aid)
             closed(attempt,{'invocationId','turnSequence','purpose','contextIdentity','encodingVersion','inputBytes',
-                'context','dispatchMarker','receiptAdopted','receiptIdentity','receiptBytes','receiptReservation',
+                'context','dispatchMarker','receiptAdopted','effectUncertain','receiptIdentity','receiptBytes','receiptReservation',
                 'providerAllowance','toolAllowance','providerAttempts','toolAttempts',
                 'providerReservation','toolReservation'})
             if attempt['invocationId']!=aid or attempt['purpose'] not in {'ordinary','interpretation'}:
@@ -209,7 +213,7 @@ def verify_session(document):
             hash_value(attempt['contextIdentity'])
             if attempt['encodingVersion']!='conversation-turn-v1': raise ValueError('encoding contract')
             integer(attempt['inputBytes'],1,state['policy']['maxInputBytes'])
-            if type(attempt['dispatchMarker']) is not bool or type(attempt['receiptAdopted']) is not bool:
+            if any(type(attempt[k]) is not bool for k in ('dispatchMarker','receiptAdopted','effectUncertain')):
                 raise ValueError('attempt marker')
             if attempt['context'] is not None:
                 from prosaic_runtime import ResolvedContext
@@ -277,7 +281,7 @@ def decode_session(content):
 def validate_session_transition(previous, proposed):
     """Validate monotonic storage advancement, independently of a record hash."""
     old,new=verify_session(previous),verify_session(proposed)
-    immutable=('version','recordType','sessionId','scope','bindingIdentity','bindingVersion','policy','accounting')
+    immutable=('version','recordType','sessionId','scope','bindingIdentity','bindingVersion','policy','accounting','accountingScope')
     turn_input=('sequence','messageId','message','requestIdentity','interactionRef','inputData','historyIdentity')
     attempt_input=('invocationId','turnSequence','purpose','contextIdentity','encodingVersion','inputBytes',
                    'context','providerAllowance','toolAllowance')
@@ -296,21 +300,21 @@ def validate_session_transition(previous, proposed):
             if any(before[k]!=after[k] for k in attempt_input): raise ValueError('attempt input changed')
             if before['dispatchMarker'] and not after['dispatchMarker']: raise ValueError('marker rewound')
             if before['receiptAdopted'] and (not after['receiptAdopted'] or any(before[k]!=after[k]
-                    for k in ('receiptIdentity','receiptBytes','providerAttempts','toolAttempts'))):
+                    for k in ('receiptIdentity','receiptBytes','providerAttempts','toolAttempts','effectUncertain'))):
                 raise ValueError('receipt rewound')
         return new
     except (ValueError,KeyError,TypeError):
         raise StoreCorrupt('invalid conversation advancement') from None
 
 
-def new_session(session_id, scope, bindings, *, accounting=None):
+def new_session(session_id, scope, bindings, *, accounting=None, accounting_scope=None):
     validate_id(session_id)
     if type(scope) is not ConversationScope or type(bindings) is not ConversationBindings:
         raise ConversationError('bindingMismatch')
     bindings.readmit()
     state=seal({'version':1,'recordType':'session','sessionId':session_id,'scope':scope.to_dict(),
         'bindingIdentity':bindings.identity,'bindingVersion':bindings.version,
-        'policy':policy_document(bindings.policy),'accounting':accounting,
+        'policy':policy_document(bindings.policy),'accounting':accounting,'accountingScope':accounting_scope,
         'turns':[],'attempts':{},'pending':None,'workflow':None,
         **dict.fromkeys(_counters_empty(),0)})
     state=_with_counters(state)
@@ -342,6 +346,9 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
         turn['answer']=None
         turn['failureCode']=None
         turn['recoveryStatus']=None
+        turn['historyReservation']=p['maxTurnBytes']
+        turn['stateReservation']=p['maxTurnBytes']+p['maxPublicBytes']+8192
+        turn['stateNodeReservation']=(p['maxJsonNodes']-8192)//2+2*public_node_limit(p)+8192
     else:
         if state['pending'] is not None: raise ConversationError('messageConflict')
         if any(t['messageId']==message_id for t in state['turns']): raise ConversationError('messageConflict')
@@ -356,7 +363,7 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
         state['turns'].append(turn)
     attempt={'invocationId':invocation_id,'turnSequence':turn['sequence'],'purpose':purpose,
         'contextIdentity':context_identity,'encodingVersion':encoding_version,'inputBytes':input_bytes,
-        'context':owned(context),'dispatchMarker':False,'receiptAdopted':False,'receiptIdentity':None,
+        'context':owned(context),'dispatchMarker':False,'receiptAdopted':False,'effectUncertain':False,'receiptIdentity':None,
         'receiptBytes':0,'receiptReservation':p['maxReceiptBytes'],
         'providerAllowance':provider_allowance,'toolAllowance':tool_allowance,
         'providerAttempts':0,'toolAttempts':0,'providerReservation':provider_allowance,'toolReservation':tool_allowance}
@@ -375,6 +382,21 @@ def mark_dispatch(document, invocation_id):
     state['attempts'][invocation_id]['dispatchMarker']=True
     state['turns'][-1]['status']='running'
     return verify_session(_with_counters(state))
+
+
+def mark_interrupted(document):
+    state=verify_session(document)
+    if state['pending'] is None: return state
+    before_bytes,before_nodes=len(encode(state)),node_count(state)
+    turn=state['turns'][-1]
+    turn['status']='needsResolution'
+    turn['failureCode']='interrupted'
+    turn['answer']=None
+    turn['history']=[{'role':'user','content':[{'type':'text','text':turn['message']}],
+                     'turnStatus':'failed','failureCode':'interrupted'}]
+    turn['historyReservation']=max(0,state['policy']['maxTurnBytes']-len(encode(turn['history'])))
+    turn['recoveryStatus']='needsResolution'
+    return verify_session(_consume_headroom(state,before_bytes,before_nodes))
 
 
 def verify_receipt(document):
@@ -425,6 +447,8 @@ def match_receipt(state, receipt):
         if value['context'] is not None and (type(evidence['accounting']) is not dict or
                 evidence['accounting'].get('context')!=value['context']):
             raise ValueError('accounting correlation')
+        if state['accountingScope'] is not None and any(evidence['accounting'].get(k)!=v
+                for k,v in state['accountingScope'].items()): raise ValueError('accounting destination')
         if value['completedTurn'] is not None:
             turn=state['turns'][value['turnSequence']-1]
             encode(value['completedTurn'], maximum=state['policy']['maxTurnBytes'])
@@ -472,13 +496,17 @@ def adopt_receipt(document, receipt, *, finalize=True):
     evidence=value['evidence']
     attempt['providerAttempts']=evidence['providerAttempts']
     attempt['toolAttempts']=evidence['toolAttempts']
-    uncertain=(value['result']['failureCode'] in _UNCERTAIN or
-               any(o['status']=='uncertain' for o in evidence['toolOutcomes']))
+    effect_uncertain=(value['result']['failureCode'] in {'toolEffectUncertain','toolJournalFailure'} or
+                      any(o['status']=='uncertain' for o in evidence['toolOutcomes']))
+    attempt['effectUncertain']=effect_uncertain
+    uncertain=(value['result']['failureCode'] in _UNCERTAIN or effect_uncertain or any(
+        a['effectUncertain'] or (a['dispatchMarker'] and not a['receiptAdopted'] and a['toolAllowance']>0)
+        for a in state['attempts'].values() if a['turnSequence']==attempt['turnSequence']))
     attempt['providerReservation']=attempt['providerAllowance']-attempt['providerAttempts'] if uncertain else 0
     attempt['toolReservation']=attempt['toolAllowance']-attempt['toolAttempts'] if uncertain else 0
     turn=state['turns'][value['turnSequence']-1]
     if finalize:
-        code=value['result']['failureCode']
+        code=value['result']['failureCode'] or ('interrupted' if uncertain else None)
         turn['failureCode']=code
         turn['answer']=value['result']['answer'] if code is None else None
         turn['status']='needsResolution' if uncertain else 'completed' if code is None else 'failed'

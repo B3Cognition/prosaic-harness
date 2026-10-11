@@ -1,5 +1,5 @@
 """Durable, validated execution around Prosaic Runtime."""
-__version__ = '0.7.1'
+__version__ = '0.8.0'
 
 from .engine import Harness
 from .workflow import Workflow
@@ -31,3 +31,8 @@ __all__ += ['ConversationBindings', 'ConversationPolicy', 'ConversationScope', '
 from .session_store import SessionStore, SessionSnapshot
 from .memory_session_store import MemorySessionStore
 __all__ += ['SessionStore', 'SessionSnapshot', 'MemorySessionStore']
+
+from .conversation import Conversation, ConversationReply
+__all__ += ['Conversation','ConversationReply']
+from .file_session_store import FileSessionStore
+__all__ += ['FileSessionStore']
