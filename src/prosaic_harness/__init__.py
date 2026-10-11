@@ -20,3 +20,10 @@ __all__ = ['Harness', 'Workflow', 'Validator', 'CheckContext', 'FileRunStore', '
 __all__ += ['WorkflowCatalog', 'WorkflowBindings', 'WorkflowPolicy', 'WorkflowFactory',
             'WorkflowAdmissionError', 'HumanResponseError', 'PendingInteraction']
 __all__ += ['WorkflowBundle', 'WorkflowReference', 'PreparedWorkflow']
+
+from .conversation_bindings import (ConversationBindings, ConversationPolicy,
+    ConversationScope, RunAuthorizer, ConfirmationRule, WorkflowRegistration)
+from .conversation_errors import (ConversationError, SessionNotFound, SessionAlreadyExists, SessionBusy)
+__all__ += ['ConversationBindings', 'ConversationPolicy', 'ConversationScope', 'RunAuthorizer',
+            'ConfirmationRule', 'WorkflowRegistration', 'ConversationError', 'SessionNotFound',
+            'SessionAlreadyExists', 'SessionBusy']
