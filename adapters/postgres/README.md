@@ -237,6 +237,17 @@ GRANT INSERT ON prosaic_harness_conversations.receipts TO chat_runtime;
 The runtime role needs no schema CREATE, schema-version UPDATE, receipt UPDATE
 or DELETE. A role with only workflow grants can continue using `PostgresRunStore`
 and cannot use conversation storage until it receives the separate grants.
+Conversation readiness rejects forbidden effective grants on non-owner runtime
+roles, including inherited and column-only grants. It also rejects schema-version
+INSERT/DELETE and table DELETE/TRUNCATE privileges. Revoke accidental extra
+permissions before accepting work.
+
+Schema owners and roles that immediately inherit schema-owner privileges remain
+administrative credentials: `initialize()` and operator `check_ready()` can
+validate their installation. Those checks cannot make an owner a restricted
+role. ALWAYS configure worker processes with separate non-owner runtime
+credentials and verify their ownership/grants; NEVER use migration credentials
+as the application's runtime DSN.
 Readiness performs no migration or fallback:
 
 ```python

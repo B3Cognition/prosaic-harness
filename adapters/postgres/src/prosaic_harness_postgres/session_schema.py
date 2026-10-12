@@ -70,7 +70,8 @@ CONSTRAINTS = {
 
 
 async def ready_on_connection(conn):
-    namespace = await (await conn.execute("SELECT oid,pg_catalog.has_schema_privilege(oid,'USAGE') "
+    namespace = await (await conn.execute("SELECT oid,pg_catalog.has_schema_privilege(oid,'USAGE'), "
+        "pg_catalog.pg_has_role(nspowner,'USAGE') "
         "FROM pg_catalog.pg_namespace WHERE nspname=%s", (SCHEMA,))).fetchone()
     if namespace is None:
         raise StoreUninitialized('initialize conversation storage explicitly before accepting work')
@@ -123,6 +124,34 @@ async def ready_on_connection(conn):
                 (SCHEMA + '.' + table, privilege))).fetchone()
             if not permitted or not permitted[0]:
                 raise StoreIncompatible('grant required conversation table privileges before accepting work')
+    # Owners (including effective inherited owners) remain operator credentials
+    # for initialization/diagnostics. They cannot become restricted runtime roles
+    # through SDK checks; the embedding host must keep those credentials separate.
+    if not namespace[2]:
+        forbidden_schema = await (await conn.execute('SELECT pg_catalog.has_schema_privilege(%s,%s)',
+            (namespace[0], 'CREATE'))).fetchone()
+        if not forbidden_schema or forbidden_schema[0] is not False:
+            raise StoreIncompatible('use least-privilege conversation runtime grants')
+        for table in COLUMNS:
+            forbidden = ['DELETE', 'TRUNCATE']
+            columns = []
+            if table == 'schema_version':
+                forbidden.extend(['INSERT', 'UPDATE'])
+                columns.extend(['INSERT', 'UPDATE'])
+            elif table == 'receipts':
+                forbidden.append('UPDATE')
+                columns.append('UPDATE')
+            excess = await (await conn.execute('SELECT pg_catalog.has_table_privilege(%s,%s)',
+                (SCHEMA + '.' + table, ','.join(forbidden)))).fetchone()
+            if not excess or excess[0] is not False:
+                raise StoreIncompatible('use least-privilege conversation runtime grants')
+            if columns:
+                # Table ACL inspection misses column-only grants. This function
+                # includes both table/column permissions and inherited privileges.
+                excess_columns = await (await conn.execute('SELECT pg_catalog.has_any_column_privilege(%s,%s)',
+                    (SCHEMA + '.' + table, ','.join(columns)))).fetchone()
+                if not excess_columns or excess_columns[0] is not False:
+                    raise StoreIncompatible('use least-privilege conversation runtime grants')
     versions = await (await conn.execute('SELECT schema_version,storage_contract_version '
         'FROM prosaic_harness_conversations.schema_version')).fetchall()
     if versions != [(SCHEMA_VERSION, STORAGE_CONTRACT_VERSION)]:
