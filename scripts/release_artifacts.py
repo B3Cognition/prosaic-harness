@@ -406,7 +406,7 @@ def verify_upstream(directory, wheelhouse):
         raise ReleaseError('both explicit upstream candidates required')
     validate_upstream_chain(evidence)
     expected_sets = {'B3Cognition/prosaic': {'b3-prosaic': '0.4.1'},
-        'B3Cognition/prosaic-runtime': {'b3-prosaic-runtime': '0.9.0',
+        'B3Cognition/prosaic-runtime': {'b3-prosaic-runtime': '0.9.1',
                                       'b3-prosaic-runtime-postgres': '0.3.0'}}
     seen, wheels = set(), {}
     for candidate in evidence['candidates']:
@@ -465,10 +465,16 @@ def fetch_public(url):
         raise
 
 
-def check_index(directory, commit, *, allow_missing=False, fetch=fetch_public):
+def check_index(directory, commit, *, allow_missing=False, fetch=fetch_public, distributions=None):
     receipt = verify_receipt(directory, commit)
+    available = {item['name'] for item in receipt['distributions']}
+    selected = available if distributions is None else set(distributions)
+    if not selected or not selected.issubset(available):
+        raise ReleaseError('invalid index distribution selection')
     missing = False
     for distribution in receipt['distributions']:
+        if distribution['name'] not in selected:
+            continue
         name, version = distribution['name'], distribution['version']
         if not re.fullmatch('[A-Za-z0-9_.-]+', name) or not re.fullmatch('[A-Za-z0-9_.+-]+', version):
             raise ReleaseError('invalid index package identity')
@@ -585,6 +591,7 @@ def main():
             command.add_argument('--require', action='append', required=True)
         elif action == 'index-check':
             command.add_argument('--allow-missing', action='store_true')
+            command.add_argument('--distribution', action='append')
     args = parser.parse_args()
     if args.action == 'build':
         expected = dict(value.split('=', 1) for value in args.expect)
@@ -593,14 +600,15 @@ def main():
         result = prepare_upstream(args.directory, args.wheelhouse, [
             ('B3Cognition/prosaic', args.core_run, args.core_commit, {'b3-prosaic': '0.4.1'}),
             ('B3Cognition/prosaic-runtime', args.runtime_run, args.runtime_commit,
-             {'b3-prosaic-runtime': '0.9.0', 'b3-prosaic-runtime-postgres': '0.3.0'})])
+             {'b3-prosaic-runtime': '0.9.1', 'b3-prosaic-runtime-postgres': '0.3.0'})])
     elif args.action == 'verify':
         result = verify_receipt(args.directory, args.commit)
     elif args.action == 'qualify':
         command = args.command[1:] if args.command[:1] == ['--'] else args.command
         result = qualify(args.directory, args.commit, args.label, command, junit=args.junit)
     elif args.action == 'index-check':
-        result = check_index(args.directory, args.commit, allow_missing=args.allow_missing)
+        result = check_index(args.directory, args.commit, allow_missing=args.allow_missing,
+                             distributions=args.distribution)
     else:
         result = require_qualification(args.directory, args.commit, args.require)
     print(json.dumps(result, sort_keys=True))

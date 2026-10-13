@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.8.1 — 2026-10-13
+
+- Bind the public Runtime adapter explicitly in native workflow bindings, seal
+  its descriptor into workflow identity and readmit real configuration/tools.
+- Preserve existing workflow fingerprints when no adapter is declared; reject
+  undeclared, changed or unsafe adapters before execution.
+- Require Runtime 0.9.1; publish only the SDK distribution and retain existing
+  adapter compatibility qualification without republishing PostgreSQL.
+
+## Unreleased historical candidates
 
 - Prepare Harness 0.7.1 and PostgreSQL store 0.2.1 hardening candidates. Lease
   setup failures and interruptions release registration capacity; queued renewals

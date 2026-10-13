@@ -46,7 +46,7 @@ class Harness:
         self._revision = None
         self._ownership_failure = None
         self._execution_lock = threading.Lock()
-        self.runtime = runtime or (ProsaicRuntime(_config_from_json(admission.config_json), custom_tools=admission.tools) if admission else
+        self.runtime = runtime or (admission.runtime_adapter if admission else None) or (ProsaicRuntime(_config_from_json(admission.config_json), custom_tools=admission.tools) if admission else
                                    ProsaicRuntime(workflow.config, custom_tools=workflow.custom_tools)
                                    if workflow.custom_tools else ProsaicRuntime(workflow.config))
         self.context = context

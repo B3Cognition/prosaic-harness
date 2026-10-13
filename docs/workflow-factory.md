@@ -623,3 +623,26 @@ and uses a disposable loopback endpoint with synthetic responses. It exercises
 the native tool, confirmation schema/validator, read-only status, fresh-factory
 reconstruction and resume, unchanged receipt identity and one completed Harness
 invocation. No live model service is contacted.
+
+## Versioned Runtime adapters (Harness 0.8.1 / Runtime 0.9.1)
+
+For a host that projects graph arguments into a structured model protocol, bind
+an explicit `prosaic_runtime.RuntimeAdapter` through
+`WorkflowBindings(..., runtime_adapter=adapter)`. The adapter must wrap an
+unmodified concrete Runtime whose configuration and actual tool descriptors match
+workflow admission. `Harness(workflow, run_dir=...)` selects that declared adapter;
+an explicit `runtime=` must match its descriptor. A workflow without this
+binding cannot accept an adapter implicitly.
+
+The adapter's contract version, host version and attempt limit participate in
+workflow identity. Changing them invalidates the old workflow fingerprint.
+Core Runtime grants, invocation limits, event/observer scope and cancellation
+remain enforced across projected attempts. Host argument/result transformations
+are trusted cooperative callbacks; adapter versioning is a host obligation,
+not cryptographic attestation of callback code. Adapter callbacks are not
+serialized into portable host bundles; such bundle export fails explicitly.
+Reconstruct them through the same current host registrations instead.
+
+The public adapter is described in Runtime's `docs/runtime-adapters.md`. Use
+Harness 0.8.1 or later with Runtime 0.9.1 or later from the public package index. This adds no conversation
+state, accounting configuration or database dependency.

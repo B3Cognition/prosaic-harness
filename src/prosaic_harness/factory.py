@@ -15,7 +15,7 @@ from prosaic_runtime import (CliSandboxConfig, CustomTool, EndpointConfig, Prosa
                              ProsaicRuntime, RunLimits, RuntimeConfig,
                              custom_descriptors, validate_custom_tools,
                              validate_execution_artifact, InvocationScope,
-                             tool_journal_descriptor)
+                             tool_journal_descriptor, RuntimeAdapter)
 from prosaic_runtime.policy import BUILTIN_TOOLS, requested_tools
 
 from .admission_data import parse_bounded_json, snapshot_json
@@ -170,8 +170,15 @@ class WorkflowCatalog:
 class WorkflowBindings:
     """Native effective configuration and trusted registrations, without probes."""
     def __init__(self, *, config, custom_tools=None, validators=None,
-                 operation_namespace=None, tool_journal=None):
+                 operation_namespace=None, tool_journal=None, runtime_adapter=None):
         self._config_json = _encode(_config_payload(config, native=True))
+        if runtime_adapter is not None:
+            if type(runtime_adapter) is not RuntimeAdapter:
+                _fail('binding_mismatch')
+            runtime_adapter.validate_binding()
+            if _encode(_config_payload(runtime_adapter.config)) != self._config_json:
+                _fail('binding_mismatch')
+        self._runtime_adapter = runtime_adapter
         operation = _operation_bindings(operation_namespace, tool_journal)
         self._operation_namespace = operation_namespace
         self._tool_journal = tool_journal
@@ -284,9 +291,10 @@ class _AdmissionRecord:
     operation_namespace: str | None = None
     tool_journal: object = None
     operation_json: str = '{}'
+    runtime_adapter: object = None
 
 
-def _identity_payload(workflow, policy, *, operation=None):
+def _identity_payload(workflow, policy, *, operation=None, adapter=None):
     # ALWAYS bound mutable execution objects before digest/asdict consumers.
     definition = snapshot_json(workflow.definition,
         # Original UTF-8 proposals may expand under the historic ASCII seal
@@ -331,10 +339,15 @@ def _identity_payload(workflow, policy, *, operation=None):
         record = getattr(workflow, '_admission', None)
         operation = (_operation_bindings(record.operation_namespace, record.tool_journal)
                      if type(record) is _AdmissionRecord else {})
+    if adapter is None:
+        record = getattr(workflow, '_admission', None)
+        declared = record.runtime_adapter if type(record) is _AdmissionRecord else None
+        adapter = declared.descriptor if declared is not None else None
     return {'workflow': definition, 'runtime': runtime_identity(config),
             'schemas': schemas, 'prose': artifacts,
             **({'custom_tools': descriptors} if descriptors else {}),
             **({'operation_bindings': operation} if operation else {}),
+            **({'runtime_adapter': adapter} if adapter is not None else {}),
             'admission': {'version': 1, 'profile': 1, 'policy': policy._identity()}}
 
 
@@ -398,6 +411,7 @@ class WorkflowFactory:
             _fail('binding_mismatch')
         self._agents = MappingProxyType(dict(catalog._agents))
         self._schemas = MappingProxyType(dict(catalog._schemas))
+        self._runtime_adapter = bindings._runtime_adapter
         self._config_json = bindings._config_json
         self._tools = MappingProxyType(dict(bindings._tools))
         self._validators = MappingProxyType(dict(bindings._validators))
@@ -446,7 +460,7 @@ class WorkflowFactory:
             bindings = WorkflowBindings(config=_config_from_json(_encode(decoded(self._config_json))),
                                         custom_tools=tools, validators=validators,
                                         operation_namespace=self._operation_namespace,
-                                        tool_journal=self._tool_journal)
+                                        tool_journal=self._tool_journal, runtime_adapter=self._runtime_adapter)
             return WorkflowFactory(catalog=catalog, bindings=bindings, policy=policy)
         except WorkflowAdmissionError:
             raise
@@ -455,6 +469,8 @@ class WorkflowFactory:
 
     def _bundle_material(self):
         """Complete private versioned material; public discovery is not identity."""
+        if self._runtime_adapter is not None:
+            _fail('binding_mismatch')  # Host callbacks cannot be serialized into a bundle.
         runtime = runtime_identity(_config_from_json(self._config_json))
         if 'cli_sandbox' in runtime:
             # The admitted config identity retains this supported tuple for
@@ -645,21 +661,30 @@ class WorkflowFactory:
         if any(item.get('journaled') for item in demanded.values()) and (
                 self._tool_journal is None or self._operation_namespace is None):
             _fail('binding_mismatch')
-        payload = _identity_payload(workflow, policy, operation=operation)
+        payload = _identity_payload(workflow, policy, operation=operation,
+            adapter=self._runtime_adapter.descriptor if self._runtime_adapter is not None else None)
         seal = digest(payload)
         workflow.fingerprint = seal
         workflow._admission = _AdmissionRecord(seal, self._config_json, policy, self._tools,
             MappingProxyType({name: self._validators[name] for name in needed}),
             MappingProxyType({name: self._validators[name].version for name in sorted(needed)}),
-            _encode(payload), self._operation_namespace, self._tool_journal, self._operation_json)
+            _encode(payload), self._operation_namespace, self._tool_journal, self._operation_json, self._runtime_adapter)
         return workflow
 
 
 def _check_adapter(workflow, runtime, descriptors, *, native):
     if runtime is None:
         return
-    if native and (type(runtime) is not ProsaicRuntime or runtime.cli_tool_names):
-        _fail('binding_mismatch')
+    if native:
+        declared = workflow._admission.runtime_adapter
+        if declared is not None:
+            if type(runtime) is not RuntimeAdapter or runtime.descriptor != declared.descriptor:
+                _fail('binding_mismatch')
+            runtime.validate_binding()
+        elif type(runtime) is not ProsaicRuntime:
+            _fail('binding_mismatch')
+        if runtime.cli_tool_names:
+            _fail('binding_mismatch')
     if native:
         record = workflow._admission
         required = {'invocation_budgets_v1', 'tool_context_v1'}
