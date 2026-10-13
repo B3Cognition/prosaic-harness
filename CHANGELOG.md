@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.2 — 2026-10-13
+
+- Add deterministic structured conversation choices and terminal workflow detachment.
+- Reconcile interrupted decisions using stable command identities; expose explicit bounded command retry.
+- Expose owned recovery evidence for host reconstruction without dispatching effects.
+- Require Runtime 0.9.2; PostgreSQL adapters remain 0.3.0.
+
 ## 0.8.1 — 2026-10-13
 
 - Bind the public Runtime adapter explicitly in native workflow bindings, seal

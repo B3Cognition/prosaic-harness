@@ -14,8 +14,8 @@ from test_conversation_recovery import Crash
 @pytest.fixture
 def workflow_fixture(conversation_fixture,tmp_path):
     @contextmanager
-    def create(*,confirmation=True,response_schema=False,policy=None):
-        with conversation_fixture() as fx:
+    def create(*,confirmation=True,response_schema=False,policy=None,session_store=None,run_store=None):
+        with conversation_fixture(store=session_store) as fx:
             fx.effects=[]
             fx.authorizations=[]
             fx.resolvers=[]
@@ -40,14 +40,15 @@ def workflow_fixture(conversation_fixture,tmp_path):
                     'required':['playerId'],'additionalProperties':False}}
             workflow=WorkflowFactory(catalog=WorkflowCatalog(schemas=schemas),
                 bindings=WorkflowBindings(config=cfg),policy=WorkflowPolicy(allowed_schemas=frozenset(schemas))).build(graph)
-            runstore=FileRunStore(tmp_path/'workflow-store',namespace='test')
+            runstore=run_store or FileRunStore(tmp_path/'workflow-store',namespace='test')
             runstore.initialize()
             runid=uuid4().hex
             fx.harness=Harness(workflow,store=runstore,run_id=runid)
             assert fx.harness.run({})['status']=='waiting'
             fx.allowed=True
             fx.confirmation_mode=None
-            def grant(scope,rid): return fx.allowed and rid==runid
+            fx.authorized_runs={runid}
+            def grant(scope,rid): return fx.allowed and rid in fx.authorized_runs
             def confirm(source,proposal,view):
                 if fx.confirmation_mode=='throw': raise RuntimeError('private confirmation failure')
                 if fx.confirmation_mode=='mutate': proposal['choice']='first'; return True
@@ -142,8 +143,8 @@ def test_uncertain_handoff_recovery_never_repeats_resume(workflow_fixture,phase)
         with pytest.raises(Crash): fx.send('the second result',{'choice':'second'},on_event=crash)
         before=fx.harness.status()
         reply=fx.fresh_controller().recover(fx.session_id)
-        assert reply.document['status']=='needsResolution' and fx.provider_calls==1
-        assert fx.harness.status()==before
+        assert reply.document['status']==('needsResolution' if phase=='workflowCommandPrepared' else 'completed')
+        assert fx.provider_calls==1 and fx.harness.status()==before
         with pytest.raises(ConversationError):
             fx.controller.retry_interrupted(fx.session_id,expected_revision=reply.document['revision'],acknowledge_effect_risk=True)
 

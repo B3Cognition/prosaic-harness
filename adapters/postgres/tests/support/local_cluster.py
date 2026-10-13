@@ -40,7 +40,7 @@ def candidate_wheels(root):
     spec.loader.exec_module(release)
     release.verify_upstream(Path(receipt_directory).resolve(strict=True), wheelhouse)
     return [wheelhouse / 'b3_prosaic-0.4.1-py3-none-any.whl',
-            wheelhouse / 'b3_prosaic_runtime-0.9.1-py3-none-any.whl']
+            wheelhouse / 'b3_prosaic_runtime-0.9.2-py3-none-any.whl']
 
 
 class LocalCluster:
@@ -177,12 +177,12 @@ class LocalCluster:
 set -eu
 apt-get update -qq
 python -m venv /tmp/core
-/tmp/core/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.8.1-py3-none-any.whl >/dev/null
+/tmp/core/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.8.2-py3-none-any.whl >/dev/null
 /tmp/core/bin/python -I -c 'import importlib.util,prosaic_harness; assert importlib.util.find_spec("psycopg") is None; assert importlib.util.find_spec("prosaic_harness_postgres") is None'
 /tmp/core/bin/python -I /fixture/workflow_factory_smoke.py
 /tmp/core/bin/python -I /fixture/conversation_smoke.py
 python -m venv /tmp/both
-/tmp/both/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.8.1-py3-none-any.whl /adapter-wheels/b3_prosaic_harness_postgres-0.3.0-py3-none-any.whl >/dev/null
+/tmp/both/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.8.2-py3-none-any.whl /adapter-wheels/b3_prosaic_harness_postgres-0.3.0-py3-none-any.whl >/dev/null
 /tmp/both/bin/python -I /fixture/linux_wheel_smoke.py
 '''
         if dependencies:
@@ -266,12 +266,13 @@ def main():
             cluster.stop()
         else:
             env = os.environ | {'HARNESS_TEST_DATABASE_URL': cluster.dsn,
-                'HARNESS_TEST_CONTAINER_ENGINE': cluster.engine, 'HARNESS_TEST_POSTGRES_VERSION': cluster.version}
+                'HARNESS_TEST_CONTAINER_ENGINE': cluster.engine, 'HARNESS_TEST_POSTGRES_VERSION': cluster.version,
+                'PROSAIC_LIFECYCLE_TEST_DSN': cluster.dsn}
             root = Path(__file__).resolve().parents[4]
             report = (['--junitxml=' + env['HARNESS_TEST_JUNIT_XML']]
                       if env.get('HARNESS_TEST_JUNIT_XML') else [])
             raise SystemExit(subprocess.run([sys.executable, '-m', 'pytest', '-q',
-                'adapters/postgres/tests', '--require-postgres', *report],
+                'adapters/postgres/tests', 'tests/test_conversation_postgres_lifecycle.py', '--require-postgres', *report],
                 cwd=root, env=env, timeout=600).returncode)
 
 

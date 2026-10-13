@@ -60,6 +60,14 @@ class Conversation(ConversationWorkflow):
                 if provided is not None and provided!=getattr(original,key): raise ConversationError('identityMismatch')
         if state['workflow'] is not None:
             self._workflow(state)  # Authorize linked reads and exact replay too.
+        seen=set()
+        for turn in state['turns']:
+            linked=(turn['inputData'] or {}).get('workflow')
+            if linked is not None:
+                identity=(linked['registration'],linked['runId'])
+                if identity not in seen:
+                    self._workflow(state|{'workflow':linked})
+                    seen.add(identity)
         return snapshot
 
     def _accounting_context(self, session_id):
@@ -94,6 +102,8 @@ class Conversation(ConversationWorkflow):
     def _reply(self, snapshot, turn=None):
         state=snapshot.state
         replay=turn is not None
+        if replay and turn.get('inputData') and turn['inputData'].get('workflow'):
+            self._workflow(state|{'workflow':turn['inputData']['workflow']})
         if turn is None and state['turns']: turn=state['turns'][-1]
         view={'version':1,'sessionId':snapshot.session_id,'revision':snapshot.revision,
               'status':'ready','pendingInteraction':None,'recoveryStatus':None}
@@ -156,7 +166,8 @@ class Conversation(ConversationWorkflow):
             state=snapshot.state
             for turn in state['turns']:
                 if turn['messageId']==message_id:
-                    if turn['message']!=message or turn['interactionRef']!=interaction_ref:
+                    if (turn['message']!=message or turn['interactionRef']!=interaction_ref
+                            or (turn['inputData'] or {}).get('structuredChoice') is not None):
                         raise ConversationError('messageConflict')
                     return self._reply(snapshot,turn)
             validate_revision(expected_revision)
@@ -247,7 +258,7 @@ class Conversation(ConversationWorkflow):
             pending=snapshot.state['pending']
             if pending is None: return self._reply(snapshot)
             if pending['phase']=='workflowCommand':
-                return self._reply(self._save(snapshot,mark_interrupted(snapshot.state),lease))
+                return self._recover_workflow_command(snapshot,lease)
             aid=pending['invocationId']
             attempt=snapshot.state['attempts'][aid]
             packet=self.store.load_receipt(session_id,aid,scope=self.scope)

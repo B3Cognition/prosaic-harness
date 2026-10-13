@@ -104,11 +104,19 @@ def validate_state(state, workflow):
             or (state['status'] in {'completed', 'rejected'} and
                 (current['kind'] != 'finish' or state['status'] != current.get('outcome', 'completed') or state['pending'] is not None))):
         raise ValueError('invalid checkpoint phase/attempt')
+    decisions = set()
     for sequence, event in enumerate(state['history'], 1):
         if (not isinstance(event, dict) or event.get('sequence') != sequence
                 or event.get('step') not in workflow.definition['steps'] or not isinstance(event.get('event'), str)
                 or type(event.get('time')) not in (int, float)):
             raise ValueError('invalid checkpoint history')
+        if 'decision_id' in event or 'decision_revision' in event:
+            from .run_store import validate_revision
+            if (event['event'] != 'human_decision' or type(event.get('decision_id')) is not str
+                    or not IDENTIFIER.fullmatch(event['decision_id']) or event['decision_id'] in decisions):
+                raise ValueError('invalid decision identity')
+            validate_revision(event.get('decision_revision'))
+            decisions.add(event['decision_id'])
         if event['event'] == 'human_decision':
             step = workflow.definition['steps'][event['step']]
             if step['kind'] != 'pause' or event.get('choice') not in step['choices']:

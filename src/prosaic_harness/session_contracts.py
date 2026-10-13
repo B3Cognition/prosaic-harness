@@ -6,7 +6,7 @@ import re
 from prosaic_runtime import (ConversationMessage, CompletedTurn, TurnEvidence, TurnResult)
 from .conversation_bindings import ConversationScope, ConversationPolicy, ConversationBindings
 from .conversation_errors import ConversationError
-from .run_store import StoreCorrupt, validate_id
+from .run_store import StoreCorrupt, validate_id, validate_revision
 from .session_codec import encode, decode, owned, digest, reference, node_count
 
 _HASH = re.compile('[0-9a-f]{64}')
@@ -249,7 +249,31 @@ def verify_session(document):
             if pending['phase']=='modelInvocation':
                 if pending['invocationId'] not in state['attempts'] or pending['command'] is not None:
                     raise ValueError('pending attempt')
-            elif type(pending['command']) is not dict: raise ValueError('workflow command')
+            else:
+                command=pending['command']
+                closed(command,{'version','registration','runId','revision','interactionRef','sourceMessageId',
+                    'turnSequence','choice','response'},optional={'decisionId'})
+                if type(command['version']) is not int or command['version']!=1: raise ValueError('command version')
+                validate_id(command['runId'])
+                validate_revision(command['revision'])
+                reference(command['registration'])
+                reference(command['interactionRef'])
+                turn=state['turns'][-1]
+                if (state['workflow']!={'registration':command['registration'],'runId':command['runId']}
+                        or command['sourceMessageId']!=turn['messageId'] or command['turnSequence']!=turn['sequence']
+                        or command['interactionRef']!=turn['interactionRef']): raise ValueError('command correlation')
+                data=turn['inputData']
+                view=data['interaction']
+                if (view['reference']!=command['interactionRef'] or view['runId']!=command['runId']
+                        or view['revision']!=command['revision'] or type(command['choice']) is not str
+                        or command['choice'] not in view['choices']): raise ValueError('command interaction')
+                if 'structuredChoice' in data and data['structuredChoice']!={
+                        'choice':command['choice'],'response':command['response']}:
+                    raise ValueError('structured command content')
+                if 'decisionId' in command:
+                    validate_id(command['decisionId'])
+                    if command['decisionId']!=digest({'session':state['sessionId'],'message':turn['messageId'],
+                            'interaction':command['interactionRef']})[:32]: raise ValueError('decision correlation')
         elif any(t['status'] in {'pending','running','needsResolution'} for t in state['turns']):
             raise ValueError('unresolved turn')
         if state['workflow'] is not None:
@@ -576,3 +600,35 @@ def finish_host_turn(document, *, answer=None, failure_code=None, interaction=No
     turn['historyReservation']=turn['stateReservation']=turn['stateNodeReservation']=0
     state['pending']=None
     return verify_session(_with_counters(state))
+
+
+def reserve_host_command(document, *, message_id, message, interaction_ref, input_data, command):
+    """Reserve a structured human action with no invented provider attempt."""
+    state=verify_session(document)
+    p=state['policy']
+    reference(message_id)
+    reference(interaction_ref)
+    if (state['pending'] is not None or any(t['messageId']==message_id for t in state['turns'])):
+        raise ConversationError('messageConflict')
+    if type(message) is not str or not message or len(message.encode())>p['maxUserBytes']:
+        raise ConversationError('invalidMessage')
+    data=owned(input_data,maximum=p['maxPublicBytes'],depth=p['maxJsonDepth']-8,nodes=public_node_limit(p))
+    command=owned(command,maximum=p['maxPublicBytes'],depth=p['maxJsonDepth']-8,nodes=public_node_limit(p))
+    # Reserve the actual escaped history size, including the longest host answer/failure.
+    try:
+        encode([{'role':'user','turnStatus':'failed','failureCode':'confirmationRequired',
+                 'content':[{'type':'text','text':message}]},
+                {'role':'assistant','content':[{'type':'text','text':'x'*HOST_ANSWER_BYTES}]}],maximum=p['maxTurnBytes'])
+    except (ValueError,UnicodeError): raise ConversationError('contextLimit','maxTurnBytes') from None
+    turn={'sequence':len(state['turns'])+1,'messageId':message_id,'message':message,
+        'requestIdentity':digest({'message':message,'interactionRef':interaction_ref,'workflow':state['workflow'],'inputData':data}),
+        'interactionRef':interaction_ref,'status':'running','answer':None,'failureCode':None,
+        'history':[],'attempts':[],'inputData':data,'historyIdentity':digest(history_of(state)),
+        'historyReservation':p['maxTurnBytes'],'stateReservation':p['maxTurnBytes']+p['maxPublicBytes']+8192,
+        'stateNodeReservation':(p['maxJsonNodes']-8192)//2+2*public_node_limit(p)+8192,
+        'pendingInteraction':None,'recoveryStatus':'workflowCommand'}
+    state['turns'].append(turn)
+    state['pending']={'phase':'workflowCommand','turnSequence':turn['sequence'],'invocationId':None,'command':command}
+    state=_with_counters(state)
+    _bounds(state,admission=True)
+    return verify_session(state)

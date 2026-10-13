@@ -374,3 +374,12 @@ turn per Harness invocation while retaining application-owned result validators.
 Register the same `CustomTool` descriptors with the workflow and adapter so
 Harness fingerprints and checks their contracts. Harness retains routing and
 checkpoint ownership; Runtime owns parsing, dispatch, bounds and repeat detection.
+
+### Host restoration evidence (unreleased)
+
+`Harness.recovery_evidence(maximum_bytes=8_388_608)` provides verified ordered
+receipts and checkpoint identity without executing the workflow. It is a private
+host API for deterministic reconstruction of stateful adapters, not permission to
+replay model calls or tool effects. Conversation structured choices, terminal
+attachment release and exact decision recovery are documented in
+[conversations](docs/conversations.md#structured-choices-and-attachment-lifecycle-unreleased).

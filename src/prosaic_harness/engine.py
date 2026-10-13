@@ -303,6 +303,31 @@ class Harness:
         self._verify_ledger(snapshot.state)
         return snapshot
 
+    def recovery_evidence(self, *, maximum_bytes=8_388_608):
+        """Private host restoration evidence; reads only, never adopts or dispatches.
+
+        Receipts are ordered by the saved invocation ledger, including a saved
+        pending receipt. Hosts must reconstruct their own state without repeating
+        side effects, and authorize callers before exposing any derived view.
+        """
+        if type(maximum_bytes) is not int or not 1<=maximum_bytes<=67_108_864:
+            raise ValueError('invalid recovery evidence bound')
+        snapshot=self.status()
+        document={'version':1,'runId':snapshot.state['run_id'],'revision':snapshot.revision,
+            'checkpoint':snapshot.state,'receipts':[],'recoveryStatus':'ready'}
+        snapshot_json(document,maximum_bytes=maximum_bytes)
+        for invocation in snapshot.state['invocations']:
+            if invocation['status']=='abandoned': continue
+            receipt=self.store.load_receipt(self._storage_run_id,invocation['id'])
+            if receipt is not None:
+                if self._admission: self._bounded_document(receipt,self._admission.policy.max_receipt_bytes)
+                validate_receipt(receipt,snapshot.state,invocation)
+                document['receipts'].append(receipt)
+            if snapshot.state['pending'] is not None and snapshot.state['pending']['id']==invocation['id']:
+                document['recoveryStatus']='receiptAvailable' if receipt is not None else 'needsResolution'
+            snapshot_json(document,maximum_bytes=maximum_bytes)
+        return snapshot_json(document,maximum_bytes=maximum_bytes)
+
     def interaction(self, *, review_outputs=(), include_response_schema=False, maximum_bytes=262_144):
         """Return a bounded public view from one verified, read-only snapshot."""
         snapshot = self.status()
@@ -361,7 +386,11 @@ class Harness:
             self._save(state)
             return self._drive(state)
 
-    def resume(self, *, choice=None, response=None, retry_interrupted=False, expected_revision=None):
+    def resume(self, *, choice=None, response=None, retry_interrupted=False, expected_revision=None, decision_id=None):
+        if decision_id is not None:
+            validate_id(decision_id)
+            if choice is None or expected_revision is None:
+                raise HumanResponseError('expected_revision_required')
         self._admit()
         self._check_custom_tools()
         with self._execution():
@@ -372,11 +401,19 @@ class Harness:
                 self._last_saved_state = deepcopy(state)
             validate_state(state, self.workflow)
             self._validate_address(state)
-            self._check_expected_revision(expected_revision, human_action=choice is not None or response is not None or retry_interrupted)
             if state['fingerprint'] != self.workflow.fingerprint or state['validators'] != self.validator_versions:
                 raise ValueError('workflow, prose, schema, or runtime configuration changed; start a new run')
             self._evidence_unchanged(state)
             self._verify_ledger(state)
+            if decision_id is not None:
+                for event in state['history']:
+                    if event.get('decision_id') == decision_id:
+                        if (event['choice'] != choice or event.get('response') != response
+                                or event.get('decision_revision') != expected_revision):
+                            raise RevisionConflict('decision identity changed')
+                        self._resume_accounting(state, persist=False)
+                        return state
+            self._check_expected_revision(expected_revision, human_action=choice is not None or response is not None or retry_interrupted)
             if self._observations.observer is not None:
                 self._observations.begin(state['run_id'])
             # Invalid human actions must not persist even an accounting upgrade.
@@ -430,7 +467,9 @@ class Harness:
                     self._save(state)
                     if state['status'] == 'blocked':
                         return state
-                self._event(state, 'human_decision', choice=choice, **({'response': response} if 'response_schema' in step else {}))
+                self._event(state, 'human_decision', choice=choice,
+                    **({'decision_id': decision_id, 'decision_revision': expected_revision} if decision_id is not None else {}),
+                    **({'response': response} if 'response_schema' in step else {}))
                 self._advance(state, step['choices'][choice])
                 if state['status'] == 'blocked':
                     return state

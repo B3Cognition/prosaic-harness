@@ -368,3 +368,80 @@ qualifies installed candidates, ownership, restart/recovery, bounded capacity an
 workflow replies. Synthetic transport results and opt-in real model/tier results
 are recorded separately. Existing workflow formats, saved runs and CLI behavior
 retain their compatibility contracts.
+
+## Structured choices and attachment lifecycle (unreleased)
+
+`Conversation.choose()` admits an authenticated structured human action with the
+same current interaction reference, response schema and `ConfirmationRule` used
+by natural-language replies. It commits the action and a bounded host answer to
+ordered history without dispatching an interpreter or inventing provider usage.
+The embedding host must authenticate the actual button action; a model-generated
+choice is never an authenticated structured action.
+
+```python
+reply = chat.choose(
+    session_id, message_id=button_message_id, message=current_human_source,
+    choice="select", response={"itemId": selected_item},
+    interaction_ref=displayed_reference, expected_revision=displayed_revision,
+)
+```
+
+Exact replay requires the same message, choice, response and interaction reference;
+it returns the original turn without another decision. Reusing the ID through
+`send()` or changing its structured payload fails. Both action types acquire the
+session lease, so a concurrent stale action must refresh instead of applying to
+a newer pause. Host actions consume turn/history/state quotas, not provider-call
+or model-attempt allowances.
+
+Every new workflow handoff uses `Harness.resume(decision_id=...)`. The original
+workflow revision and unique decision ID are persisted with the human decision.
+An exact replay against that original revision returns state without driving the
+workflow again; changed content or revision conflicts. `recover()` adopts an
+exact saved decision only when the workflow reached a stable waiting/completed/
+rejected state with no pending call. Matching choice text, an advanced revision,
+or another actor's decision is insufficient. Old commands without decision IDs
+retain conservative `needsResolution` behavior.
+
+A prepared command without established completion stays unresolved. An explicit
+host-authorized retry is available through:
+
+```python
+reply = chat.retry_workflow_command(
+    session_id, expected_revision=current_revision, acknowledge_effect_risk=True,
+)
+```
+
+This first reconciles durable evidence. It dispatches only the frozen command
+against its original still-waiting workflow revision, with current ownership and
+confirmation checks. It never refreshes the command to a newer pause. Interrupted
+agent work inside an advanced/blocked workflow requires separate run recovery;
+this API does not repeat that work. There are no automatic handoff retries.
+
+After a workflow completes or is rejected, release the attachment explicitly:
+
+```python
+reply = chat.detach_workflow(session_id, expected_revision=current_revision)
+```
+
+Release rejects pending commands and nonterminal runs. It preserves history,
+receipts and accounting; historical workflow turns still require current run
+authorization. Ordinary `send()` and another admitted workflow attachment can
+then proceed in the same conversation. Release never applies a product preview
+or mutates the consuming application's state.
+
+## Reconstructing host adapters (unreleased)
+
+`Harness.recovery_evidence(maximum_bytes=8_388_608)` returns an owned, bounded
+private document containing the verified checkpoint, storage revision and ordered
+invocation receipts, including a saved pending receipt. It does not adopt a
+receipt, run validators/tools, mutate state or perform inference. Its status is
+`ready`, `receiptAvailable` or `needsResolution`; `ready` does not certify that an
+application-specific generator can be reconstructed.
+
+ALWAYS reconstruct host state with a deterministic reducer over saved receipts
+and the host's own durable tool-result journal. NEVER restart a generator or
+reexecute effects merely because a RunStore checkpoint exists. A missing/corrupt
+host outcome must stop reconstruction. Keep this private evidence out of public
+HTTP replies, model arguments and transcripts. Authenticate/authorize the host
+before reading it. Receipt adoption still uses ordinary Harness recovery after
+host reconstruction has been proved safe.
