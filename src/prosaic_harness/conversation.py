@@ -46,6 +46,12 @@ class Conversation(ConversationWorkflow):
         state=snapshot.state
         if state['bindingIdentity']!=self.bindings.identity or state['bindingVersion']!=self.bindings.version:
             raise ConversationError('bindingMismatch')
+        if state['version'] != (2 if self.bindings.context_enabled else 1):
+            raise ConversationError('bindingMismatch')
+        if state['version']==2:
+            from .session_context import binding_context
+            if state['contextBindings'] != binding_context(self.bindings):
+                raise ConversationError('bindingMismatch')
         if (state['accounting'] is None)!=(self.context is None): raise ConversationError('identityMismatch')
         if state['accountingScope']!=self._accounting_scope(): raise ConversationError('identityMismatch')
         if self.context is not None:
@@ -114,6 +120,9 @@ class Conversation(ConversationWorkflow):
             view.update({key:turn[key] for key in ('messageId','status','failureCode','pendingInteraction','recoveryStatus')})
             view['turnSequence']=turn['sequence']
             if turn['answer'] is not None: view['answer']=turn['answer']
+            if state['version']==2 and turn['attempts']:
+                report=state['attempts'][turn['attempts'][-1]]['finalContextReport']
+                if report is not None: view['contextAssembly']=report
         if state['workflow'] is not None and not replay:
             view['pendingInteraction']=self._interaction(state)
         p=state['policy']
@@ -130,22 +139,34 @@ class Conversation(ConversationWorkflow):
         revision=self.store.save_session(snapshot.session_id,state,snapshot.revision,lease,scope=self.scope)
         return SessionSnapshot(snapshot.session_id,state,revision)
 
-    def _prepare(self, state, turn, *, purpose='ordinary'):
+    def _prepare(self, state, turn, *, purpose='ordinary', saved_attempt=None):
         data=self.bindings.readmit()
         rt=self.bindings.runtime()
         interpreting=purpose=='interpretation'
         phase=data['interpreter'] if interpreting else None
         if interpreting and phase is None: raise ConversationError('capabilityMissing')
         try:
+            context_args={}
+            context_policy=(self.bindings.interpretation_context_policy if interpreting
+                            else self.bindings.context_policy)
+            if context_policy is not None:
+                context_args={'context_policy':context_policy,'token_counters':self.bindings.token_counters}
+                if saved_attempt is not None:
+                    from prosaic_runtime import ContextSelection,ContextAssemblyReport,ContextWorkState
+                    context_args.update(context_selection=ContextSelection.from_dict(saved_attempt['contextSelection']),
+                        context_report=ContextAssemblyReport.from_dict(saved_attempt['initialContextReport']),
+                        context_work=ContextWorkState.from_dict(saved_attempt['contextWork']))
             prepared=rt.prepare_turn(ProsaicArtifact.from_inspection(phase['artifact']) if phase else self.bindings.agent,
                 message=turn['message'],history=tuple(ConversationMessage.from_dict(m) for m in
                     history_of(state,before_sequence=turn['sequence'])),input_data=turn['inputData'],
                 policy=self.bindings.interpretation_policy if interpreting else self.bindings.run_policy,
-                limits=self.bindings.turn_limits,workspace=None if interpreting else self.bindings._workspace)
+                limits=self.bindings.turn_limits,workspace=None if interpreting else self.bindings._workspace,
+                **context_args)
             return rt,prepared
         except TurnAdmissionError as exc:
             if exc.code in {'contextLimit','inputLimit'}: raise ConversationError('contextLimit',exc.limit) from None
             if exc.code=='invalidMessage': raise ConversationError('invalidMessage',exc.limit) from None
+            if exc.code=='unsupportedCapability': raise ConversationError('capabilityMissing') from None
             raise ConversationError('bindingMismatch',exc.limit) from None
 
     @staticmethod
@@ -191,21 +212,23 @@ class Conversation(ConversationWorkflow):
             run_id=snapshot.session_id,step_id='turn.'+str(turn['sequence'])+'.'+purpose).to_dict()
             if state['accounting'] is not None else None)
         policy=self.bindings.interpretation_policy if purpose=='interpretation' else self.bindings.run_policy
+        context_args=({'context_selection':prepared.context_selection,
+                       'context_report':prepared.context_report,'context_work':prepared.context_work}
+                      if state['version']==2 else {})
         pending=reserve_attempt(state,message_id=message_id,message=turn['message'],invocation_id=aid,
             context_identity=prepared.context_identity,encoding_version=prepared.encoding_version,
             input_bytes=prepared.input_bytes,provider_allowance=policy.max_provider_requests,
             tool_allowance=policy.max_tool_calls,input_data=turn['inputData'],interaction_ref=interaction_ref,
-            purpose=purpose,context=context,retry=retry)
+            purpose=purpose,context=context,retry=retry,**context_args)
         return self._save(snapshot,pending,lease)
 
     def _execute(self,snapshot,lease,rt,prepared,on_event,cancelled):
         aid=snapshot.state['pending']['invocationId']
         attempt=snapshot.state['attempts'][aid]
         if attempt['dispatchMarker']: raise ConversationError('messageConflict')
-        try: snapshot=self._save(snapshot,mark_dispatch(snapshot.state,aid),lease)
-        except StoreUnavailable:
-            # An unknown marker acknowledgement never grants dispatch. Recovery reads authority.
-            raise
+        context_enabled=prepared.encoding_version=='conversation-turn-v2'
+        if not context_enabled:
+            snapshot=self._save(snapshot,mark_dispatch(snapshot.state,aid),lease)
         ownership_error=[]
         def cancellation():
             try:
@@ -219,12 +242,31 @@ class Conversation(ConversationWorkflow):
             lease.check_valid()
             if attempt['purpose']=='ordinary' and on_event is not None: on_event(event)
         self.bindings.readmit()
-        result=rt.turn(prepared,on_event=provisional,cancelled=cancellation,
-            context=ResolvedContext.from_dict(attempt['context']) if attempt['context'] is not None else None,
-            accounting=self.accounting,observer=self.observer,
-            operation_context=InvocationScope(aid,operation_namespace=(self.bindings.readmit()['operationNamespace']
-                if attempt['purpose']=='ordinary' else None)),
-            tool_journal=self.bindings.tool_journal if attempt['purpose']=='ordinary' else None)
+        context_args={}
+        if context_enabled:
+            from .session_context import checkpoint_context_work
+            def checkpoint(work):
+                nonlocal snapshot
+                snapshot=self._save(snapshot,checkpoint_context_work(snapshot.state,aid,work),lease)
+                self._phase(on_event,'contextCheckpointSaved',snapshot,aid)
+            def admitted():
+                nonlocal snapshot
+                snapshot=self._save(snapshot,mark_dispatch(snapshot.state,aid),lease)
+                self._phase(on_event,'turnAdmitted',snapshot,aid)
+            context_args={'token_counters':self.bindings.token_counters,
+                'context_checkpoint':checkpoint,'on_admitted':admitted}
+        try:
+            result=rt.turn(prepared,on_event=provisional,cancelled=cancellation,
+                context=ResolvedContext.from_dict(attempt['context']) if attempt['context'] is not None else None,
+                accounting=self.accounting,observer=self.observer,
+                operation_context=InvocationScope(aid,operation_namespace=(self.bindings.readmit()['operationNamespace']
+                    if attempt['purpose']=='ordinary' else None)),
+                tool_journal=self.bindings.tool_journal if attempt['purpose']=='ordinary' else None,
+                **context_args)
+        except TurnAdmissionError as exc:
+            if not context_enabled or snapshot.state['attempts'][aid]['dispatchMarker']: raise
+            result=self._failed_context_readmission(snapshot.state,aid,
+                'contextLimit' if exc.code=='contextLimit' else 'bindingMismatch')
         if ownership_error: raise ownership_error[0]
         lease.check_valid()
         self.bindings.readmit()
@@ -232,6 +274,19 @@ class Conversation(ConversationWorkflow):
         self.store.save_receipt(snapshot.session_id,aid,packet,lease,scope=self.scope)
         self._phase(on_event,'receiptSaved',snapshot,aid)
         return self._adopt(snapshot,lease,packet,on_event)
+
+    @staticmethod
+    def _failed_context_readmission(state,aid,code):
+        from prosaic_runtime import Result,TurnResult,TurnEvidence,ContextAssemblyReport,ContextWorkState
+        attempt=state['attempts'][aid]
+        attribution=({'context':attempt['context'],**state['accountingScope'],'provider_call_ids':[]}
+                     if attempt['context'] is not None and state['accountingScope'] is not None else None)
+        evidence=TurnEvidence.from_dict({'version':1,'providerAttempts':0,'toolAttempts':0,
+            'knownUsage':{},'usageComplete':True,'toolOutcomes':[],'failureCode':code,'accounting':attribution})
+        work=ContextWorkState.from_dict(attempt['contextWork'])
+        report=ContextAssemblyReport.from_dict({**attempt['initialContextReport'],
+            'candidateChecks':work.candidate_checks,'candidateBytes':work.candidate_bytes})
+        return TurnResult(Result(1,'',code),None,evidence,context_report=report,context_work=work)
 
     def _adopt(self,snapshot,lease,packet,on_event):
         attempt=snapshot.state['attempts'][packet['invocationId']]
@@ -249,7 +304,7 @@ class Conversation(ConversationWorkflow):
         turn=state['turns'][pending['turnSequence']-1]
         if digest(history_of(state,before_sequence=turn['sequence']))!=turn['historyIdentity']:
             raise ConversationError('bindingMismatch')
-        rt,prepared=self._prepare(state,turn,purpose=attempt['purpose'])
+        rt,prepared=self._prepare(state,turn,purpose=attempt['purpose'],saved_attempt=attempt)
         if (prepared.context_identity,prepared.encoding_version,prepared.input_bytes)!=(
                 attempt['contextIdentity'],attempt['encodingVersion'],attempt['inputBytes']):
             raise ConversationError('bindingMismatch')

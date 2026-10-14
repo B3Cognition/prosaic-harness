@@ -1,5 +1,40 @@
 # Graph-free conversations
 
+## Optional context assembly
+
+Context-capable SDK candidates support separate `context_policy` and
+`interpretation_context_policy` on `ConversationBindings`, with a trusted
+`token_counters` registry supplied by the host. Each policy validates its own
+endpoint/model descriptor. Missing per-purpose policies retain legacy fitting;
+neither policy inherits from the other. With both absent, v1 binding and session
+identities stay unchanged. The ordinary `ConversationPolicy.context_mode`
+remains `fullHistory`; optional omission belongs to Runtime's `ContextPolicy`.
+
+Opted-in sessions use record version 2. Harness stores complete source history,
+the frozen selected suffix, its initial report and cumulative work charges.
+Readmission reserves work durably before callbacks and writes the dispatch marker
+only after successful static admission. Recovery adopts existing receipts without
+counting or dispatch, reconstructs only frozen undispatched selections, and
+conservatively retains interrupted resource reservations. Effects with unknown
+outcomes still require the existing explicit retry acknowledgement.
+
+`ConversationReply.document['contextAssembly']` exposes a bounded aggregate report
+when available. It contains ranges/counts/digests, never prompt text or tool
+arguments. Hosts must filter this view for their own public API. Stored history
+remains complete even when Runtime omits its oldest whole turns from one request.
+
+Memory storage advertises `context_assembly_v1` after readiness. New file stores
+initialize storage contract 2; existing contract-1 namespaces require explicit
+`FileSessionStore.migrate_context_storage()` with drained old writers. PostgreSQL
+likewise requires the explicit migration-owner API/CLI; runtime readiness never
+migrates schemas or rewrites v1 records. Upgrade writers before enabling policies.
+
+Counters are local trusted host code, qualified against pinned model/tokenizer
+and framing assets. The initial SDK/lab increment certifies synthetic behavior
+only. Provider usage remains accounting evidence and Lago handles submitted
+billing events separately. Run installed qualification with
+`python -I scripts/conversation_smoke.py --context-assembly`.
+
 Harness **0.8.0** adds optional ordered conversation sessions, using Runtime
 **0.9.x** for stateless model turns. The existing PostgreSQL adapter **0.3.0**
 adds shared session storage. These are candidate versions until the linked
