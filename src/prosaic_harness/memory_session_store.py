@@ -35,6 +35,10 @@ class MemorySessionStore:
         self._leases=set()
     @property
     def namespace(self): return self._namespace
+    @property
+    def capabilities(self):
+        self.check_ready()
+        return frozenset({'context_assembly_v1'})
     def initialize(self):
         if self._closed or self._pid!=os.getpid(): raise StoreUnavailable()
         self._initialized=True

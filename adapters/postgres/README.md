@@ -296,3 +296,22 @@ conversation backend. Run the owned PostgreSQL 16 and 18 fixtures shown above
 with `--require-postgres`. Missing infrastructure or any skipped required case
 fails qualification. Installed Linux AMD64 and ARM64 acceptance is required
 before claiming the conversation candidate is ready for production.
+
+## Optional context storage contract
+
+Conversation storage contract 2 supports `context_assembly_v1`, reads both v1
+and v2 records, and preserves existing documents. New database initialization
+creates contract 2. Existing contract-1 databases require an explicit migration;
+runtime readiness never performs it. Drain old writers, deploy upgraded workers,
+then use migration-owner credentials:
+
+```sh
+prosaic-harness-postgres migrate-conversations --dsn-env HARNESS_MIGRATION_DSN
+```
+
+`PostgresSessionStore.migrate_context_storage()` is the equivalent operator API.
+The migration is locked, transactional and repeatable; restricted runtime roles
+cannot update schema metadata. Old workers reject the upgraded storage contract.
+Keep migration-owner credentials separate from runtime credentials. Enable host
+context policies only after Runtime, Harness and store advertise the capability.
+No production token counter is bundled or certified by this storage adapter.

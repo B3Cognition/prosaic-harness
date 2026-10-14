@@ -24,7 +24,8 @@ from .session_store import SessionSnapshot
 
 
 _MAX_BYTES = 8 * 1024 * 1024
-_MARKER = b'{"storageContract":1,"version":1}'
+_LEGACY_MARKER = b'{"storageContract":1,"version":1}'
+_MARKER = b'{"storageContract":2,"version":2}'
 
 
 def _identity(fd):
@@ -167,6 +168,10 @@ class FileSessionStore:
     def root(self): return self._root
     @property
     def namespace(self): return self._namespace
+    @property
+    def capabilities(self):
+        self.check_ready()
+        return frozenset({'context_assembly_v1'}) if self._storage_contract == 2 else frozenset()
     def _available(self):
         if self._closed or self._pid!=os.getpid(): raise StoreUnavailable()
     def _scope(self,scope):
@@ -191,7 +196,8 @@ class FileSessionStore:
     def _ready(self,paths,incarnation):
         try: marker=_read(paths.fd,'.conversation-store.json',maximum=1024)
         except FileNotFoundError: raise StoreUninitialized() from None
-        if marker!=_MARKER: raise StoreIncompatible()
+        if marker not in (_LEGACY_MARKER,_MARKER): raise StoreIncompatible()
+        self._storage_contract = 2 if marker == _MARKER else 1
         paths.check()
         with self._mutex:
             if self._incarnation is not None and self._incarnation!=incarnation:
@@ -220,6 +226,32 @@ class FileSessionStore:
         except OSError:
             raise StoreUnavailable() from None
         finally:
+            if paths is not None: paths.close()
+    def migrate_context_storage(self):
+        """Explicit namespace-owner migration; drain every old writer first."""
+        self._available()
+        paths, lock_fd = None, None
+        try:
+            paths, incarnation = self._directories()
+            self._ready(paths, incarnation)
+            with self._mutex:
+                if self._leases: raise StoreBusy('drain active sessions before storage migration')
+            try: _exclusive_write(paths.fd, '.migration.lock', b'')
+            except FileExistsError: pass
+            lock_fd = os.open('.migration.lock', os.O_RDWR|os.O_NOFOLLOW|os.O_NONBLOCK, dir_fd=paths.fd)
+            _private(os.fstat(lock_fd))
+            try: fcntl.flock(lock_fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
+            except BlockingIOError: raise StoreBusy('conversation migration is active') from None
+            self._ready(paths, incarnation)
+            if self._storage_contract == 1:
+                _replace_write(paths.fd, '.conversation-store.json', _MARKER)
+            self._ready(paths, incarnation)
+        except FileNotFoundError:
+            raise StoreUninitialized() from None
+        except OSError:
+            raise StoreUnavailable(outcome_unknown=True) from None
+        finally:
+            if lock_fd is not None: os.close(lock_fd)
             if paths is not None: paths.close()
     @contextmanager
     def _read_directory(self,session_id):
@@ -317,6 +349,8 @@ class FileSessionStore:
         return owner
     def _content(self,session_id,state,owner):
         value=verify_session(state)
+        if value['version']==2 and 'context_assembly_v1' not in self.capabilities:
+            raise StoreIncompatible('migrate conversation storage explicitly before context opt-in')
         if value['sessionId']!=session_id or value['scope']!=owner: raise StoreCorrupt()
         return value,encode_session(value)
     def create_session(self,session_id,state,lease,*,scope):

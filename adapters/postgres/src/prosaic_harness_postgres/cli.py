@@ -44,13 +44,19 @@ def check_write(store):
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Initialize/check an existing Harness database')
     commands = parser.add_subparsers(dest='command', required=True)
-    for name in ('init', 'doctor'):
+    for name in ('init', 'doctor', 'migrate-conversations'):
         command = commands.add_parser(name)
         command.add_argument('--dsn-env', required=True, help='name of the DSN environment variable, never its value')
         if name == 'doctor':
             command.add_argument('--check-write', action='store_true', help='explicit disposable write test; DELETE credentials required')
     args = parser.parse_args(argv)
     try:
+        if args.command == 'migrate-conversations':
+            from .session_store import PostgresSessionStore
+            with PostgresSessionStore.from_env(args.dsn_env, namespace='conversation-migration') as store:
+                store.migrate_context_storage()
+            print(json.dumps({'migrated': True, 'conversation_storage_contract': 2}))
+            return 0
         namespace = 'prosaic-diagnostic-' + uuid.uuid4().hex
         with PostgresRunStore.from_env(args.dsn_env, namespace=namespace) as store:
             if args.command == 'init':
