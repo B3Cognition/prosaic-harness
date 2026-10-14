@@ -184,7 +184,7 @@ def curated_candidates(release_tool, tmp_path):
     candidates = []
     for repo, expected in (
         ('B3Cognition/prosaic', {'b3-prosaic': '0.4.1'}),
-        ('B3Cognition/prosaic-runtime', {'b3-prosaic-runtime': '0.9.2',
+        ('B3Cognition/prosaic-runtime', {'b3-prosaic-runtime': '0.9.3',
                                        'b3-prosaic-runtime-postgres': '0.3.0'})):
         artifacts = []
         for name, version in expected.items():
@@ -252,4 +252,4 @@ def test_container_mounts_verified_dependency_bytes_read_only(
     create = calls[0]
     assert str(wheelhouse) + ':/candidate-wheels:ro' in create
     assert 'PIP_FIND_LINKS=/candidate-wheels' in create[-1]
-    assert '/candidate-wheels/b3_prosaic_runtime-0.9.2-py3-none-any.whl' in create[-1]
+    assert '/candidate-wheels/b3_prosaic_runtime-0.9.3-py3-none-any.whl' in create[-1]

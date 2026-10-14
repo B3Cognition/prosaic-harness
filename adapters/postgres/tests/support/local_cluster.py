@@ -40,7 +40,7 @@ def candidate_wheels(root):
     spec.loader.exec_module(release)
     release.verify_upstream(Path(receipt_directory).resolve(strict=True), wheelhouse)
     return [wheelhouse / 'b3_prosaic-0.4.1-py3-none-any.whl',
-            wheelhouse / 'b3_prosaic_runtime-0.9.2-py3-none-any.whl']
+            wheelhouse / 'b3_prosaic_runtime-0.9.3-py3-none-any.whl']
 
 
 class LocalCluster:
