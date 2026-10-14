@@ -86,6 +86,9 @@ class Conversation(ConversationWorkflow):
         except (ValueError,AttributeError): raise ConversationError('identityMismatch') from None
 
     def create(self, *, session_id=None):
+        if (self.bindings.context_enabled and
+                'context_assembly_v1' not in getattr(self.store, 'capabilities', frozenset())):
+            raise ConversationError('capabilityMissing')
         sid=uuid4().hex if session_id is None else validate_id(session_id)
         self.bindings.readmit()
         with self.store.lease(sid,scope=self.scope) as lease:

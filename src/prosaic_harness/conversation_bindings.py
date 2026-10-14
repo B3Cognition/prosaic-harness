@@ -250,10 +250,12 @@ class ConversationBindings:
     _workspace: object
     _workflows: object
     _admitted: object
+    _token_counters: object
     def __init__(self, agent, *, version, config, policy, run_policy, turn_limits=None,
                  custom_tools=None, operation_namespace=None, tool_journal=None,
                  workspace=None, workspace_identity=None, interpreter=None,
-                 interpretation_policy=None, interpretation_schema=None, workflows=None):
+                 interpretation_policy=None, interpretation_schema=None, workflows=None,
+                 context_policy=None, interpretation_context_policy=None, token_counters=None):
         try:
             reference(version)
             if type(policy) is not ConversationPolicy:
@@ -328,9 +330,14 @@ class ConversationBindings:
                 'tools': custom_descriptors(tools), 'operationNamespace': operation_namespace,
                 'toolJournal': operation or None, 'workspaceIdentity': workspace_identity,
                 'interpreter': interpreting, 'workflows': {k: v.readmit() for k,v in registered.items()}}
+            context_data, owned_counters = _context_material(config, approved,
+                ProsaicArtifact.from_inspection(interpreting['artifact']) if interpreting else None,
+                context_policy, interpretation_context_policy, token_counters)
+            data.update(context_data)
             for key, value in {'_encoded': encode(data), '_config': encode(config_data),
                 '_tools': MappingProxyType(tools), '_journal': tool_journal, '_workspace': workspace,
-                '_workflows': MappingProxyType(registered), '_admitted': _ADMITTED}.items():
+                '_workflows': MappingProxyType(registered), '_admitted': _ADMITTED,
+                '_token_counters': owned_counters}.items():
                 object.__setattr__(self, key, value)
         except ConversationError:
             raise
@@ -366,6 +373,25 @@ class ConversationBindings:
     def interpretation_policy(self):
         data = decode(self._encoded)['interpreter']
         return _policy_from(data['policy']) if data else None
+    @property
+    def context_enabled(self):
+        data = decode(self._encoded)
+        return 'contextPolicy' in data or 'interpretationContextPolicy' in data
+    @property
+    def context_policy(self):
+        document = decode(self._encoded).get('contextPolicy')
+        if document is None: return None
+        from prosaic_runtime import ContextPolicy
+        return ContextPolicy.from_dict(document)
+    @property
+    def interpretation_context_policy(self):
+        document = decode(self._encoded).get('interpretationContextPolicy')
+        if document is None: return None
+        from prosaic_runtime import ContextPolicy
+        return ContextPolicy.from_dict(document)
+    @property
+    def token_counters(self):
+        return self._token_counters
     def readmit(self):
         if 'conversation_turn_v1' not in ProsaicRuntime.capabilities:
             raise ConversationError('capabilityMissing')
@@ -378,6 +404,12 @@ class ConversationBindings:
                     or data['workflows'] != {k: v.readmit() for k,v in self._workflows.items()}):
                 raise ValueError()
             runtime = ProsaicRuntime(self.config, custom_tools=self._tools)
+            context_data, _ = _context_material(self.config, self.agent,
+                ProsaicArtifact.from_inspection(data['interpreter']['artifact']) if data['interpreter'] else None,
+                self.context_policy, self.interpretation_context_policy, self._token_counters)
+            expected = {key: value for key, value in data.items() if key in {
+                'contextPolicy', 'contextCounter', 'interpretationContextPolicy', 'interpretationContextCounter'}}
+            if context_data != expected: raise ValueError('context descriptor drift')
             runtime.prepare_turn(self.agent, message='a', policy=self.run_policy,
                                  limits=self.turn_limits, workspace=self._workspace)
             if data['interpreter']:
@@ -389,3 +421,32 @@ class ConversationBindings:
     def runtime(self):
         self.readmit()
         return ProsaicRuntime(self.config, custom_tools=self._tools)
+
+
+def _context_material(config, agent, interpreter, ordinary, interpreting, registry):
+    if ordinary is None and interpreting is None:
+        return {}, None
+    if 'context_assembly_v1' not in ProsaicRuntime.capabilities:
+        raise ConversationError('capabilityMissing')
+    from prosaic_runtime import ContextPolicy, TokenCounterRegistry
+    if type(registry) is not TokenCounterRegistry:
+        raise ConversationError('bindingMismatch')
+    data, registrations = {}, {}
+    for purpose, policy, artifact in (('context', ordinary, agent),
+            ('interpretationContext', interpreting, interpreter)):
+        if policy is None: continue
+        if type(policy) is not ContextPolicy or artifact is None:
+            raise ConversationError('bindingMismatch')
+        policy = ContextPolicy.from_dict(policy.to_dict())
+        tier = artifact.frontmatter.get('model_tier')
+        profile = config.routes[tier] if tier is not None else config.default_profile
+        endpoint = config.profiles[profile]
+        entry = registry.resolve(policy.counter_identity)
+        descriptor = entry.descriptor
+        if ((descriptor.provider, descriptor.model) != (endpoint.provider, endpoint.model)
+                or policy.context_window_tokens > descriptor.context_capacity_tokens):
+            raise ConversationError('bindingMismatch')
+        data[purpose + 'Policy'] = policy.to_dict()
+        data[purpose + 'Counter'] = descriptor.to_dict()
+        registrations[policy.counter_identity] = entry
+    return data, TokenCounterRegistry(registrations)
