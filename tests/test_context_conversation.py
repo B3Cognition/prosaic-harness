@@ -4,6 +4,48 @@ import pytest
 from prosaic_harness import ConversationError, StoreUnavailable
 from support.conversation_host import context_host, conversation_fixture
 from test_conversation_workflow import workflow_fixture
+from test_conversation_recovery import Crash
+
+
+@pytest.mark.parametrize('context_purpose', ['ordinary', 'interpretation'])
+def test_explicit_retry_of_legacy_purpose_in_context_session(workflow_fixture, monkeypatch, context_purpose):
+    from support.context_counter import fixture_context
+    policy, counters=fixture_context(count=lambda request:10)
+    kwargs=({'context_policy':policy} if context_purpose=='ordinary' else {'interpretation_context_policy':policy})
+    with workflow_fixture(token_counters=counters, **kwargs) as fx:
+        save=fx.store.save_session
+        crashed=[False]
+        def crash_after_marker(session_id,state,*args,**kwargs):
+            revision=save(session_id,state,*args,**kwargs)
+            if not crashed[0] and any(a['dispatchMarker'] for a in state['attempts'].values()):
+                crashed[0]=True
+                raise Crash()
+            return revision
+        monkeypatch.setattr(fx.store,'save_session',crash_after_marker)
+        if context_purpose=='ordinary':
+            sid=fx.session_id
+            with pytest.raises(Crash):fx.send('the second result',{'choice':'second'})
+            expected_purpose='interpretation'
+        else:
+            session=fx.controller.create();sid=session.session_id
+            with pytest.raises(Crash):fx.controller.send(sid,message_id='hello',message='Hello',
+                expected_revision=session.revision)
+            expected_purpose='ordinary'
+        recovered=fx.controller.recover(sid).document
+        assert recovered['status']=='needsResolution'
+        state=fx.store.load_session(sid,scope=fx.scope).state
+        attempt=next(iter(state['attempts'].values()))
+        assert attempt['purpose']==expected_purpose and attempt['contextSelection'] is None
+        # The interpretation fixture queued its response before admission.
+        if context_purpose=='interpretation':fx.queue_text('done')
+        reply=fx.controller.retry_interrupted(sid,expected_revision=recovered['revision'],
+            acknowledge_effect_risk=True).document
+        saved=fx.store.load_session(sid,scope=fx.scope).state
+        # An ordinary attempt had effect authority: retry completion cannot
+        # erase the original interrupted attempt's unknown effects.
+        assert reply['status']==('completed' if expected_purpose=='interpretation' else 'needsResolution')
+        assert fx.provider_calls==1 and len(saved['attempts'])==2
+        assert sum(a['receiptAdopted'] for a in saved['attempts'].values())==1
 
 
 def test_readmission_precedes_marker_and_accounting(context_host):

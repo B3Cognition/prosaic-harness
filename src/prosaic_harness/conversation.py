@@ -305,7 +305,7 @@ class Conversation(ConversationWorkflow):
         if digest(history_of(state,before_sequence=turn['sequence']))!=turn['historyIdentity']:
             raise ConversationError('bindingMismatch')
         saved_attempt=attempt
-        if fresh_attempt and 'contextSelection' in attempt:
+        if fresh_attempt and attempt['encodingVersion']=='conversation-turn-v2':
             # Explicit consent allocates a new attempt, retaining the frozen
             # preparation but not the previous execution's spent allowance.
             report=attempt['initialContextReport']
