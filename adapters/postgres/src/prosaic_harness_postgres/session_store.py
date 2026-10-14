@@ -60,6 +60,13 @@ class PostgresSessionStore:
 
     def check_ready(self):
         session_schema.check_ready(self._transport)
+    @property
+    def capabilities(self):
+        self.check_ready()
+        return frozenset({'context_assembly_v1'})
+
+    def migrate_context_storage(self):
+        session_schema.migrate_context_storage(self._transport)
 
     def _scope(self, scope):
         if type(scope) is not ConversationScope or scope.namespace != self.namespace:

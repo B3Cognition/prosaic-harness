@@ -127,11 +127,15 @@ def _bounds(state, *, admission=False):
 def verify_session(document):
     try:
         state=owned(document)
+        context_fields = {'contextBindings'} if state.get('version') == 2 else set()
         closed(state,{'version','recordType','sessionId','scope','bindingIdentity','bindingVersion','policy',
-            'accounting','accountingScope','turns','attempts','pending','workflow','sha256',*_counters_empty()})
+            'accounting','accountingScope','turns','attempts','pending','workflow','sha256',*_counters_empty(),*context_fields})
         verify_seal(state)
-        if type(state['version']) is not int or state['version']!=1 or state['recordType']!='session':
+        if type(state['version']) is not int or state['version'] not in (1,2) or state['recordType']!='session':
             raise ValueError('record version')
+        if state['version'] == 2:
+            from .session_context import validate_context_bindings, validate_attempt_context, ATTEMPT_FIELDS
+            validate_context_bindings(state['contextBindings'])
         validate_id(state['sessionId'])
         scope_from(state['scope'])
         hash_value(state['bindingIdentity'])
@@ -205,14 +209,15 @@ def verify_session(document):
             closed(attempt,{'invocationId','turnSequence','purpose','contextIdentity','encodingVersion','inputBytes',
                 'context','dispatchMarker','receiptAdopted','effectUncertain','receiptIdentity','receiptBytes','receiptReservation',
                 'providerAllowance','toolAllowance','providerAttempts','toolAttempts',
-                'providerReservation','toolReservation'})
+                'providerReservation','toolReservation',*(ATTEMPT_FIELDS if state['version']==2 else ())})
             if attempt['invocationId']!=aid or attempt['purpose'] not in {'ordinary','interpretation'}:
                 raise ValueError('attempt identity')
             integer(attempt['turnSequence'],1,len(state['turns']))
             if aid not in state['turns'][attempt['turnSequence']-1]['attempts']:
                 raise ValueError('attempt source')
             hash_value(attempt['contextIdentity'])
-            if attempt['encodingVersion']!='conversation-turn-v1': raise ValueError('encoding contract')
+            if state['version']==2: validate_attempt_context(state,attempt)
+            elif attempt['encodingVersion']!='conversation-turn-v1': raise ValueError('encoding contract')
             integer(attempt['inputBytes'],1,state['policy']['maxInputBytes'])
             if any(type(attempt[k]) is not bool for k in ('dispatchMarker','receiptAdopted','effectUncertain')):
                 raise ValueError('attempt marker')
@@ -233,7 +238,8 @@ def verify_session(document):
                 raise ValueError('allowance ledger')
             if attempt['receiptAdopted']:
                 hash_value(attempt['receiptIdentity'])
-                if not attempt['dispatchMarker'] or attempt['receiptBytes']==0 or attempt['receiptReservation']:
+                if ((not attempt['dispatchMarker'] and (state['version']!=2 or attempt['providerAttempts'] or attempt['toolAttempts'] or attempt['effectUncertain']))
+                        or attempt['receiptBytes']==0 or attempt['receiptReservation']):
                     raise ValueError('receipt adoption')
             elif (attempt['receiptIdentity'] is not None or attempt['receiptBytes'] or
                   attempt['receiptReservation']!=state['policy']['maxReceiptBytes'] or
@@ -307,6 +313,7 @@ def validate_session_transition(previous, proposed):
     """Validate monotonic storage advancement, independently of a record hash."""
     old,new=verify_session(previous),verify_session(proposed)
     immutable=('version','recordType','sessionId','scope','bindingIdentity','bindingVersion','policy','accounting','accountingScope')
+    if old['version']==2: immutable += ('contextBindings',)
     turn_input=('sequence','messageId','message','requestIdentity','interactionRef','inputData','historyIdentity')
     attempt_input=('invocationId','turnSequence','purpose','contextIdentity','encodingVersion','inputBytes',
                    'context','providerAllowance','toolAllowance')
@@ -323,6 +330,15 @@ def validate_session_transition(previous, proposed):
         for aid,before in old['attempts'].items():
             after=new['attempts'][aid]
             if any(before[k]!=after[k] for k in attempt_input): raise ValueError('attempt input changed')
+            if old['version']==2:
+                from .session_context import validate_work_transition, ContextWorkState
+                if any(before[k]!=after[k] for k in ('contextSelection','initialContextReport')):
+                    raise ValueError('context selection changed')
+                if before['finalContextReport'] is not None and before['finalContextReport']!=after['finalContextReport']:
+                    raise ValueError('final report changed')
+                if before['contextWork']!=after['contextWork']:
+                    validate_work_transition(ContextWorkState.from_dict(before['contextWork']),
+                        ContextWorkState.from_dict(after['contextWork']))
             if before['dispatchMarker'] and not after['dispatchMarker']: raise ValueError('marker rewound')
             if before['receiptAdopted'] and (not after['receiptAdopted'] or any(before[k]!=after[k]
                     for k in ('receiptIdentity','receiptBytes','providerAttempts','toolAttempts','effectUncertain'))):
@@ -342,6 +358,9 @@ def new_session(session_id, scope, bindings, *, accounting=None, accounting_scop
         'policy':policy_document(bindings.policy),'accounting':accounting,'accountingScope':accounting_scope,
         'turns':[],'attempts':{},'pending':None,'workflow':None,
         **dict.fromkeys(_counters_empty(),0)})
+    if bindings.context_enabled:
+        from .session_context import binding_context
+        state.update(version=2,contextBindings=binding_context(bindings))
     state=_with_counters(state)
     _bounds(state,admission=True)
     return verify_session(state)
@@ -350,7 +369,7 @@ def new_session(session_id, scope, bindings, *, accounting=None, accounting_scop
 def reserve_attempt(document, *, message_id, message, invocation_id, context_identity,
                     encoding_version, input_bytes, provider_allowance, tool_allowance,
                     input_data=None, interaction_ref=None, purpose='ordinary', context=None,
-                    retry=False):
+                    retry=False, context_selection=None, context_report=None, context_work=None):
     state=verify_session(document)
     p=state['policy']
     validate_id(invocation_id)
@@ -403,6 +422,16 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
         'receiptBytes':0,'receiptReservation':p['maxReceiptBytes'],
         'providerAllowance':provider_allowance,'toolAllowance':tool_allowance,
         'providerAttempts':0,'toolAttempts':0,'providerReservation':provider_allowance,'toolReservation':tool_allowance}
+    if state['version']==2:
+        from .session_context import context_reservation_bounds
+        extra_bytes,extra_nodes=context_reservation_bounds()
+        turn['stateReservation']+=extra_bytes
+        turn['stateNodeReservation']+=extra_nodes
+        attempt.update(contextSelection=context_selection.to_dict() if context_selection is not None else None,
+            initialContextReport=context_report.to_dict() if context_report is not None else None,
+            finalContextReport=None,contextWork=context_work.to_dict() if context_work is not None else None)
+    elif any(v is not None for v in (context_selection,context_report,context_work)):
+        raise ConversationError('bindingMismatch')
     turn['attempts'].append(invocation_id)
     state['attempts'][invocation_id]=attempt
     state['pending']={'phase':'modelInvocation','turnSequence':turn['sequence'],'invocationId':invocation_id,'command':None}
@@ -438,16 +467,20 @@ def mark_interrupted(document):
 def verify_receipt(document):
     try:
         value=owned(document)
+        if value.get('version')==2:
+            from .session_context import RECEIPT_FIELDS, validate_receipt_context
         closed(value,{'version','recordType','sessionId','scope','bindingIdentity','invocationId','turnSequence',
-            'contextIdentity','encodingVersion','context','result','completedTurn','evidence','sha256'})
+            'contextIdentity','encodingVersion','context','result','completedTurn','evidence','sha256',
+            *(RECEIPT_FIELDS if value.get('version')==2 else ())})
         verify_seal(value)
-        if type(value['version']) is not int or value['version']!=1 or value['recordType']!='receipt':
+        if type(value['version']) is not int or value['version'] not in (1,2) or value['recordType']!='receipt':
             raise ValueError('receipt version')
         for name in ('sessionId','invocationId'): validate_id(value[name])
         for name in ('bindingIdentity','contextIdentity'): hash_value(value[name])
         scope_from(value['scope'])
         integer(value['turnSequence'],1)
-        if value['encodingVersion']!='conversation-turn-v1': raise ValueError('encoding version')
+        if value['version']==2: validate_receipt_context(value)
+        elif value['encodingVersion']!='conversation-turn-v1': raise ValueError('encoding version')
         result=value['result']
         closed(result,{'exitCode','answer','failureCode','timedOut'})
         integer(result['exitCode'],0,2**31-1)
@@ -472,11 +505,15 @@ def match_receipt(state, receipt):
     value=verify_receipt(receipt)
     try:
         attempt=state['attempts'][value['invocationId']]
+        if state['version']!=value['version']: raise ValueError('receipt version')
         for key in ('sessionId','scope','bindingIdentity'):
             if state[key]!=value[key]: raise ValueError('receipt scope')
         for key in ('turnSequence','contextIdentity','encodingVersion','context'):
             if attempt[key]!=value[key]: raise ValueError('receipt correlation')
-        if not attempt['dispatchMarker']: raise ValueError('missing dispatch marker')
+        if state['version']==2:
+            from .session_context import match_context_receipt
+            match_context_receipt(state,attempt,value)
+        elif not attempt['dispatchMarker']: raise ValueError('missing dispatch marker')
         evidence=value['evidence']
         if evidence['providerAttempts']>attempt['providerAllowance'] or evidence['toolAttempts']>attempt['toolAllowance']:
             raise ValueError('unallocated dispatch')
@@ -512,6 +549,13 @@ def make_receipt(document, invocation_id, result):
                   'failureCode':evidence['failureCode'],'timedOut':result.result.timed_out},
         'completedTurn':result.completed_turn.to_dict() if result.completed_turn is not None else None,
         'evidence':evidence})
+    if state['version']==2:
+        purpose=state['contextBindings'][attempt['purpose']]
+        packet=seal({**packet,'version':2,'contextSelection':attempt['contextSelection'],
+            'initialContextReport':attempt['initialContextReport'],
+            'finalContextReport':result.context_report.to_dict() if result.context_report is not None else None,
+            'contextWork':result.context_work.to_dict() if result.context_work is not None else None,
+            'contextCounter':purpose['counter'] if purpose else None})
     return match_receipt(state,packet)
 
 
@@ -532,6 +576,9 @@ def adopt_receipt(document, receipt, *, finalize=True):
     evidence=value['evidence']
     attempt['providerAttempts']=evidence['providerAttempts']
     attempt['toolAttempts']=evidence['toolAttempts']
+    if state['version']==2:
+        attempt['finalContextReport']=value['finalContextReport']
+        attempt['contextWork']=value['contextWork']
     effect_uncertain=(value['result']['failureCode'] in {'toolEffectUncertain','toolJournalFailure'} or
                       any(o['status']=='uncertain' for o in evidence['toolOutcomes']))
     attempt['effectUncertain']=effect_uncertain
