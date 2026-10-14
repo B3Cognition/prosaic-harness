@@ -63,6 +63,22 @@ def test_binding_does_not_execute_counter_during_configuration_readmission(bindi
     assert binding.context_policy.counter_identity == policy.counter_identity
 
 
+@pytest.mark.parametrize('control', ['max_completion_tokens', 'max_output_tokens'])
+@pytest.mark.parametrize('purpose', ['ordinary', 'interpretation'])
+def test_unsupported_context_controls_fail_before_session_creation(binding_factory, control, purpose):
+    base = binding_factory()
+    config = base.config
+    config.profiles[config.default_profile] = replace(
+        config.profiles[config.default_profile], features={'streaming': False, control: True})
+    config.routes['interpret'] = config.default_profile
+    policy, counters = fixture_context()
+    kwargs = {'context_policy': policy} if purpose == 'ordinary' else {
+        'interpreter': interpreter(), 'interpretation_context_policy': policy}
+    with pytest.raises(ConversationError) as caught:
+        binding_factory(config=config, token_counters=counters, **kwargs)
+    assert caught.value.code == 'capabilityMissing'
+
+
 def test_descriptor_capacity_and_endpoint_drift_reject(binding_factory):
     policy, counters = fixture_context(model='wrong')
     with pytest.raises(ConversationError):

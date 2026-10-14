@@ -297,14 +297,25 @@ class Conversation(ConversationWorkflow):
         self._phase(on_event,'turnCommitted',snapshot,packet['invocationId'])
         return self._reply(snapshot)
 
-    def _readmit_attempt(self,snapshot):
+    def _readmit_attempt(self,snapshot,*,fresh_attempt=False):
         state=snapshot.state
         pending=state['pending']
         attempt=state['attempts'][pending['invocationId']]
         turn=state['turns'][pending['turnSequence']-1]
         if digest(history_of(state,before_sequence=turn['sequence']))!=turn['historyIdentity']:
             raise ConversationError('bindingMismatch')
-        rt,prepared=self._prepare(state,turn,purpose=attempt['purpose'],saved_attempt=attempt)
+        saved_attempt=attempt
+        if fresh_attempt and 'contextSelection' in attempt:
+            # Explicit consent allocates a new attempt, retaining the frozen
+            # preparation but not the previous execution's spent allowance.
+            report=attempt['initialContextReport']
+            saved_attempt={**attempt,'contextWork':{'version':1,
+                'candidateChecks':report['candidateChecks'],
+                'candidateBytes':report['candidateBytes'],
+                'activeAssemblyMicros':0,'reservedActiveMicros':0,
+                'readmissionCandidateBytes':report['encodedInputBytes'],
+                'readmissionPending':True,'checkpointSequence':0}}
+        rt,prepared=self._prepare(state,turn,purpose=attempt['purpose'],saved_attempt=saved_attempt)
         if (prepared.context_identity,prepared.encoding_version,prepared.input_bytes)!=(
                 attempt['contextIdentity'],attempt['encodingVersion'],attempt['inputBytes']):
             raise ConversationError('bindingMismatch')
@@ -342,7 +353,7 @@ class Conversation(ConversationWorkflow):
             if (pending is None or pending['phase']!='modelInvocation' or
                     snapshot.state['turns'][-1]['status']!='needsResolution'):
                 raise ConversationError('messageConflict')
-            rt,prepared=self._readmit_attempt(snapshot)
+            rt,prepared=self._readmit_attempt(snapshot,fresh_attempt=True)
             turn=snapshot.state['turns'][-1]
             purpose=snapshot.state['attempts'][pending['invocationId']]['purpose']
             snapshot=self._reserve(snapshot,lease,turn['messageId'],turn,prepared,purpose=purpose,

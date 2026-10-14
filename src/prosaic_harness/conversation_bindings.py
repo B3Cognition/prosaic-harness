@@ -448,6 +448,8 @@ def _context_material(config, agent, interpreter, ordinary, interpreting, regist
         tier = artifact.frontmatter.get('model_tier')
         profile = config.routes[tier] if tier is not None else config.default_profile
         endpoint = config.profiles[profile]
+        if any(name in endpoint.features for name in ('max_completion_tokens', 'max_output_tokens')):
+            raise ConversationError('capabilityMissing')
         entry = registry.resolve(policy.counter_identity)
         descriptor = entry.descriptor
         if ((descriptor.provider, descriptor.model) != (endpoint.provider, endpoint.model)

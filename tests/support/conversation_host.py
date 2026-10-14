@@ -80,7 +80,7 @@ def context_host(conversation_fixture):
     from prosaic_runtime.accounting import MemoryRecorder
     from support.context_counter import fixture_context
     @contextmanager
-    def create(*, mode='fullHistory', count=None, kind='memory', store=None):
+    def create(*, mode='fullHistory', count=None, kind='memory', store=None, checks=128):
         events, counts = [], []
         class Store(MemorySessionStore):
             fail_phase = None
@@ -112,7 +112,7 @@ def context_host(conversation_fixture):
             events.append('count')
             counts.append(request)
             return count(request, len(counts)) if count is not None else 10
-        policy, counters = fixture_context(mode=mode, capacity=200, reserve=20, count=counter)
+        policy, counters = fixture_context(mode=mode, capacity=200, reserve=20, count=counter, checks=checks)
         selected_store = store or (Store(namespace='test') if kind == 'memory' else None)
         if selected_store is not None: selected_store.initialize()
         scope = ConversationScope('test','sandbox','app','tenant','actor','payer')

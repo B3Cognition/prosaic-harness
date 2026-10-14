@@ -8,6 +8,28 @@ class Crash(BaseException):
     pass
 
 
+@pytest.mark.parametrize('kind', ['memory', 'file'])
+def test_explicit_retry_gets_fresh_work_without_changing_selection(context_host, kind):
+    with context_host(kind=kind, checks=2) as fx:
+        def crash(event):
+            if event['event'] == 'turnAdmitted': raise Crash()
+        with pytest.raises(Crash): fx.send(on_event=crash)
+        recovered = fx.controller.recover(fx.session.session_id).document
+        assert recovered['status'] == 'needsResolution'
+        before = fx.store.load_session(fx.session.session_id, scope=fx.scope).state
+        original = next(iter(before['attempts'].values()))
+        assert original['contextWork']['candidateChecks'] == 2
+        fx.queue_text('done')
+        retried = fx.controller.retry_interrupted(fx.session.session_id,
+            expected_revision=recovered['revision'], acknowledge_effect_risk=True).document
+        assert retried['status'] == 'completed'
+        assert fx.provider_calls == 1 and len(fx.counts) == 3
+        after = fx.store.load_session(fx.session.session_id, scope=fx.scope).state
+        assert len(after['attempts']) == 2
+        assert all(attempt['contextSelection'] == original['contextSelection']
+                   for attempt in after['attempts'].values())
+
+
 def test_unknown_checkpoint_ack_retains_reservation_and_fails_without_dispatch(context_host):
     with context_host() as fx:
         fx.store.fail_phase = 'checkpoint'
