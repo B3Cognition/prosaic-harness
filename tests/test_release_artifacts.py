@@ -438,7 +438,7 @@ def curated_candidates(release_tool, tmp_path):
     candidates = []
     for repo, expected in (
         ('B3Cognition/prosaic', {'b3-prosaic': '0.4.1'}),
-        ('B3Cognition/prosaic-runtime', {'b3-prosaic-runtime': '0.9.3',
+        ('B3Cognition/prosaic-runtime', {'b3-prosaic-runtime': '0.9.4',
                                        'b3-prosaic-runtime-postgres': '0.3.0'})):
         artifacts = []
         for name, version in expected.items():

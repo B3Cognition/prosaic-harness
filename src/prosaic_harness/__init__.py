@@ -1,5 +1,5 @@
 """Durable, validated execution around Prosaic Runtime."""
-__version__ = '0.8.2'
+__version__ = '0.9.0'
 
 from .engine import Harness
 from .workflow import Workflow

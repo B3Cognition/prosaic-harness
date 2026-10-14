@@ -13,8 +13,8 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
-CORE = ROOT / 'dist/b3_prosaic_harness-0.8.2-py3-none-any.whl'
-ADAPTER = ROOT / 'adapters/postgres/dist/b3_prosaic_harness_postgres-0.3.0-py3-none-any.whl'
+CORE = ROOT / 'dist/b3_prosaic_harness-0.9.0-py3-none-any.whl'
+ADAPTER = ROOT / 'adapters/postgres/dist/b3_prosaic_harness_postgres-0.4.0-py3-none-any.whl'
 
 def test_owned_fixture_uses_free_explicit_subnet_when_default_pool_is_exhausted():
     from support.local_cluster import owned_subnet
@@ -73,13 +73,13 @@ def metadata(path):
 def test_wheel_contents_and_dependency_boundaries():
     core, names = metadata(CORE)
     assert core['Name'] == 'b3-prosaic-harness'
-    assert core['Version'] == '0.8.2'
+    assert core['Version'] == '0.9.0'
     assert not any(name.startswith('prosaic_harness_postgres/') for name in names)
     assert not any('psycopg' in value.lower() for value in core.get_all('Requires-Dist'))
     adapter, names = metadata(ADAPTER)
     assert adapter['Name'] == 'b3-prosaic-harness-postgres'
-    assert adapter['Version'] == '0.3.0'
-    assert any(value.startswith('b3-prosaic-harness<0.9,>=0.8') for value in adapter.get_all('Requires-Dist'))
+    assert adapter['Version'] == '0.4.0'
+    assert any(value.startswith('b3-prosaic-harness<0.10,>=0.9') for value in adapter.get_all('Requires-Dist'))
     assert 'prosaic_harness_postgres/cli.py' in names
     assert any(value.startswith('psycopg[binary]<4,>=3.2.3')
                for value in adapter.get_all('Requires-Dist'))
@@ -184,7 +184,7 @@ def curated_candidates(release_tool, tmp_path):
     candidates = []
     for repo, expected in (
         ('B3Cognition/prosaic', {'b3-prosaic': '0.4.1'}),
-        ('B3Cognition/prosaic-runtime', {'b3-prosaic-runtime': '0.9.3',
+        ('B3Cognition/prosaic-runtime', {'b3-prosaic-runtime': '0.9.4',
                                        'b3-prosaic-runtime-postgres': '0.3.0'})):
         artifacts = []
         for name, version in expected.items():
@@ -252,4 +252,4 @@ def test_container_mounts_verified_dependency_bytes_read_only(
     create = calls[0]
     assert str(wheelhouse) + ':/candidate-wheels:ro' in create
     assert 'PIP_FIND_LINKS=/candidate-wheels' in create[-1]
-    assert '/candidate-wheels/b3_prosaic_runtime-0.9.3-py3-none-any.whl' in create[-1]
+    assert '/candidate-wheels/b3_prosaic_runtime-0.9.4-py3-none-any.whl' in create[-1]

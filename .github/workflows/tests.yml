@@ -31,7 +31,7 @@ jobs:
           python -m pip install packaging
           mkdir -p .ci-upstream/artifacts
           python scripts/release_artifacts.py upstream --directory .ci-upstream/artifacts --wheelhouse .ci-upstream/wheels --core-run "$CORE_RUN" --core-commit "$CORE_COMMIT" --runtime-run "$RUNTIME_RUN" --runtime-commit "$RUNTIME_COMMIT"
-          python -m pip install .ci-upstream/wheels/b3_prosaic-0.4.1-py3-none-any.whl .ci-upstream/wheels/b3_prosaic_runtime-0.9.3-py3-none-any.whl
+          python -m pip install .ci-upstream/wheels/b3_prosaic-0.4.1-py3-none-any.whl .ci-upstream/wheels/b3_prosaic_runtime-0.9.4-py3-none-any.whl
       - name: Install Harness with its verified upstream candidates
         run: python -m pip install -e '.[test]'
       - name: Install Linux CLI sandbox backend
@@ -122,9 +122,10 @@ jobs:
           PIP_FIND_LINKS: ${{ github.workspace }}/.ci-upstream/wheels
         run: |
           python -m venv "$RUNNER_TEMP/harness-wheel"
-          "$RUNNER_TEMP/harness-wheel/bin/python" -m pip install .ci-upstream/wheels/b3_prosaic-0.4.1-py3-none-any.whl .ci-upstream/wheels/b3_prosaic_runtime-0.9.3-py3-none-any.whl dist/b3_prosaic_harness-0.8.2-py3-none-any.whl
+          "$RUNNER_TEMP/harness-wheel/bin/python" -m pip install .ci-upstream/wheels/b3_prosaic-0.4.1-py3-none-any.whl .ci-upstream/wheels/b3_prosaic_runtime-0.9.4-py3-none-any.whl dist/b3_prosaic_harness-0.9.0-py3-none-any.whl
           "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/workflow_factory_smoke.py
           "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/conversation_smoke.py
+          "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/conversation_smoke.py --context-assembly
   postgres:
     runs-on: '${{ matrix.os }}'
     timeout-minutes: 15
@@ -145,7 +146,7 @@ jobs:
           python -m pip install packaging
           mkdir -p .ci-upstream/artifacts
           python scripts/release_artifacts.py upstream --directory .ci-upstream/artifacts --wheelhouse .ci-upstream/wheels --core-run "$CORE_RUN" --core-commit "$CORE_COMMIT" --runtime-run "$RUNTIME_RUN" --runtime-commit "$RUNTIME_COMMIT"
-          python -m pip install .ci-upstream/wheels/b3_prosaic-0.4.1-py3-none-any.whl .ci-upstream/wheels/b3_prosaic_runtime-0.9.3-py3-none-any.whl
+          python -m pip install .ci-upstream/wheels/b3_prosaic-0.4.1-py3-none-any.whl .ci-upstream/wheels/b3_prosaic_runtime-0.9.4-py3-none-any.whl
       - name: Build separate distributions
         run: |
           python -m pip install build pytest
@@ -155,8 +156,8 @@ jobs:
           python -m build "$RUNNER_TEMP/harness-source/adapters/postgres" --outdir adapters/postgres/dist
       - name: Install local core wheel before adapter
         run: |
-          python -m pip install dist/b3_prosaic_harness-0.8.2-py3-none-any.whl
-          python -m pip install adapters/postgres/dist/b3_prosaic_harness_postgres-0.3.0-py3-none-any.whl
+          python -m pip install dist/b3_prosaic_harness-0.9.0-py3-none-any.whl
+          python -m pip install adapters/postgres/dist/b3_prosaic_harness_postgres-0.4.0-py3-none-any.whl
           prosaic --version
       - name: Required real-database, owned crash/standby and clean-wheel gates
         env:
