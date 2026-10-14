@@ -5,6 +5,27 @@ from prosaic_harness import ConversationError, RevisionConflict, SessionNotFound
 from support.conversation_host import conversation_fixture
 
 
+@pytest.mark.parametrize('kind', ['memory', 'file'])
+def test_provider_timeout_is_durable_and_replays_without_dispatch(conversation_fixture, monkeypatch, kind):
+    attempts = []
+
+    class Opener:
+        def open(self, *args, **kwargs):
+            attempts.append(1)
+            raise TimeoutError('synthetic provider timeout')
+
+    monkeypatch.setattr('urllib.request.build_opener', lambda *args: Opener())
+    with conversation_fixture(kind) as fx:
+        snapshot = fx.controller.create()
+        args = dict(message_id='timeout', message='Hello', expected_revision=snapshot.revision)
+        reply = fx.controller.send(snapshot.session_id, **args)
+        assert reply.document['status'] == 'failed'
+        assert reply.document['failureCode'] == 'timeout'
+        assert fx.fresh_controller().send(snapshot.session_id, **args).document == reply.document
+        assert fx.fresh_controller().recover(snapshot.session_id).document == reply.document
+        assert attempts == [1]
+
+
 @pytest.mark.parametrize('kind',['memory','file'])
 def test_graph_free_two_turn_history_and_owned_reply(conversation_fixture,kind):
     with conversation_fixture(kind) as fx:
