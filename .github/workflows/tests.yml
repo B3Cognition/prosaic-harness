@@ -8,8 +8,8 @@ env:
   # the same immutable upstream artifacts used for release qualification.
   CORE_RUN: '38077144248'
   CORE_COMMIT: '6ac6cfdfd47dc70ecf68e441aa004f07c3be3822'
-  RUNTIME_RUN: '38434395297'
-  RUNTIME_COMMIT: '094206156a66752db4b98237ac510a1dea6c95d9'
+  RUNTIME_RUN: '38505142052'
+  RUNTIME_COMMIT: '342d4fa40068e2b3a48165ea29cfcb2248a39833'
 jobs:
   test:
     runs-on: '${{ matrix.os }}'
@@ -31,7 +31,7 @@ jobs:
           python -m pip install packaging
           mkdir -p .ci-upstream/artifacts
           python scripts/release_artifacts.py upstream --directory .ci-upstream/artifacts --wheelhouse .ci-upstream/wheels --core-run "$CORE_RUN" --core-commit "$CORE_COMMIT" --runtime-run "$RUNTIME_RUN" --runtime-commit "$RUNTIME_COMMIT"
-          python -m pip install .ci-upstream/wheels/b3_prosaic-0.4.1-py3-none-any.whl .ci-upstream/wheels/b3_prosaic_runtime-0.9.2-py3-none-any.whl
+          python -m pip install .ci-upstream/wheels/b3_prosaic-0.4.1-py3-none-any.whl .ci-upstream/wheels/b3_prosaic_runtime-0.9.3-py3-none-any.whl
       - name: Install Harness with its verified upstream candidates
         run: python -m pip install -e '.[test]'
       - name: Install Linux CLI sandbox backend
