@@ -285,6 +285,13 @@ class ConversationBindings:
             shared['max_json_nodes'] = (policy.max_json_nodes - 8192) // 2
             evidence_room=policy.max_receipt_bytes-policy.max_turn_bytes-encoded_answer_bound(
                 policy.max_assistant_bytes,policy.max_turn_bytes)-8192
+            if context_policy is not None or interpretation_context_policy is not None:
+                if 'context_assembly_v1' not in ProsaicRuntime.capabilities:
+                    raise ConversationError('capabilityMissing')
+                from .session_context import receipt_context_bounds
+                evidence_room -= receipt_context_bounds()[0]
+                if evidence_room < 1024:
+                    raise ConversationError('sessionLimit', 'maxReceiptBytes')
             limits = TurnLimits(**shared,max_evidence_bytes=min(TurnLimits().max_evidence_bytes,evidence_room)) if turn_limits is None else turn_limits
             if type(limits) is not TurnLimits:
                 raise ConversationError('bindingMismatch')
