@@ -134,7 +134,8 @@ def test_installed_memory_file_conversations_and_saved_receipt_recovery(wheel_en
     report = json.loads(result.stdout)
     assert set(report['stores']) == {'memory', 'file'}
     for evidence in report['stores'].values():
-        assert evidence['providerRequests'] == 4
+        assert evidence['providerRequests'] == 6
+        assert evidence['sameMessageFailedRetry'] is True
         assert evidence['savedReceiptAdoptedWithoutDispatch'] is True
         assert evidence['failedCorrectionRetained'] is True
 
