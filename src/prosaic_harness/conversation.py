@@ -1,4 +1,5 @@
 """Graph-free ordered conversations over public Runtime turns and SessionStore."""
+from prosaic_runtime.lifecycle import ExecutionLifecycle, tracked
 from dataclasses import dataclass, replace
 from uuid import uuid4
 
@@ -10,7 +11,7 @@ from .run_store import RevisionConflict, StoreUnavailable, validate_id, validate
 from .session_store import SessionSnapshot
 from .session_codec import encode, decode, digest, reference
 from .session_contracts import (new_session, reserve_attempt, mark_dispatch, make_receipt,
-    adopt_receipt, history_of, public_node_limit, mark_interrupted)
+    adopt_receipt, history_of, public_node_limit, mark_interrupted, match_receipt)
 from .conversation_workflow import ConversationWorkflow
 
 
@@ -25,7 +26,7 @@ class ConversationReply:
 
 class Conversation(ConversationWorkflow):
     """The embedding host authenticates and authorizes every operation first."""
-    def __init__(self, bindings, *, store, scope, context=None, accounting=None, observer=None):
+    def __init__(self, bindings, *, store, scope, context=None, accounting=None, observer=None, lifecycle=None):
         if type(bindings) is not ConversationBindings or type(scope) is not ConversationScope:
             raise ConversationError('bindingMismatch')
         if store.namespace!=scope.namespace: raise ConversationError('identityMismatch')
@@ -36,6 +37,9 @@ class Conversation(ConversationWorkflow):
                 context.billing_account_id)!=(scope.application,scope.tenant,scope.actor,scope.billing_account):
             raise ConversationError('identityMismatch')
         bindings.readmit()
+        self.lifecycle = lifecycle if lifecycle is not None else ExecutionLifecycle()
+        if not isinstance(self.lifecycle, ExecutionLifecycle):
+            raise TypeError("lifecycle must be an ExecutionLifecycle")
         self.bindings,self.store,self.scope=bindings,store,scope
         self.context,self.accounting,self.observer=context,accounting,observer
 
@@ -91,6 +95,7 @@ class Conversation(ConversationWorkflow):
             return {k:reference(getattr(self.accounting,k)) for k in ('namespace','environment')}
         except (ValueError,AttributeError): raise ConversationError('identityMismatch') from None
 
+    @tracked
     def create(self, *, session_id=None):
         if (self.bindings.context_enabled and
                 'context_assembly_v1' not in getattr(self.store, 'capabilities', frozenset())):
@@ -141,7 +146,7 @@ class Conversation(ConversationWorkflow):
 
     def _prepare(self, state, turn, *, purpose='ordinary', saved_attempt=None):
         data=self.bindings.readmit()
-        rt=self.bindings.runtime()
+        rt=self.bindings.runtime(lifecycle=self.lifecycle)
         interpreting=purpose=='interpretation'
         phase=data['interpreter'] if interpreting else None
         if interpreting and phase is None: raise ConversationError('capabilityMissing')
@@ -177,6 +182,7 @@ class Conversation(ConversationWorkflow):
             if snapshot.state['turns']: event['turnSequence']=snapshot.state['turns'][-1]['sequence']
             on_event(event)
 
+    @tracked
     def send(self, session_id, *, message_id, message, expected_revision,
              interaction_ref=None, on_event=None, cancelled=None):
         try:
@@ -297,11 +303,11 @@ class Conversation(ConversationWorkflow):
         self._phase(on_event,'turnCommitted',snapshot,packet['invocationId'])
         return self._reply(snapshot)
 
-    def _readmit_attempt(self,snapshot,*,fresh_attempt=False):
+    def _readmit_attempt(self,snapshot,*,fresh_attempt=False,attempt_id=None):
         state=snapshot.state
         pending=state['pending']
-        attempt=state['attempts'][pending['invocationId']]
-        turn=state['turns'][pending['turnSequence']-1]
+        attempt=state['attempts'][attempt_id or pending['invocationId']]
+        turn=state['turns'][attempt['turnSequence']-1]
         if digest(history_of(state,before_sequence=turn['sequence']))!=turn['historyIdentity']:
             raise ConversationError('bindingMismatch')
         saved_attempt=attempt
@@ -321,6 +327,7 @@ class Conversation(ConversationWorkflow):
             raise ConversationError('bindingMismatch')
         return rt,prepared
 
+    @tracked
     def recover(self,session_id):
         with self.store.lease(session_id,scope=self.scope) as lease:
             snapshot=self._load(session_id)
@@ -343,6 +350,7 @@ class Conversation(ConversationWorkflow):
             rt,prepared=self._readmit_attempt(snapshot)
             return self._execute(snapshot,lease,rt,prepared,None,None)
 
+    @tracked
     def retry_interrupted(self,session_id,*,expected_revision,acknowledge_effect_risk,on_event=None,cancelled=None):
         if acknowledge_effect_risk is not True: raise ConversationError('confirmationRequired')
         with self.store.lease(session_id,scope=self.scope) as lease:
@@ -357,5 +365,47 @@ class Conversation(ConversationWorkflow):
             turn=snapshot.state['turns'][-1]
             purpose=snapshot.state['attempts'][pending['invocationId']]['purpose']
             snapshot=self._reserve(snapshot,lease,turn['messageId'],turn,prepared,purpose=purpose,
+                interaction_ref=turn['interactionRef'],retry=True)
+            return self._execute(snapshot,lease,rt,prepared,on_event,cancelled)
+
+
+    @tracked
+    def retry_failed(self,session_id,*,expected_revision,acknowledge_effect_risk,on_event=None,cancelled=None):
+        """Explicitly retry the latest proven no-effect failure under its original identity.
+
+        The host retains authorization, expiry and aggregate token admission. No
+        recovery read spends provider calls or replenishes a host budget.
+        """
+        if acknowledge_effect_risk is not True: raise ConversationError('confirmationRequired')
+        with self.store.lease(session_id,scope=self.scope) as lease:
+            snapshot=self._load(session_id)
+            validate_revision(expected_revision)
+            if expected_revision!=snapshot.revision: raise RevisionConflict()
+            state=snapshot.state
+            if state['pending'] is not None or state['workflow'] is not None or not state['turns']:
+                raise ConversationError('messageConflict')
+            turn=state['turns'][-1]
+            if turn['status']!='failed' or not turn['attempts']:
+                raise ConversationError('messageConflict')
+            for aid in turn['attempts']:
+                attempt=state['attempts'][aid]
+                if (attempt['purpose']!='ordinary' or not attempt['receiptAdopted'] or
+                        attempt['effectUncertain'] or attempt['toolAttempts'] or
+                        attempt['providerReservation'] or attempt['toolReservation']):
+                    raise ConversationError('messageConflict')
+                packet=self.store.load_receipt(session_id,aid,scope=self.scope)
+                if packet is None: raise ConversationError('messageConflict')
+                receipt=match_receipt(state,packet)
+                evidence=receipt['evidence']
+                if (receipt['sha256']!=attempt['receiptIdentity'] or
+                        len(encode(receipt))!=attempt['receiptBytes'] or
+                        receipt['result']['failureCode'] is None or
+                        evidence['providerAttempts']!=attempt['providerAttempts'] or
+                        evidence['toolAttempts']!=0 or evidence['toolOutcomes'] or
+                        evidence['usageComplete'] is not True or (evidence['providerAttempts']>0 and
+                        type(evidence['knownUsage'].get('totalTokens')) is not int)):
+                    raise ConversationError('messageConflict')
+            rt,prepared=self._readmit_attempt(snapshot,fresh_attempt=True,attempt_id=turn['attempts'][-1])
+            snapshot=self._reserve(snapshot,lease,turn['messageId'],turn,prepared,
                 interaction_ref=turn['interactionRef'],retry=True)
             return self._execute(snapshot,lease,rt,prepared,on_event,cancelled)

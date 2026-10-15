@@ -1,5 +1,6 @@
 """Tool-free interpretation and conservative handoff to the existing Harness."""
 from .engine import Harness
+from prosaic_runtime.lifecycle import tracked
 from .conversation_errors import ConversationError
 from .run_store import RevisionConflict, validate_id, validate_revision
 from .session_codec import encode, decode, digest, owned, reference
@@ -50,6 +51,7 @@ class ConversationWorkflow:
         return owned(view,maximum=p['maxPublicBytes']-answer_bound-4096,
                      depth=p['maxJsonDepth']-8,nodes=public_node_limit(p)-128)
 
+    @tracked
     def attach_workflow(self,session_id,*,registration,run_id,expected_revision):
         reference(registration)
         validate_id(run_id)
@@ -145,6 +147,7 @@ class ConversationWorkflow:
         lease.check_valid()
         return self._finish_workflow_command(snapshot,lease,on_event)
 
+    @tracked
     def detach_workflow(self,session_id,*,expected_revision):
         """Release only a terminal owned workflow; unresolved evidence stays attached."""
         with self.store.lease(session_id,scope=self.scope) as lease:
@@ -158,6 +161,7 @@ class ConversationWorkflow:
                 raise ConversationError('messageConflict')
             return self._reply(self._save(snapshot,seal(snapshot.state|{'workflow':None}),lease))
 
+    @tracked
     def choose(self,session_id,*,message_id,message,choice,interaction_ref,expected_revision,
                response=None,on_event=None):
         """Commit an authenticated structured choice without model interpretation."""
@@ -244,6 +248,7 @@ class ConversationWorkflow:
         state=mark_interrupted(snapshot.state)
         return self._reply(snapshot if state==snapshot.state else self._save(snapshot,state,lease))
 
+    @tracked
     def retry_workflow_command(self,session_id,*,expected_revision,acknowledge_effect_risk,on_event=None):
         """Explicitly retry only the frozen command against its original workflow revision."""
         if acknowledge_effect_risk is not True: raise ConversationError('confirmationRequired')

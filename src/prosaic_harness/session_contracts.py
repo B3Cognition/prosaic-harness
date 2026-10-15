@@ -309,6 +309,38 @@ def decode_session(content):
     except (ValueError,TypeError,UnicodeError): raise StoreCorrupt('invalid conversation snapshot') from None
 
 
+def _failed_retry_eligible(state):
+    """Storage-local proof; the controller additionally verifies immutable receipts."""
+    if state['pending'] is not None or state['workflow'] is not None or not state['turns']:
+        return False
+    turn=state['turns'][-1]
+    return turn['status']=='failed' and bool(turn['attempts']) and all(
+        a['purpose']=='ordinary' and a['receiptAdopted'] and not a['effectUncertain'] and
+        a['toolAttempts']==a['providerReservation']==a['toolReservation']==0
+        for a in (state['attempts'][aid] for aid in turn['attempts']))
+
+
+def _failed_retry_transition(old,new,before,after):
+    if (not _failed_retry_eligible(old) or before!=old['turns'][-1] or
+            len(new['turns'])!=len(old['turns']) or after['status']!='pending' or
+            len(after['attempts'])!=len(before['attempts'])+1):
+        return False
+    aid=after['attempts'][-1]
+    pending={'phase':'modelInvocation','turnSequence':before['sequence'],'invocationId':aid,'command':None}
+    if new['pending']!=pending or new['workflow'] is not None or set(new['attempts'])!=set(old['attempts'])|{aid}:
+        return False
+    attempt=new['attempts'][aid]
+    previous=old['attempts'][before['attempts'][-1]]
+    frozen=('turnSequence','purpose','contextIdentity','encodingVersion','inputBytes',
+            'providerAllowance','toolAllowance')
+    if old['version']==2: frozen+=('contextSelection','initialContextReport')
+    return (all(attempt[key]==previous[key] for key in frozen) and
+        after['answer'] is None and after['failureCode'] is None and after['history']==[] and
+        after['recoveryStatus'] is None and after['pendingInteraction']==before['pendingInteraction'] and
+        not attempt['dispatchMarker'] and not attempt['receiptAdopted'] and
+        all(new['attempts'][key]==value for key,value in old['attempts'].items()))
+
+
 def validate_session_transition(previous, proposed):
     """Validate monotonic storage advancement, independently of a record hash."""
     old,new=verify_session(previous),verify_session(proposed)
@@ -326,7 +358,8 @@ def validate_session_transition(previous, proposed):
                     after['attempts'][:len(before['attempts'])]!=before['attempts']):
                 raise ValueError('turn input changed')
             if before['status'] in {'completed','failed'} and before!=after:
-                raise ValueError('terminal turn changed')
+                if not _failed_retry_transition(old,new,before,after):
+                    raise ValueError('terminal turn changed')
         for aid,before in old['attempts'].items():
             after=new['attempts'][aid]
             if any(before[k]!=after[k] for k in attempt_input): raise ValueError('attempt input changed')
@@ -392,9 +425,12 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
     for count in (provider_allowance,tool_allowance): integer(count)
     if interaction_ref is not None: reference(interaction_ref)
     if retry:
-        if state['pending'] is None or not state['turns']: raise ConversationError('messageConflict')
+        if not state['turns'] or (state['pending'] is None and not _failed_retry_eligible(state)):
+            raise ConversationError('messageConflict')
         turn=state['turns'][-1]
-        if turn['messageId']!=message_id or turn['message']!=message:
+        if (turn['messageId']!=message_id or turn['message']!=message or
+                turn['inputData']!=input_data or turn['interactionRef']!=interaction_ref or
+                state['attempts'][turn['attempts'][-1]]['purpose']!=purpose):
             raise ConversationError('messageConflict')
         turn['status']='pending'
         turn['history']=[]

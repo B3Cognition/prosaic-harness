@@ -182,9 +182,26 @@ def exercise(store, host_bindings, requests, replies, *, reopen=None):
     assert rebuilt.recover(snapshot.session_id).document == adopted.document
     assert len(requests) == provider_calls == before + 4
     assert not {'scope', 'config', 'accounting', 'evidence'} & adopted.document.keys()
+    # The terminal-failure retry uses the same original message on every store,
+    # including a newly opened PostgreSQL transport and context-enabled v2.
+    retry_session = rebuilt.create()
+    failed_answer = answer('Partial')
+    failed_answer[1]['choices'][0]['finish_reason'] = 'length'
+    replies.append(failed_answer)
+    failed = rebuilt.send(retry_session.session_id, message_id='original-failed',
+        message='Resolve the original request', expected_revision=retry_session.revision)
+    assert failed.document['status'] == 'failed'
+    replies.append(answer('Resolved'))
+    retried = rebuilt.retry_failed(retry_session.session_id,
+        expected_revision=failed.document['revision'], acknowledge_effect_risk=True)
+    state = store.load_session(retry_session.session_id, scope=scope).state
+    assert retried.document['status'] == 'completed' and retried.document['messageId'] == 'original-failed'
+    assert len(state['turns']) == 1 and len(state['attempts']) == 2 and state['providerRequests'] == 2
+    assert rebuilt.recover(retry_session.session_id).document == retried.document
+    assert len(requests) == before + 6
     store.close()
-    return {'providerRequests': 4, 'duplicateReplay': True, 'failedCorrectionRetained': True,
-            'savedReceiptAdoptedWithoutDispatch': True, 'ownerIsolation': True}
+    return {'providerRequests': 6, 'duplicateReplay': True, 'failedCorrectionRetained': True,
+            'savedReceiptAdoptedWithoutDispatch': True, 'sameMessageFailedRetry': True, 'ownerIsolation': True}
 
 
 def main():
