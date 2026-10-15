@@ -513,3 +513,14 @@ def test_index_selection_leaves_unselected_distributions_unpublished(release_too
     with pytest.raises(release_tool.ReleaseError, match='selection'):
         release_tool.check_index(output / 'artifacts', receipt['source_commit'],
                                  distributions=[], fetch=fetch)
+
+
+def test_sdk_publication_does_not_republish_postgres_compatibility_witness():
+    """An existing adapter release must never be replaced by a rebuilt witness."""
+    import yaml
+    workflow = yaml.safe_load((SCRIPT.parents[1] / '.github/workflows/publish.yml').read_text())
+    steps = workflow['jobs']['pypi']['steps']
+    publication = '\n'.join(step.get('run', '') for step in steps)
+    assert 'b3-prosaic-harness-postgres' not in publication
+    assert 'b3_prosaic_harness_postgres' not in publication
+    assert publication.count('index-check --distribution b3-prosaic-harness --directory') == 2

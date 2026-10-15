@@ -1,6 +1,6 @@
 # Drain workflows through persistence
 
-Harness 0.9.1 requires Runtime >=0.9.5. `Harness.lifecycle` shares the concrete
+Harness 0.9.2 requires Runtime >=0.9.5. `Harness.lifecycle` shares the concrete
 Runtime/RuntimeAdapter lifecycle by default. `run()` and `resume()` remain active
 until final checkpoints, observations, receipt persistence, lease release and
 workspace cleanup complete. A drain does not cancel steps in an admitted workflow
