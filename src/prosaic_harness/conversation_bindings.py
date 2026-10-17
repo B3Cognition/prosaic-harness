@@ -137,6 +137,9 @@ def _policy(value):
         raw[key] = list(raw[key])
     data = owned(raw)
     value.__post_init__()
+    # Preserve pre-feature sealed bytes when the optional Runtime policy is off.
+    if data.get('bounded_tool_recovery') is False:
+        data.pop('bounded_tool_recovery')
     if any(type(data[key]) is not int or data[key] < 0
            for key in ('max_provider_requests', 'max_tool_calls')):
         raise ConversationError('bindingMismatch')

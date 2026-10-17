@@ -571,6 +571,41 @@ class Harness:
         state.update(current=target, entered=False, attempt=0, feedback=feedback, status='running', reason=None)
         self._save(state)
 
+    def _tool_recovery(self, events, required):
+        """Validate trusted Runtime evidence, never model error dictionaries."""
+        from prosaic_runtime import ToolOutcome
+        completed = set()
+        successful = set()
+        repair = False
+        for event in events:
+            if event.get('event') != 'tool_completed':
+                continue
+            name, call_id = event.get('name'), event.get('call_id')
+            descriptor = self.workflow.tool_descriptors.get(name)
+            try:
+                outcome = ToolOutcome.from_dict(event.get('tool_outcome')).to_dict()
+            except (ValueError, TypeError):
+                return None
+            if (descriptor is None or event.get('tool_version') != descriptor['version']
+                    or type(call_id) is not str or not 1 <= len(call_id) <= 128
+                    or call_id in completed):
+                return None
+            completed.add(call_id)
+            if event.get('status') == 'ok' and outcome['code'] == 'ok':
+                successful.add(name)
+            elif event.get('status') == 'error' and outcome['code'] == 'invalid_arguments':
+                repair = True
+            else:
+                return None
+        if any(event.get('event') == 'tool_started' and event.get('call_id') not in completed
+               for event in events):
+            return None
+        missing = set(required) - successful
+        if not missing:
+            return ''
+        reason = 'invalid_arguments' if repair else 'missing_required_tool'
+        return f'toolRecovery {reason}: execute required granted tools successfully before returning JSON: {sorted(missing)}'
+
     def _accept(self, state, receipt):
         self._check_ownership()
         validate_receipt(receipt, state, state['pending'])
@@ -584,6 +619,11 @@ class Harness:
         result = receipt['result']
         error = None
         output = None
+        tool_feedback = ''
+        if self._admission and self._admission.policy.bounded_tool_recovery:
+            tool_feedback = self._tool_recovery(receipt['events'], step.get('require_tools', []))
+            if tool_feedback is None:
+                return self._block(state, 'tool_recovery_blocked')
         if result['exit_code'] != 0:
             if self._admission and result['metadata'].get('failure_reason') in {
                     'output_limit', 'metadata_limit', 'event_limit', 'receipt_limit', 'result_limit'}:
@@ -616,7 +656,7 @@ class Harness:
                                event.get('tool_version') == self.workflow.tool_descriptors[event['name']]['version'])}
             missing = set(step.get('require_tools', [])) - successful
             if missing:
-                error = f'execute required granted tools successfully before returning JSON: {sorted(missing)}'
+                error = tool_feedback or f'execute required granted tools successfully before returning JSON: {sorted(missing)}'
         if error is None:
             for path in step.get('require_reads', []):
                 expected = state['evidence'][path]
@@ -792,6 +832,8 @@ class Harness:
                 policy = RunPolicy(allowed_tools=frozenset(step.get('tools', [])),
                                    read_roots=tuple(step.get('read_roots', [])),
                                    timeout_s=timeout, max_tool_rounds=self.workflow.config.limits.max_tool_rounds,
+                                   **({'bounded_tool_recovery': True} if self._admission and
+                                      self._admission.policy.bounded_tool_recovery else {}),
                                    **({'max_input_bytes': self._admission.policy.max_invocation_bytes} if self._admission else {}),
                                    **({'max_provider_requests': self._admission.policy.max_provider_requests_per_invocation,
                                        'max_tool_calls': self._admission.policy.max_tool_calls_per_invocation,
