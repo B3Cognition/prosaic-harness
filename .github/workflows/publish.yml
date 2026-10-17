@@ -172,7 +172,7 @@ jobs:
           sudo apparmor_parser -r /etc/apparmor.d/prosaic-ci-bwrap
       - name: Require an operational Linux sandbox
         run: |
-          python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.5-py3-none-any.whl
+          python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.7-py3-none-any.whl
           python - <<'PY'
           import platform, subprocess, sys, tempfile
           from pathlib import Path
@@ -202,10 +202,10 @@ jobs:
           PIP_FIND_LINKS: ${{ github.workspace }}/release/upstream-wheels
         run: |
           python -m venv .venv
-          .venv/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.5-py3-none-any.whl -e '.[test]'
+          .venv/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.7-py3-none-any.whl -e '.[test]'
           .venv/bin/python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$SOURCE_COMMIT" --label "${LANE}-source" --junit "$RUNNER_TEMP/harness-source.xml" -- .venv/bin/python -m pytest -q --ignore=tests/test_conversation_postgres_lifecycle.py --junitxml="$RUNNER_TEMP/harness-source.xml"
           python -m venv .wheel-test
-          .wheel-test/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.5-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.9.2-py3-none-any.whl
+          .wheel-test/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.7-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.9.4-py3-none-any.whl
           .wheel-test/bin/python -m pip check
           .venv/bin/python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$SOURCE_COMMIT" --label "${LANE}-wheel" -- .wheel-test/bin/python -I -c "import runpy; runpy.run_path('scripts/workflow_factory_smoke.py', run_name='__main__'); runpy.run_path('scripts/conversation_smoke.py', run_name='__main__')"
           .wheel-test/bin/python -I scripts/conversation_smoke.py --context-assembly
@@ -241,7 +241,7 @@ jobs:
           PIP_FIND_LINKS: ${{ github.workspace }}/release/upstream-wheels
         run: |
           python -m venv .floor-test
-          .floor-test/bin/python -m pip install 'PyYAML==6.0' 'pyuca==1.2' 'markdown-it-py==3.0.0' 'jsonschema==4.23.0' 'referencing==0.28.4' 'psycopg[binary]==3.2.3' 'psycopg-pool==3.2.0' release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.5-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime_postgres-0.3.0-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.9.2-py3-none-any.whl release/artifacts/b3_prosaic_harness_postgres-0.4.0-py3-none-any.whl
+          .floor-test/bin/python -m pip install 'PyYAML==6.0' 'pyuca==1.2' 'markdown-it-py==3.0.0' 'jsonschema==4.23.0' 'referencing==0.28.4' 'psycopg[binary]==3.2.3' 'psycopg-pool==3.2.0' release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.7-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime_postgres-0.3.0-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.9.4-py3-none-any.whl release/artifacts/b3_prosaic_harness_postgres-0.4.0-py3-none-any.whl
           .floor-test/bin/python -m pip check
           python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$GITHUB_SHA" --label floor-${{ matrix.os }} -- .floor-test/bin/python -I -c "from prosaic_harness_postgres import PostgresRunStore, PostgresSessionStore; store = PostgresRunStore('postgresql://invalid.invalid/unused', namespace='floor'); store.close(); sessions = PostgresSessionStore('postgresql://invalid.invalid/unused', namespace='floor'); sessions.close(); import runpy; runpy.run_path('scripts/workflow_factory_smoke.py', run_name='__main__'); runpy.run_path('scripts/conversation_smoke.py', run_name='__main__')"
           .floor-test/bin/python -I scripts/conversation_smoke.py --context-assembly
@@ -287,7 +287,7 @@ jobs:
           PY
       - name: Require an operational macOS sandbox
         run: |
-          python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.5-py3-none-any.whl
+          python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.7-py3-none-any.whl
           python - <<'PY'
           from prosaic_runtime import CliSandboxConfig
           from prosaic_runtime.sandbox import require_backend
@@ -300,10 +300,10 @@ jobs:
           PIP_FIND_LINKS: ${{ github.workspace }}/release/upstream-wheels
         run: |
           python -m venv .venv
-          .venv/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.5-py3-none-any.whl -e '.[test]'
+          .venv/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.7-py3-none-any.whl -e '.[test]'
           .venv/bin/python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$SOURCE_COMMIT" --label "${LANE}-source" --junit "$RUNNER_TEMP/harness-source.xml" -- .venv/bin/python -m pytest -q --ignore=tests/test_conversation_postgres_lifecycle.py --junitxml="$RUNNER_TEMP/harness-source.xml"
           python -m venv .wheel-test
-          .wheel-test/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.5-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.9.2-py3-none-any.whl
+          .wheel-test/bin/python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.7-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.9.4-py3-none-any.whl
           .wheel-test/bin/python -m pip check
           .venv/bin/python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$SOURCE_COMMIT" --label "${LANE}-wheel" -- .wheel-test/bin/python -I -c "import runpy; runpy.run_path('scripts/workflow_factory_smoke.py', run_name='__main__'); runpy.run_path('scripts/conversation_smoke.py', run_name='__main__')"
           .wheel-test/bin/python -I scripts/conversation_smoke.py --context-assembly
@@ -350,9 +350,9 @@ jobs:
           release.verify_upstream(Path('release/artifacts'), Path('release/upstream-wheels'))
           PY
           mkdir -p dist adapters/postgres/dist
-          cp release/artifacts/b3_prosaic_harness-0.9.2-py3-none-any.whl dist/
+          cp release/artifacts/b3_prosaic_harness-0.9.4-py3-none-any.whl dist/
           cp release/artifacts/b3_prosaic_harness_postgres-0.4.0-py3-none-any.whl adapters/postgres/dist/
-          python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.5-py3-none-any.whl dist/b3_prosaic_harness-0.9.2-py3-none-any.whl adapters/postgres/dist/b3_prosaic_harness_postgres-0.4.0-py3-none-any.whl
+          python -m pip install release/upstream-wheels/b3_prosaic-0.4.1-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.7-py3-none-any.whl dist/b3_prosaic_harness-0.9.4-py3-none-any.whl adapters/postgres/dist/b3_prosaic_harness_postgres-0.4.0-py3-none-any.whl
           prosaic --version
       - name: Required real database source, installed wheel, crash and standby gates
         env:
@@ -449,7 +449,7 @@ jobs:
       - name: Prepare only distribution files for upload
         run: |
           mkdir upload
-          cp release/artifacts/b3_prosaic_harness-0.9.2-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.9.2.tar.gz upload/
+          cp release/artifacts/b3_prosaic_harness-0.9.4-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.9.4.tar.gz upload/
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: upload/

@@ -581,6 +581,59 @@ class Harness:
         state.update(current=target, entered=False, attempt=0, feedback=feedback, status='running', reason=None)
         self._save(state)
 
+    def _tool_recovery(self, events, required, allowed=None):
+        """Validate trusted Runtime evidence, never model error dictionaries."""
+        from prosaic_runtime import ToolOutcome
+        from prosaic_runtime.policy import BUILTIN_TOOLS
+        allowed = set(self.workflow.tool_descriptors) | BUILTIN_TOOLS if allowed is None else set(allowed)
+        started, completed = {}, {}
+        successful = set()
+        repair = False
+        for event in events:
+            if type(event) is not dict or type(event.get('event')) is not str:
+                return None
+            kind = event['event']
+            if kind not in {'tool_started', 'tool_completed'}:
+                continue
+            name, call_id = event.get('name'), event.get('call_id')
+            turn, version = event.get('turn'), event.get('tool_version')
+            if (type(name) is not str or name not in allowed or type(call_id) is not str
+                    or not 1 <= len(call_id) <= 128
+                    or 'turn' in event and (type(turn) is not int or turn < 1)):
+                return None
+            descriptor = self.workflow.tool_descriptors.get(name)
+            if descriptor is not None:
+                if type(version) is not str or version != descriptor['version']:
+                    return None
+            elif name not in BUILTIN_TOOLS or version is not None:
+                return None
+            key, identity = (turn, call_id), (name, version)
+            if kind == 'tool_started':
+                if key in started or key in completed:
+                    return None
+                started[key] = identity
+                continue
+            try:
+                outcome = ToolOutcome.from_dict(event.get('tool_outcome')).to_dict()
+            except (ValueError, TypeError):
+                return None
+            if key in completed or key in started and started[key] != identity:
+                return None
+            completed[key] = identity
+            if event.get('status') == 'ok' and outcome['code'] == 'ok':
+                successful.add(name)
+            elif event.get('status') == 'error' and outcome['code'] == 'invalid_arguments':
+                repair = True
+            else:
+                return None
+        if started.keys() - completed.keys():
+            return None
+        missing = set(required) - successful
+        if not missing:
+            return ''
+        reason = 'invalid_arguments' if repair else 'missing_required_tool'
+        return f'toolRecovery {reason}: execute required granted tools successfully before returning JSON: {sorted(missing)}'
+
     def _accept(self, state, receipt):
         self._check_ownership()
         validate_receipt(receipt, state, state['pending'])
@@ -594,6 +647,7 @@ class Harness:
         result = receipt['result']
         error = None
         output = None
+        tool_feedback = ''
         if result['exit_code'] != 0:
             if self._admission and result['metadata'].get('failure_reason') in {
                     'output_limit', 'metadata_limit', 'event_limit', 'receipt_limit', 'result_limit'}:
@@ -605,6 +659,10 @@ class Harness:
                       'runtime_failure')
             return self._block(state, self._resource_reason(state) or reason)
         else:
+            if self._admission and self._admission.policy.bounded_tool_recovery:
+                tool_feedback = self._tool_recovery(receipt['events'], step.get('require_tools', []), step.get('tools', []))
+                if tool_feedback is None:
+                    return self._block(state, 'tool_recovery_blocked')
             try:
                 output = self._output(result['stdout'])
                 errors = evaluate_schema(self.workflow.schemas[state['current']], output,
@@ -626,7 +684,7 @@ class Harness:
                                event.get('tool_version') == self.workflow.tool_descriptors[event['name']]['version'])}
             missing = set(step.get('require_tools', [])) - successful
             if missing:
-                error = f'execute required granted tools successfully before returning JSON: {sorted(missing)}'
+                error = tool_feedback or f'execute required granted tools successfully before returning JSON: {sorted(missing)}'
         if error is None:
             for path in step.get('require_reads', []):
                 expected = state['evidence'][path]
@@ -802,6 +860,8 @@ class Harness:
                 policy = RunPolicy(allowed_tools=frozenset(step.get('tools', [])),
                                    read_roots=tuple(step.get('read_roots', [])),
                                    timeout_s=timeout, max_tool_rounds=self.workflow.config.limits.max_tool_rounds,
+                                   **({'bounded_tool_recovery': True} if self._admission and
+                                      self._admission.policy.bounded_tool_recovery else {}),
                                    **({'max_input_bytes': self._admission.policy.max_invocation_bytes} if self._admission else {}),
                                    **({'max_provider_requests': self._admission.policy.max_provider_requests_per_invocation,
                                        'max_tool_calls': self._admission.policy.max_tool_calls_per_invocation,

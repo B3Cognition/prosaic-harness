@@ -237,6 +237,7 @@ class WorkflowPolicy:
     max_state_bytes: int = 4194304
     max_provider_requests_per_invocation: int | None = None
     max_tool_calls_per_invocation: int | None = None
+    bounded_tool_recovery: bool = False
 
     def __post_init__(self):
         for item in fields(self):
@@ -257,7 +258,7 @@ class WorkflowPolicy:
                     else:
                         _alias(name)
                 object.__setattr__(self, item.name, frozenset(value))
-            elif item.name.startswith('allow_'):
+            elif item.name.startswith('allow_') or item.name == 'bounded_tool_recovery':
                 if type(value) is not bool:
                     _fail('invalid_definition')
             elif type(value) is not int or value <= 0:
@@ -270,7 +271,8 @@ class WorkflowPolicy:
     def _identity(self):
         return {item.name: sorted(getattr(self, item.name)) if item.name.startswith('allowed_')
                 else getattr(self, item.name) for item in fields(self)
-                if item.name not in _INVOCATION_CAPS or getattr(self, item.name) is not None}
+                if (item.name not in _INVOCATION_CAPS or getattr(self, item.name) is not None)
+                and (item.name != 'bounded_tool_recovery' or getattr(self, item.name))}
 
     def schema_profile(self, human=False):
         return {'version': 1, 'dialect': '2020-12', 'refs': 'acyclic-local-static',
@@ -688,6 +690,8 @@ def _check_adapter(workflow, runtime, descriptors, *, native):
     if native:
         record = workflow._admission
         required = {'invocation_budgets_v1', 'tool_context_v1'}
+        if record.policy.bounded_tool_recovery:
+            required.update({'tool_outcomes_v1', 'bounded_tool_recovery_v1'})
         if record.tool_journal is not None or any(d.get('journaled') for d in descriptors.values()):
             required.add('tool_journal_v1')
         if required - getattr(runtime, 'capabilities', frozenset()):
