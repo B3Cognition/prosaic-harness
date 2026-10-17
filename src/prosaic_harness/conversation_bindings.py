@@ -428,9 +428,9 @@ class ConversationBindings:
             return data
         except Exception:
             raise ConversationError('bindingMismatch') from None
-    def runtime(self):
+    def runtime(self, *, lifecycle=None):
         self.readmit()
-        return ProsaicRuntime(self.config, custom_tools=self._tools)
+        return ProsaicRuntime(self.config, custom_tools=self._tools, lifecycle=lifecycle)
 
 
 def _context_material(config, agent, interpreter, ordinary, interpreting, registry):

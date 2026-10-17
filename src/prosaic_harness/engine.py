@@ -1,4 +1,5 @@
 """A deterministic controller around one-agent invocations and validated results."""
+from prosaic_runtime.lifecycle import ExecutionLifecycle, tracked
 from dataclasses import asdict
 from copy import deepcopy
 from contextlib import contextmanager
@@ -29,7 +30,7 @@ _TERMINAL_NODES = 16
 
 
 class Harness:
-    def __init__(self, workflow, run_dir=None, *, store=None, run_id=None, runtime=None, on_event=None, observer=None, validators=None, cancelled=None, clock=time.time, context=None, accounting=None):
+    def __init__(self, workflow, run_dir=None, *, store=None, run_id=None, runtime=None, on_event=None, observer=None, validators=None, cancelled=None, clock=time.time, context=None, accounting=None, lifecycle=None):
         self.workflow = workflow
         admission = admit_workflow(workflow)
         self._admission = admission
@@ -46,9 +47,16 @@ class Harness:
         self._revision = None
         self._ownership_failure = None
         self._execution_lock = threading.Lock()
-        self.runtime = runtime or (admission.runtime_adapter if admission else None) or (ProsaicRuntime(_config_from_json(admission.config_json), custom_tools=admission.tools) if admission else
-                                   ProsaicRuntime(workflow.config, custom_tools=workflow.custom_tools)
-                                   if workflow.custom_tools else ProsaicRuntime(workflow.config))
+        self.runtime = runtime or (admission.runtime_adapter if admission else None) or (ProsaicRuntime(_config_from_json(admission.config_json), custom_tools=admission.tools, lifecycle=lifecycle) if admission else
+                                   ProsaicRuntime(workflow.config, custom_tools=workflow.custom_tools, lifecycle=lifecycle)
+                                   if workflow.custom_tools else ProsaicRuntime(workflow.config, lifecycle=lifecycle))
+        self.lifecycle = lifecycle if lifecycle is not None else getattr(self.runtime, 'lifecycle', None)
+        if self.lifecycle is None:
+            self.lifecycle = ExecutionLifecycle()
+        if not isinstance(self.lifecycle, ExecutionLifecycle):
+            raise TypeError('lifecycle must be an ExecutionLifecycle')
+        if (getattr(self.runtime, 'lifecycle', self.lifecycle) is not self.lifecycle):
+            raise ValueError('Harness and Runtime must share one lifecycle')
         self.context = context
         self.accounting = accounting
         self._accounting_enabled = (context is not None or accounting is not None
@@ -360,6 +368,7 @@ class Harness:
         self._save(state)
         return state
 
+    @tracked
     def run(self, inputs):
         self._admit()
         self._check_custom_tools()
@@ -386,6 +395,7 @@ class Harness:
             self._save(state)
             return self._drive(state)
 
+    @tracked
     def resume(self, *, choice=None, response=None, retry_interrupted=False, expected_revision=None, decision_id=None):
         if decision_id is not None:
             validate_id(decision_id)
