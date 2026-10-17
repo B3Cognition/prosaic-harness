@@ -620,10 +620,6 @@ class Harness:
         error = None
         output = None
         tool_feedback = ''
-        if self._admission and self._admission.policy.bounded_tool_recovery:
-            tool_feedback = self._tool_recovery(receipt['events'], step.get('require_tools', []))
-            if tool_feedback is None:
-                return self._block(state, 'tool_recovery_blocked')
         if result['exit_code'] != 0:
             if self._admission and result['metadata'].get('failure_reason') in {
                     'output_limit', 'metadata_limit', 'event_limit', 'receipt_limit', 'result_limit'}:
@@ -635,6 +631,10 @@ class Harness:
                       'runtime_failure')
             return self._block(state, self._resource_reason(state) or reason)
         else:
+            if self._admission and self._admission.policy.bounded_tool_recovery:
+                tool_feedback = self._tool_recovery(receipt['events'], step.get('require_tools', []))
+                if tool_feedback is None:
+                    return self._block(state, 'tool_recovery_blocked')
             try:
                 output = self._output(result['stdout'])
                 errors = evaluate_schema(self.workflow.schemas[state['current']], output,

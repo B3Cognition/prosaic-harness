@@ -68,3 +68,15 @@ def test_capabilities_are_required_before_execution(tmp_path):
     runtime.capabilities=runtime.capabilities-{'tool_outcomes_v1'}
     with pytest.raises(ValueError):Harness(workflow,tmp_path/'run',runtime=runtime)
     assert not (tmp_path/'run').exists()
+
+@pytest.mark.parametrize('result,reason',[(Result(130,'','',token_usage=1),'cancelled'),
+    (Result(1,'','',timed_out=True,token_usage=1),'runtime_timeout'),
+    (Result(1,'','',token_usage=1,metadata={'failure_reason':'tool_call_limit'}),'runtime_failure')])
+def test_runtime_terminal_failure_keeps_precedence_without_retry(tmp_path,monkeypatch,result,reason):
+    h,calls=bound(tmp_path,monkeypatch,[])
+    def run(*args,**kw):
+        calls.append(1)
+        kw['on_event'](dict(event='tool_started',name='lookup_entity',call_id='call1'))
+        return result
+    monkeypatch.setattr(h.runtime,'run',run)
+    assert h.run({})['reason']==reason and calls==[1]
