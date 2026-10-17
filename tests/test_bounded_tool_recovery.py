@@ -5,9 +5,9 @@ from prosaic_harness import Harness,WorkflowPolicy
 from prosaic_runtime import ProsaicRuntime,Result,ToolOutcome
 from test_workflow_factory import factory,graph,tools
 
-def bound(tmp_path,monkeypatch,events,**caps):
-    workflow=factory(bounded_tool_recovery=True,**caps).build(graph())
-    runtime=ProsaicRuntime(workflow.config,custom_tools=tools());calls=[]
+def bound(tmp_path,monkeypatch,events,proposal=None,**caps):
+    workflow=factory(bounded_tool_recovery=True,**caps).build(proposal or graph())
+    runtime=ProsaicRuntime(workflow.config,custom_tools=caps.get('registry',tools()));calls=[]
     def run(artifact,arguments,**options):
         calls.append((json.loads(arguments),options['policy']))
         assert options['policy'].bounded_tool_recovery is True
@@ -80,3 +80,38 @@ def test_runtime_terminal_failure_keeps_precedence_without_retry(tmp_path,monkey
         return result
     monkeypatch.setattr(h.runtime,'run',run)
     assert h.run({})['reason']==reason and calls==[1]
+
+@pytest.mark.parametrize('start,completed',[
+    (dict(name='other_entity',tool_version='v1',call_id='call1'),completion('invalid_arguments')),
+    (dict(name={},tool_version='v1',call_id='call1'),completion('invalid_arguments')),
+    (dict(name='lookup_entity',tool_version='v1',call_id=[]),completion('invalid_arguments')),
+    (dict(name='lookup_entity',tool_version='foreign',call_id='call1'),completion('invalid_arguments')),
+    (dict(name='lookup_entity',tool_version='v1',call_id='call1'),completion('invalid_arguments',name={})),
+    (dict(name='lookup_entity',tool_version='v1',call_id='call1',turn=1),completion('invalid_arguments',turn=2)),
+])
+def test_malformed_or_contradictory_call_identity_blocks_durably(tmp_path,monkeypatch,start,completed):
+    from dataclasses import replace
+    from test_workflow_factory import agent,config
+    from prosaic_runtime import CustomTool
+    registry=tools();base=registry['lookup_entity']
+    registry['other_entity']=CustomTool('other_entity','Other lookup',base.parameters,base.handler,'v1')
+    grants={'lookup_entity','other_entity'}
+    proposal=graph();proposal['steps']['find']['tools']=sorted(grants)
+    h,calls=bound(tmp_path,monkeypatch,[dict(event='tool_started',**start),completed],
+        proposal=proposal,registry=registry,assets={'finder':agent(tools=tuple(grants))},allowed_tools=grants,
+        cfg=replace(config(),allowed_tools=frozenset(grants)))
+    state=h.run({})
+    assert state['reason']=='tool_recovery_blocked' and len(calls)==1
+    assert h.status().state['reason']=='tool_recovery_blocked'
+    assert h.resume()['reason']=='tool_recovery_blocked' and len(calls)==1
+
+def test_builtin_success_and_reused_provider_ids_in_separate_turns_are_valid():
+    from types import SimpleNamespace
+    from prosaic_harness.engine import Harness
+    h=SimpleNamespace(workflow=SimpleNamespace(tool_descriptors={}))
+    events=[]
+    for turn in (1,2):
+        identity=dict(name='list_files',call_id='provider-local-id',turn=turn)
+        events.extend([dict(event='tool_started',**identity),dict(event='tool_completed',**identity,
+            status='ok',tool_outcome=ToolOutcome('ok').to_dict())])
+    assert Harness._tool_recovery(h,events,{'list_files'})==''

@@ -571,34 +571,52 @@ class Harness:
         state.update(current=target, entered=False, attempt=0, feedback=feedback, status='running', reason=None)
         self._save(state)
 
-    def _tool_recovery(self, events, required):
+    def _tool_recovery(self, events, required, allowed=None):
         """Validate trusted Runtime evidence, never model error dictionaries."""
         from prosaic_runtime import ToolOutcome
-        completed = set()
+        from prosaic_runtime.policy import BUILTIN_TOOLS
+        allowed = set(self.workflow.tool_descriptors) | BUILTIN_TOOLS if allowed is None else set(allowed)
+        started, completed = {}, {}
         successful = set()
         repair = False
         for event in events:
-            if event.get('event') != 'tool_completed':
+            if type(event) is not dict or type(event.get('event')) is not str:
+                return None
+            kind = event['event']
+            if kind not in {'tool_started', 'tool_completed'}:
                 continue
             name, call_id = event.get('name'), event.get('call_id')
+            turn, version = event.get('turn'), event.get('tool_version')
+            if (type(name) is not str or name not in allowed or type(call_id) is not str
+                    or not 1 <= len(call_id) <= 128
+                    or 'turn' in event and (type(turn) is not int or turn < 1)):
+                return None
             descriptor = self.workflow.tool_descriptors.get(name)
+            if descriptor is not None:
+                if type(version) is not str or version != descriptor['version']:
+                    return None
+            elif name not in BUILTIN_TOOLS or version is not None:
+                return None
+            key, identity = (turn, call_id), (name, version)
+            if kind == 'tool_started':
+                if key in started or key in completed:
+                    return None
+                started[key] = identity
+                continue
             try:
                 outcome = ToolOutcome.from_dict(event.get('tool_outcome')).to_dict()
             except (ValueError, TypeError):
                 return None
-            if (descriptor is None or event.get('tool_version') != descriptor['version']
-                    or type(call_id) is not str or not 1 <= len(call_id) <= 128
-                    or call_id in completed):
+            if key in completed or key in started and started[key] != identity:
                 return None
-            completed.add(call_id)
+            completed[key] = identity
             if event.get('status') == 'ok' and outcome['code'] == 'ok':
                 successful.add(name)
             elif event.get('status') == 'error' and outcome['code'] == 'invalid_arguments':
                 repair = True
             else:
                 return None
-        if any(event.get('event') == 'tool_started' and event.get('call_id') not in completed
-               for event in events):
+        if started.keys() - completed.keys():
             return None
         missing = set(required) - successful
         if not missing:
@@ -632,7 +650,7 @@ class Harness:
             return self._block(state, self._resource_reason(state) or reason)
         else:
             if self._admission and self._admission.policy.bounded_tool_recovery:
-                tool_feedback = self._tool_recovery(receipt['events'], step.get('require_tools', []))
+                tool_feedback = self._tool_recovery(receipt['events'], step.get('require_tools', []), step.get('tools', []))
                 if tool_feedback is None:
                     return self._block(state, 'tool_recovery_blocked')
             try:
