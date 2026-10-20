@@ -83,3 +83,14 @@ def test_explicit_profile_retains_real_connection_guards(db_admin_dsn, class_nam
         store._transport.call(lambda conn: conn.execute('SET synchronous_commit=off'))
         with pytest.raises(StoreIncompatible):
             store.check_ready()
+
+
+def test_public_version_matches_distribution():
+    import ast
+    from pathlib import Path
+    import tomllib
+    root = Path(__file__).resolve().parents[1]
+    version = tomllib.loads((root/'pyproject.toml').read_text())['project']['version']
+    module = ast.parse((root/'src/prosaic_harness_postgres/__init__.py').read_text())
+    assert next(ast.literal_eval(n.value) for n in module.body if isinstance(n, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id=='__version__' for t in n.targets)) == version
