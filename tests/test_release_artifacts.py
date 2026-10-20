@@ -515,12 +515,28 @@ def test_index_selection_leaves_unselected_distributions_unpublished(release_too
                                  distributions=[], fetch=fetch)
 
 
-def test_sdk_publication_does_not_republish_postgres_compatibility_witness():
-    """An existing adapter release must never be replaced by a rebuilt witness."""
+@pytest.mark.parametrize('distribution,prefix,version', [
+    ('b3-prosaic-harness', 'b3_prosaic_harness', '0.9.4'),
+    ('b3-prosaic-harness-postgres', 'b3_prosaic_harness_postgres', '0.4.1'),
+])
+def test_sdk_publication_uploads_only_explicit_distribution(tmp_path, distribution, prefix, version):
+    """Core stays the default; an adapter release cannot republish core bytes."""
+    import os
+    import subprocess
     import yaml
     workflow = yaml.safe_load((SCRIPT.parents[1] / '.github/workflows/publish.yml').read_text())
+    trigger = workflow.get('on', workflow.get(True))
+    assert trigger['workflow_dispatch']['inputs']['distribution']['default'] == 'core'
     steps = workflow['jobs']['pypi']['steps']
     publication = '\n'.join(step.get('run', '') for step in steps)
-    assert 'b3-prosaic-harness-postgres' not in publication
-    assert 'b3_prosaic_harness_postgres' not in publication
-    assert publication.count('index-check --distribution b3-prosaic-harness --directory') == 2
+    assert publication.count('index-check --distribution "$DISTRIBUTION" --directory') == 2
+    prepare = next(step['run'] for step in steps if step.get('name') == 'Prepare only distribution files for upload')
+    artifacts = tmp_path/'release/artifacts'
+    artifacts.mkdir(parents=True)
+    for name, value in [('b3_prosaic_harness','0.9.4'), ('b3_prosaic_harness_postgres','0.4.1')]:
+        for suffix in ('-py3-none-any.whl', '.tar.gz'):
+            (artifacts/(name+'-'+value+suffix)).write_bytes(b'fixture')
+    subprocess.run(['sh', '-e', '-c', prepare], cwd=tmp_path,
+                   env={**os.environ, 'DISTRIBUTION': distribution}, check=True)
+    assert {p.name for p in (tmp_path/'upload').iterdir()} == {
+        prefix+'-'+version+'-py3-none-any.whl', prefix+'-'+version+'.tar.gz'}
