@@ -565,3 +565,15 @@ This document specifies the approved approach, not implemented behavior. After
 written-spec approval, prepare an implementation plan with concrete interfaces,
 TDD milestones, migration/lease SQL, CI fixtures and dependency packaging. Do not
 publish packages, create remote repositories or migrate consumers during design.
+
+
+## Aurora PostgreSQL compatibility (adapter 0.4.1)
+
+The default PostgreSQL profile retains every original durability requirement.
+An explicit `aurora-postgresql` profile allows full-page writes to be off under
+the operator-verified Aurora storage contract. No other durability, primary,
+logged-table, fencing or unknown-outcome requirement changes. ALWAYS apply the
+same profile in both stores, migration and doctor; NEVER infer Aurora from a
+failed metadata query or weaken ordinary PostgreSQL defaults. Unit guard tests
+are policy qualification only; real Aurora recovery requires its own deployment
+qualification. The adapter performs no AWS provisioning or engine autodetection.

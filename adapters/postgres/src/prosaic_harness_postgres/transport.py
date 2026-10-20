@@ -47,7 +47,10 @@ class _Operation:
 class PostgresTransport:
     def __init__(self, dsn, *, operation_timeout_s=10, pool_timeout_s=5,
                  connect_timeout_s=5, lock_timeout_s=1, statement_timeout_s=5,
-                 pool_size=8, max_active_leases=4):
+                 pool_size=8, max_active_leases=4, durability_profile="postgresql"):
+        if type(durability_profile) is not str or durability_profile not in {'postgresql', 'aurora-postgresql'}:
+            raise ValueError('durability_profile must be postgresql or aurora-postgresql')
+        self.durability_profile = durability_profile
         for name, value in locals().copy().items():
             if name.endswith('_s'):
                 positive(value, name)
@@ -138,7 +141,9 @@ class PostgresTransport:
             pg_catalog.current_setting('transaction_read_only'),
             pg_catalog.current_setting('fsync'), pg_catalog.current_setting('full_page_writes'),
             pg_catalog.current_setting('synchronous_commit')""")).fetchone()
-        if not row or row[0] or row[1:4] != ('off', 'on', 'on') or row[4] not in {'on', 'remote_apply'}:
+        full_page_values = {'on', 'off'} if self.durability_profile == 'aurora-postgresql' else {'on'}
+        if (not row or row[0] or row[1:3] != ('off', 'on')
+                or row[3] not in full_page_values or row[4] not in {'on', 'remote_apply'}):
             raise StoreIncompatible('require writable primary, logged durability and safe WAL settings')
 
     async def _sql(self, operation, callback, renewal, budget):

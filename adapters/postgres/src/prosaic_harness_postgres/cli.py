@@ -47,18 +47,20 @@ def main(argv=None):
     for name in ('init', 'doctor', 'migrate-conversations'):
         command = commands.add_parser(name)
         command.add_argument('--dsn-env', required=True, help='name of the DSN environment variable, never its value')
+        command.add_argument('--durability-profile', choices=['postgresql', 'aurora-postgresql'],
+                             default='postgresql', help='explicit operator-verified database storage contract')
         if name == 'doctor':
             command.add_argument('--check-write', action='store_true', help='explicit disposable write test; DELETE credentials required')
     args = parser.parse_args(argv)
     try:
         if args.command == 'migrate-conversations':
             from .session_store import PostgresSessionStore
-            with PostgresSessionStore.from_env(args.dsn_env, namespace='conversation-migration') as store:
+            with PostgresSessionStore.from_env(args.dsn_env, namespace='conversation-migration', durability_profile=args.durability_profile) as store:
                 store.migrate_context_storage()
             print(json.dumps({'migrated': True, 'conversation_storage_contract': 2}))
             return 0
         namespace = 'prosaic-diagnostic-' + uuid.uuid4().hex
-        with PostgresRunStore.from_env(args.dsn_env, namespace=namespace) as store:
+        with PostgresRunStore.from_env(args.dsn_env, namespace=namespace, durability_profile=args.durability_profile) as store:
             if args.command == 'init':
                 store.initialize()
                 result = {'initialized': True, 'schema_version': 1}

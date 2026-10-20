@@ -4,13 +4,35 @@ Run on worker A, inspect/resume on worker B, without a shared writable run
 directory. Core remains database-free; install this separate adapter only when
 you need shared durable state. The API is synchronous; a private I/O thread
 bounds network waits. Model execution holds no database connection/transaction.
-The conversation candidate is `b3-prosaic-harness-postgres` **0.3.0**, selecting
-`b3-prosaic-harness>=0.8,<0.9`. The adapter is maintained in this repository but
-installed and versioned separately, keeping PostgreSQL drivers optional for
-Harness users. Imports and CLI names remain unchanged. Final qualification and
-publication of this conversation release train are pending. The historical
-[Harness v0.6.1 release](https://github.com/B3Cognition/prosaic-harness/releases/tag/v0.6.1)
-retains its original 0.6.1/0.1.1 package names and receipts.
+The adapter is independently versioned: `b3-prosaic-harness-postgres` **0.4.1**
+requires `b3-prosaic-harness>=0.9,<0.10`. PostgreSQL drivers remain optional for
+core Harness users. Imports and CLI names are unchanged.
+
+## Durability profiles
+
+The default `durability_profile="postgresql"` requires `full_page_writes=on`.
+An operator who has independently verified an Amazon Aurora PostgreSQL cluster
+may explicitly select `durability_profile="aurora-postgresql"` on both
+`PostgresRunStore` and `PostgresSessionStore` (including `from_env`). This accepts
+`full_page_writes=off` under Aurora's log-based storage contract. It does not
+weaken fsync, synchronous commit, writable-primary, logged-table, lease or
+unknown-commit checks. The guard runs for every operation and connection reuse.
+Invalid profiles fail before connecting. This profile is an operator assertion,
+not engine autodetection or proof that arbitrary storage is safe. NEVER select
+it for ordinary PostgreSQL just to suppress a readiness failure.
+
+For every CLI command, pass `--durability-profile aurora-postgresql` explicitly.
+Migration and runtime must select the same profile. Verify the actual engine and
+version with AWS RDS metadata/DBA evidence; AWS also documents `aurora_version()`.
+Capture a failed SQL probe's actual error and inspect its schema/search path;
+NEVER convert an unavailable probe into permission to bypass durability checks.
+No AWS credentials or model calls are needed by the adapter.
+
+AWS describes the storage contract in
+[its architecture guide](https://aws.amazon.com/blogs/database/is-amazon-rds-for-postgresql-or-amazon-aurora-postgresql-a-better-choice-for-me/).
+Native PostgreSQL tests qualify the policy and all existing recovery behavior;
+they do not emulate Aurora storage. An actual Aurora deployment needs synthetic
+persistence/restart/failover qualification before enabling production work.
 
 ## 1. Install and supply an existing database
 

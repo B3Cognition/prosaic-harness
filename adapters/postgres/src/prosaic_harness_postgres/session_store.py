@@ -33,7 +33,7 @@ class PostgresSessionStore:
 
     def __init__(self, dsn, *, namespace, lease_s=60, renew_s=15,
                  operation_timeout_s=10, pool_timeout_s=5, connect_timeout_s=5,
-                 lock_timeout_s=1, statement_timeout_s=5, pool_size=8, max_active_leases=4):
+                 lock_timeout_s=1, statement_timeout_s=5, pool_size=8, max_active_leases=4, durability_profile="postgresql"):
         self._namespace = validate_namespace(namespace)
         positive(lease_s, 'lease_s')
         positive(renew_s, 'renew_s')
@@ -49,7 +49,7 @@ class PostgresSessionStore:
         self._transport = PostgresTransport(dsn, operation_timeout_s=operation_timeout_s,
             pool_timeout_s=pool_timeout_s, connect_timeout_s=connect_timeout_s,
             lock_timeout_s=lock_timeout_s, statement_timeout_s=statement_timeout_s,
-            pool_size=pool_size, max_active_leases=max_active_leases)
+            pool_size=pool_size, max_active_leases=max_active_leases, durability_profile=durability_profile)
 
     @property
     def namespace(self):
