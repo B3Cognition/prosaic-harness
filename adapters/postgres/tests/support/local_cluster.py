@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import uuid
 
 import psycopg
@@ -26,6 +27,12 @@ def owned_subnet(networks,token):
     raise ValueError('no free owned fixture subnet')
 
 
+def project_wheel(root, project="."):
+    metadata = tomllib.loads((Path(root) / project / "pyproject.toml").read_text())["project"]
+    return Path(root) / project / "dist" / (
+        metadata["name"].replace("-", "_") + "-" + metadata["version"] + "-py3-none-any.whl")
+
+
 def candidate_wheels(root):
     """Select exact audited Core/Runtime wheels for isolated test environments."""
     if not os.environ.get('HARNESS_TEST_WHEELHOUSE'):
@@ -38,9 +45,15 @@ def candidate_wheels(root):
         Path(root) / 'scripts/release_artifacts.py')
     release = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(release)
-    release.verify_upstream(Path(receipt_directory).resolve(strict=True), wheelhouse)
-    return [wheelhouse / 'b3_prosaic-0.4.1-py3-none-any.whl',
-            wheelhouse / 'b3_prosaic_runtime-0.9.7-py3-none-any.whl']
+    evidence = release.verify_upstream(Path(receipt_directory).resolve(strict=True), wheelhouse)
+    selected = []
+    for repository, distribution in (('B3Cognition/prosaic', 'b3-prosaic'),
+                                     ('B3Cognition/prosaic-runtime', 'b3-prosaic-runtime')):
+        candidate = next(item for item in evidence['candidates'] if item['repository'] == repository)
+        version = next(item['version'] for item in candidate['receipt']['distributions']
+                       if item['name'] == distribution)
+        selected.append(wheelhouse / (distribution.replace('-', '_') + '-' + version + '-py3-none-any.whl'))
+    return selected
 
 
 class LocalCluster:
@@ -177,14 +190,16 @@ class LocalCluster:
 set -eu
 apt-get update -qq
 python -m venv /tmp/core
-/tmp/core/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.9.4-py3-none-any.whl >/dev/null
+/tmp/core/bin/python -m pip install /core-wheels/@CORE_WHEEL@ >/dev/null
 /tmp/core/bin/python -I -c 'import importlib.util,prosaic_harness; assert importlib.util.find_spec("psycopg") is None; assert importlib.util.find_spec("prosaic_harness_postgres") is None'
 /tmp/core/bin/python -I /fixture/workflow_factory_smoke.py
 /tmp/core/bin/python -I /fixture/conversation_smoke.py
 python -m venv /tmp/both
-/tmp/both/bin/python -m pip install /core-wheels/b3_prosaic_harness-0.9.4-py3-none-any.whl /adapter-wheels/b3_prosaic_harness_postgres-0.4.1-py3-none-any.whl >/dev/null
+/tmp/both/bin/python -m pip install /core-wheels/@CORE_WHEEL@ /adapter-wheels/@ADAPTER_WHEEL@ >/dev/null
 /tmp/both/bin/python -I /fixture/linux_wheel_smoke.py
 '''
+        command = command.replace('@CORE_WHEEL@', project_wheel(root).name).replace(
+            '@ADAPTER_WHEEL@', project_wheel(root, 'adapters/postgres').name)
         if dependencies:
             selected = ' '.join('/candidate-wheels/' + path.name for path in dependencies) + ' '
             for environment in ('core', 'both'):
