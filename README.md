@@ -385,3 +385,6 @@ attachment release and exact decision recovery are documented in
 [conversations](docs/conversations.md#structured-choices-and-attachment-lifecycle-unreleased).
 
 See [execution correlation and graceful drain](docs/execution-lifecycle.md) for the host shutdown contract.
+
+See [model-free tool steps](docs/direct-tool-step.md) for literal host-admitted
+`kind: tool` execution and the separate `allowed_direct_tools` permission.

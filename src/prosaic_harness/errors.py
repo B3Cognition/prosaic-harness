@@ -5,10 +5,10 @@ from jsonschema import Draft202012Validator
 
 
 _FIELDS = frozenset({'definition', 'inline_agents', 'version', 'name', 'start', 'steps',
-    'limits', 'kind', 'agent', 'schema', 'response_schema', 'resources', 'acquisition',
+    'limits', 'kind', 'agent', 'tool', 'arguments', 'schema', 'response_schema', 'resources', 'acquisition',
     'read_roots', 'require_reads', 'inputs', 'optional_inputs', 'next', 'max_attempts',
     'max_visits', 'max_calls', 'timeout_s', 'max_tokens', 'max_run_s', 'tools',
-    'require_tools', 'validators', 'from', 'field', 'equals', 'pass', 'fail',
+    'require_tools', 'initial_tool', 'validators', 'from', 'field', 'equals', 'pass', 'fail',
     'question', 'choices', 'requires', 'outcome', 'frontmatter', 'body', 'model_tier'})
 
 

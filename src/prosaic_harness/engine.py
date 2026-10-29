@@ -78,6 +78,13 @@ class Harness:
             raise ValueError('require_reads needs a Prosaic Runtime with read_receipts_v1 support')
         if workflow.acquisitions and 'acquisition_v1' not in getattr(self.runtime, 'capabilities', ()):
             raise ValueError('acquisition needs a Prosaic Runtime with acquisition_v1 support')
+        if any('initial_tool' in step for step in workflow.definition['steps'].values()):
+            if not {'initial_tool_v1','initial_tool_enforcement_v1'} <= set(getattr(self.runtime,'capabilities',())):
+                raise ValueError('initial_tool needs Runtime first-tool enforcement')
+        if any(step.get('kind') == 'tool' for step in workflow.definition['steps'].values()):
+            if ('direct_tool_v1' not in getattr(self.runtime, 'capabilities', ())
+                    or not callable(getattr(self.runtime, 'run_tool', None))):
+                raise ValueError('tool steps need Runtime direct_tool_v1 support')
         self._check_custom_tools()
         self._admit()
 
@@ -492,7 +499,7 @@ class Harness:
                     validate_receipt(receipt, state, pending)
                     with self._observations.recovery():
                         self._accept(state, receipt)
-                elif not retry_interrupted:
+                elif not retry_interrupted or self.workflow.definition['steps'][pending['step']]['kind'] == 'tool':
                     return self._block(state, 'interrupted_call')
                 else:
                     self._event(state, 'interrupted_retry', abandoned=pending['id'])
@@ -634,6 +641,23 @@ class Harness:
         reason = 'invalid_arguments' if repair else 'missing_required_tool'
         return f'toolRecovery {reason}: execute required granted tools successfully before returning JSON: {sorted(missing)}'
 
+    def _first_tool_recovery(self, step, result, events):
+        """Only completed, proven pre-dispatch failures may consume repair budget."""
+        if not self._admission or not self._admission.policy.bounded_tool_recovery:
+            return None
+        metadata = result['metadata']
+        name = step.get('initial_tool')
+        if (not name or result['exit_code'] != 1 or result['timed_out']
+                or type(result['token_usage']) is not int or result['token_usage'] < 0
+                or metadata.get('failure_reason') != 'tool_choice_not_honored'
+                or metadata.get('provider_error_code') != 'tool_choice_not_honored'
+                or metadata.get('expected_tool') != name
+                or any(type(metadata.get(key)) is not int or metadata[key] != 0
+                       for key in ('tool_call_count', 'tool_rounds'))
+                or any(event.get('event', '').startswith(('tool_', 'acquisition_')) for event in events)):
+            return None
+        return f'Execute the required first native tool {name}; no tool executed in the previous attempt.'
+
     def _accept(self, state, receipt):
         self._check_ownership()
         validate_receipt(receipt, state, state['pending'])
@@ -657,9 +681,11 @@ class Harness:
                       'tool_choice_not_honored' if result['metadata'].get('failure_reason') == 'tool_choice_not_honored' else
                       'acquisition_failed' if result['metadata'].get('failure_reason') == 'acquisition_failed' else
                       'runtime_failure')
-            return self._block(state, self._resource_reason(state) or reason)
+            error = self._first_tool_recovery(step, result, receipt['events'])
+            if error is None:
+                return self._block(state, self._resource_reason(state) or reason)
         else:
-            if self._admission and self._admission.policy.bounded_tool_recovery:
+            if step['kind'] == 'agent' and self._admission and self._admission.policy.bounded_tool_recovery:
                 tool_feedback = self._tool_recovery(receipt['events'], step.get('require_tools', []), step.get('tools', []))
                 if tool_feedback is None:
                     return self._block(state, 'tool_recovery_blocked')
@@ -712,7 +738,7 @@ class Harness:
         if error:
             state['feedback'] = error
             self._event(state, 'validation_failed', attempt_id=receipt['id'], message=error)
-            if state['attempt'] >= step.get('max_attempts', 2):
+            if state['attempt'] >= (1 if step['kind'] == 'tool' else step.get('max_attempts', 2)):
                 self._block(state, 'attempt_limit')
             else:
                 self._save(state)
@@ -796,10 +822,13 @@ class Harness:
                 responses = self._human_responses(state)
                 if responses:
                     arguments['human_responses'] = responses
+                if kind == 'tool':
+                    arguments['tool_arguments'] = deepcopy(step['arguments'])
                 if self._admission:
                     try:
                         arguments = self._snapshot(arguments, self._admission.policy.max_invocation_bytes)
-                        rendered = self.workflow.artifacts[name].render(json.dumps(arguments))
+                        rendered = (json.dumps(arguments) if kind == 'tool' else
+                                    self.workflow.artifacts[name].render(json.dumps(arguments)))
                         if len(rendered.encode()) > self._admission.policy.max_invocation_bytes:
                             raise WorkflowAdmissionError('limit_exceeded')
                     except (WorkflowAdmissionError, ValueError, TypeError):
@@ -857,7 +886,7 @@ class Harness:
                         self.on_event(deepcopy({**event, 'step': name, 'attempt_id': attempt_id}) if self._admission
                                       else {**event, 'step': name, 'attempt_id': attempt_id})
                 timeout = limits['timeout_s'] if state['deadline'] is None else min(limits['timeout_s'], max(0.001, state['deadline'] - self.clock()))
-                policy = RunPolicy(allowed_tools=frozenset(step.get('tools', [])),
+                policy = RunPolicy(allowed_tools=frozenset([step['tool']] if kind == 'tool' else step.get('tools', [])),
                                    read_roots=tuple(step.get('read_roots', [])),
                                    timeout_s=timeout, max_tool_rounds=self.workflow.config.limits.max_tool_rounds,
                                    **({'bounded_tool_recovery': True} if self._admission and
@@ -868,7 +897,8 @@ class Harness:
                                        'max_reported_tokens': limits['max_tokens'] - sum(
                                            i['token_usage'] for i in state['invocations'] if i['status'] == 'complete')}
                                       if self._admission else {}),
-                                   **({'initial_tool': 'read_file'} if step.get('require_reads') and
+                                   **({'initial_tool': step['initial_tool']} if 'initial_tool' in step else
+                                      {'initial_tool': 'read_file'} if step.get('require_reads') and
                                       'initial_tool_v1' in getattr(self.runtime, 'capabilities', ()) else {}))
                 self._check_ownership()
                 self._admit()
@@ -882,7 +912,13 @@ class Harness:
                         observation_options['observer'] = self._observations.observer
                     if self._admission and self._admission.tool_journal is not None:
                         observation_options['tool_journal'] = self._admission.tool_journal
-                result = self.runtime.run(self.workflow.artifacts[name], json.dumps(arguments),
+                if kind == 'tool':
+                    result = self.runtime.run_tool(step['tool'], arguments['tool_arguments'], cwd=self._cwd,
+                        policy=policy, on_event=record,
+                        cancelled=lambda: bool(event_failure) or self._runtime_cancelled(state),
+                        **observation_options, **accounting_options)
+                else:
+                    result = self.runtime.run(self.workflow.artifacts[name], json.dumps(arguments),
                                           cwd=self._cwd, policy=policy, on_event=record,
                                           cancelled=lambda: bool(event_failure) or self._runtime_cancelled(state),
                                           **({'acquisition': self.workflow.acquisitions[name]} if name in self.workflow.acquisitions else {}),

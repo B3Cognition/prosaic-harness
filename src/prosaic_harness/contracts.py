@@ -99,8 +99,8 @@ def validate_state(state, workflow):
         if step not in workflow.definition['steps'] or type(visits) is not int or not 1 <= visits <= workflow.definition['steps'][step].get('max_visits', workflow.definition['limits']['max_visits']):
             raise ValueError('invalid step visit count')
     current = workflow.definition['steps'][state['current']]
-    if (state['attempt'] > current.get('max_attempts', 2)
-            or (current['kind'] != 'agent' and state['attempt'] != 0)
+    if (state['attempt'] > (1 if current['kind'] == 'tool' else current.get('max_attempts', 2))
+            or (current['kind'] not in {'agent', 'tool'} and state['attempt'] != 0)
             or (state['status'] in {'completed', 'rejected'} and
                 (current['kind'] != 'finish' or state['status'] != current.get('outcome', 'completed') or state['pending'] is not None))):
         raise ValueError('invalid checkpoint phase/attempt')
@@ -128,11 +128,13 @@ def validate_state(state, workflow):
                     raise ValueError('invalid human response')
             elif 'response' in event:
                 raise ValueError('unexpected human response')
+    output_steps = {name for name, step in workflow.definition['steps'].items()
+                    if step['kind'] in {'agent', 'tool'}}
     ids = set()
     for invocation in state['invocations']:
         if (not isinstance(invocation, dict) or set(invocation) != {'id', 'step', 'arguments_sha256', 'status', 'token_usage', 'receipt_sha256'}
                 or not isinstance(invocation['id'], str) or not IDENTIFIER.fullmatch(invocation['id'])
-                or invocation['id'] in ids or invocation['step'] not in workflow.artifacts
+                or invocation['id'] in ids or invocation['step'] not in output_steps
                 or not isinstance(invocation['arguments_sha256'], str) or not HASH.fullmatch(invocation['arguments_sha256'])
                 or invocation['status'] not in {'pending', 'complete', 'abandoned'}
                 or (invocation['token_usage'] is not None and (type(invocation['token_usage']) is not int or invocation['token_usage'] < 0))):
@@ -149,7 +151,7 @@ def validate_state(state, workflow):
     elif waiting_calls:
         raise ValueError('pending invocation missing')
     for name, binding in state['bindings'].items():
-        if (name not in workflow.artifacts or not isinstance(binding, dict)
+        if (name not in output_steps or not isinstance(binding, dict)
                 or set(binding) != {'id', 'sha256', 'dependencies'} or binding['id'] not in ids
                 or digest(state['outputs'][name]) != binding['sha256'] or not isinstance(binding['dependencies'], dict)):
             raise ValueError('invalid artifact binding')

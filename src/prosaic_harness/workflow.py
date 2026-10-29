@@ -15,7 +15,7 @@ from prosaic_runtime.policy import READ_TOOLS, BUILTIN_TOOLS, requested_tools
 from .store import parse_json, read_bytes
 from .errors import WorkflowAdmissionError
 from .admission_data import snapshot_json
-from .graph_admission import validate_resolved_workflow
+from .graph_admission import validate_resolved_workflow, validate_initial_tool
 
 
 def digest(value):
@@ -76,6 +76,7 @@ class Workflow:
     acquisitions: dict = field(default_factory=dict)
     custom_tools: dict = field(default_factory=dict)
     _tool_descriptors: dict = field(default_factory=dict, repr=False)
+    allowed_direct_tools: frozenset = frozenset()
 
     def prepare_inputs(self, inputs):
         """Own and bound native input data before the host reserves a run.
@@ -104,7 +105,8 @@ class Workflow:
         return digest({'workflow': self.definition, 'runtime': runtime_identity(self.config),
                        'schemas': self.schemas, 'prose': {name: a.digest for name, a in self.artifacts.items()},
                        **({'acquisitions': {name: a.digest for name, a in self.acquisitions.items()}} if self.acquisitions else {}),
-                       **({'custom_tools': self.tool_descriptors} if self._tool_descriptors else {})})
+                       **({'custom_tools': self.tool_descriptors} if self._tool_descriptors else {}),
+                       **({'allowed_direct_tools': sorted(self.allowed_direct_tools)} if self.allowed_direct_tools else {})})
 
     def snapshot(self):
         evidence = {}
@@ -116,9 +118,9 @@ class Workflow:
         return evidence
 
     @classmethod
-    def load(cls, path, *, executable='prosaic', custom_tools=None):
+    def load(cls, path, *, executable='prosaic', custom_tools=None, allowed_direct_tools=frozenset()):
         try:
-            return cls._load(path, executable=executable, custom_tools=custom_tools)
+            return cls._load(path, executable=executable, custom_tools=custom_tools, allowed_direct_tools=allowed_direct_tools)
         except WorkflowAdmissionError as exc:
             if exc.code == 'invalid_schema':
                 raise ValueError('invalid workflow definition: schema must be valid and support internal references only') from None
@@ -127,7 +129,7 @@ class Workflow:
             raise ValueError(f'invalid workflow definition: {type(exc).__name__}') from exc
 
     @classmethod
-    def _load(cls, path, *, executable, custom_tools):
+    def _load(cls, path, *, executable, custom_tools, allowed_direct_tools):
         path = Path(path).resolve()
         if path.suffix not in {'.yml', '.yaml'}:
             raise ValueError('workflow must use YAML/YML')
@@ -151,6 +153,11 @@ class Workflow:
             positive(limits[key], key)
         root = path.parent
         config = RuntimeConfig.load(local(root, raw['runtime']))
+        if type(allowed_direct_tools) not in (set, frozenset, list, tuple) or any(type(n) is not str for n in allowed_direct_tools):
+            raise ValueError('allowed_direct_tools must be host names')
+        allowed_direct_tools = frozenset(allowed_direct_tools)
+        if allowed_direct_tools - config.allowed_tools:
+            raise ValueError('direct permission must be a subset of allowed tools')
         registry = dict(custom_tools or {})
         # Preserve compatibility with the released Runtime for no-custom flows.
         adapter = ProsaicRuntime(config, custom_tools=registry) if registry else ProsaicRuntime(config)
@@ -171,7 +178,8 @@ class Workflow:
                 raise ValueError(f'invalid step: {name}')
             kind = step.get('kind')
             allowed = {
-                'agent': {'kind', 'agent', 'acquisition', 'schema', 'inputs', 'optional_inputs', 'next', 'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators'},
+                'agent': {'kind', 'agent', 'acquisition', 'schema', 'inputs', 'optional_inputs', 'next', 'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators', 'initial_tool'},
+                'tool': {'kind', 'tool', 'arguments', 'schema', 'next', 'inputs', 'optional_inputs', 'validators', 'max_visits'},
                 'gate': {'kind', 'from', 'field', 'equals', 'pass', 'fail', 'max_visits'},
                 'check': {'kind', 'from', 'validators', 'pass', 'fail', 'max_visits'},
                 'pause': {'kind', 'question', 'choices', 'max_visits', 'requires', 'response_schema', 'validators'},
@@ -184,7 +192,7 @@ class Workflow:
             if not isinstance(validators, list) or any(not isinstance(v, str) or not v for v in validators) or len(set(validators)) != len(validators):
                 raise ValueError('validators must be unique host-registered names')
             requires = step.get('requires', [])
-            if not isinstance(requires, list) or any(ref not in steps or steps[ref].get('kind') != 'agent' for ref in requires):
+            if not isinstance(requires, list) or any(ref not in steps or steps[ref].get('kind') not in {'agent', 'tool'} for ref in requires):
                 raise ValueError('requires must reference agent steps')
             targets = []
             if kind == 'agent':
@@ -199,6 +207,7 @@ class Workflow:
                 required = step.get('require_tools', [])
                 if not isinstance(required, list) or not all(isinstance(t, str) for t in required) or set(required) - set(tools):
                     raise ValueError('require_tools must be a subset of granted step tools')
+                validate_initial_tool(step)
                 if not isinstance(roots, list) or (set(tools) & READ_TOOLS and not roots):
                     raise ValueError('read tools require explicit read_roots')
                 for value in roots:
@@ -210,7 +219,7 @@ class Workflow:
                     raise ValueError('require_reads needs read_file granted within read_roots')
                 for field in ('inputs', 'optional_inputs'):
                     refs = step.get(field, [])
-                    if not isinstance(refs, list) or any(ref not in steps or steps[ref].get('kind') != 'agent' for ref in refs):
+                    if not isinstance(refs, list) or any(ref not in steps or steps[ref].get('kind') not in {'agent', 'tool'} for ref in refs):
                         raise ValueError('agent inputs must reference agent steps')
                 artifact = inspect_artifact(step['agent'], source, executable=executable)
                 requested = requested_tools(artifact.frontmatter.get('tools'))
@@ -245,8 +254,11 @@ class Workflow:
                     acquisitions[name] = acquisition
                 schema = parse_json(read_bytes(local(root, step['schema'])).decode())
                 schemas[name] = schema
+            elif kind == 'tool':
+                targets = [step.get('next')]
+                schemas[name] = parse_json(read_bytes(local(root, step['schema'])).decode())
             elif kind in {'gate', 'check'}:
-                if step.get('from') not in steps or steps[step['from']].get('kind') != 'agent':
+                if step.get('from') not in steps or steps[step['from']].get('kind') not in {'agent', 'tool'}:
                     raise ValueError('gate must reference an agent step')
                 if kind == 'gate':
                     if not isinstance(step.get('field'), list) or not step['field'] or not all(isinstance(f, str) for f in step['field']):
@@ -275,14 +287,15 @@ class Workflow:
         # the same pure graph/artifact/schema admission also serves native graphs
         # and manually assembled execution objects. No native limits are applied.
         workflow = cls(path, raw, config, artifacts, schemas, '', acquisitions,
-                       MappingProxyType(registry), {})
+                       MappingProxyType(registry), {}, allowed_direct_tools)
         workflow._registered_descriptors_json = json.dumps(registered, sort_keys=True, allow_nan=False)
         descriptors = validate_resolved_workflow(workflow, descriptors=registered,
                                                  profile=None, native=False)
         fingerprint = digest({'workflow': raw, 'runtime': runtime_identity(config),
                               'schemas': schemas, 'prose': {name: a.digest for name, a in artifacts.items()},
                               **({'acquisitions': {name: a.digest for name, a in acquisitions.items()}} if acquisitions else {}),
-                              **({'custom_tools': descriptors} if descriptors else {})})
+                              **({'custom_tools': descriptors} if descriptors else {}),
+                              **({'allowed_direct_tools': sorted(allowed_direct_tools)} if allowed_direct_tools else {})})
         workflow.fingerprint = fingerprint
         workflow._tool_descriptors = deepcopy(descriptors)
         workflow.snapshot()

@@ -73,7 +73,7 @@ def project_interaction(workflow, snapshot, *, review_outputs, include_response_
     if len(review_outputs) > len(steps):
         raise WorkflowAdmissionError('limit_exceeded')
     for alias in review_outputs:
-        if (type(alias) is not str or alias not in steps or steps[alias]['kind'] != 'agent'
+        if (type(alias) is not str or alias not in steps or steps[alias]['kind'] not in {'agent', 'tool'}
                 or alias not in state['outputs']):
             raise WorkflowAdmissionError('unknown_reference')
     step = steps[state['current']]

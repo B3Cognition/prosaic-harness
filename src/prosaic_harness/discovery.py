@@ -56,6 +56,7 @@ def _selection(factory):
         'tools': sorted(policy.allowed_tools & factory._tools.keys() & set(config['allowed_tools'])),
         'validators': sorted(policy.allowed_validators & factory._validators.keys()),
     }
+    selected['directTools'] = sorted(policy.allowed_direct_tools & set(selected['tools']))
     selected['modelTiers'] = sorted(policy.allowed_model_tiers & config['routes'].keys())
     return selected
 
@@ -92,6 +93,7 @@ def describe(factory, *, include_schemas=False, maximum_bytes=262_144):
     document.update(stepKinds=list(STEP_KEYS), allowInlineAgents=policy.allow_inline_agents,
         allowAgentComposition=policy.allow_agent_composition,
         modelTiers=selected['modelTiers'],
+        allowedDirectTools=selected['directTools'],
         defaultModelTierAllowed=True,
         limits={_camel(item.name): getattr(policy, item.name) for item in fields(policy)
                 if not item.name.startswith(('allow_', 'allowed_')) and getattr(policy, item.name) is not None})
@@ -129,9 +131,11 @@ def proposal_schema(factory, *, maximum_bytes=262_144):
     positive = lambda cap: {'type': 'integer', 'minimum': 1, 'maximum': cap}
     shapes = {
         'kind': {}, 'agent': agent_ref, 'schema': schema_ref,
+        'tool': _enum(manifest['directTools']), 'arguments': {'type': 'object'},
         'inputs': _names(reference), 'optional_inputs': _names(reference), 'next': reference,
         'max_attempts': positive(policy.max_attempts), 'max_visits': positive(policy.max_visits),
         'tools': tools, 'require_tools': tools, 'validators': validators,
+        'initial_tool': _enum(manifest['tools']),
         'from': reference, 'field': _names({'type': 'string'}, minimum=1),
         'equals': {}, 'pass': reference, 'fail': reference,
         'question': {'type': 'string', 'minLength': 1},
@@ -140,7 +144,7 @@ def proposal_schema(factory, *, maximum_bytes=262_144):
         'requires': _names(reference), 'response_schema': schema_ref,
         'outcome': {'enum': ['completed', 'rejected']},
     }
-    required = {'agent': ['agent', 'schema', 'next'], 'gate': ['from', 'field', 'equals', 'pass', 'fail'],
+    required = {'tool': ['tool', 'arguments', 'schema', 'next'], 'agent': ['agent', 'schema', 'next'], 'gate': ['from', 'field', 'equals', 'pass', 'fail'],
                 'check': ['from', 'validators', 'pass', 'fail'], 'pause': ['question', 'choices'], 'finish': []}
     branches = []
     for kind, keys in STEP_KEYS.items():

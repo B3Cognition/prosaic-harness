@@ -13,7 +13,8 @@ from .errors import GraphAdmissionError, logical_location, logical_alias
 
 STEP_KEYS = {
     'agent': {'kind', 'agent', 'acquisition', 'schema', 'inputs', 'optional_inputs', 'next',
-              'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators'},
+              'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators', 'initial_tool'},
+    'tool': {'kind', 'tool', 'arguments', 'schema', 'next', 'inputs', 'optional_inputs', 'validators', 'max_visits'},
     'gate': {'kind', 'from', 'field', 'equals', 'pass', 'fail', 'max_visits'},
     'check': {'kind', 'from', 'validators', 'pass', 'fail', 'max_visits'},
     'pause': {'kind', 'question', 'choices', 'max_visits', 'requires', 'response_schema', 'validators'},
@@ -50,6 +51,9 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
     Descriptors come from trusted actual registrations, never from a proposed hash.
     The return value is the descriptor subset demanded by resolved prose.
     """
+    if (type(workflow.allowed_direct_tools) is not frozenset
+            or workflow.allowed_direct_tools - workflow.config.allowed_tools):
+        raise ValueError('direct tool permissions must be explicit host names within allowed tools')
     raw = workflow.definition
     if type(raw) is not dict or set(raw) - ROOT_KEYS or type(raw.get('version')) is not int or raw['version'] != 1:
         raise ValueError('invalid workflow keys or version')
@@ -92,7 +96,7 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
         _strings(validators, 'validators', unique=True)
         requires = step.get('requires', [])
         _strings(requires, 'requires')
-        if any(ref not in steps or steps[ref].get('kind') != 'agent' for ref in requires):
+        if any(ref not in steps or steps[ref].get('kind') not in {'agent', 'tool'} for ref in requires):
             raise ValueError('requires must reference agent steps')
         targets = []
         if kind == 'agent':
@@ -105,7 +109,7 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
             for field in ('inputs', 'optional_inputs'):
                 refs = step.get(field, [])
                 _strings(refs, field)
-                if any(ref not in steps or steps[ref].get('kind') != 'agent' for ref in refs):
+                if any(ref not in steps or steps[ref].get('kind') not in {'agent', 'tool'} for ref in refs):
                     raise ValueError('agent inputs must reference agent steps')
             granted = step.get('tools', [])
             _strings(granted, 'tools')
@@ -117,6 +121,7 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
             _strings(required, 'require_tools')
             if set(required) - set(granted):
                 raise ValueError('require_tools must be a subset of granted tools')
+            validate_initial_tool(step)
             roots = step.get('read_roots', [])
             _strings(roots, 'read_roots', empty=not native)
             if set(granted) & READ_TOOLS and not roots:
@@ -155,9 +160,30 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
             if acquisition is not None and 'read_file' not in requested_tools(acquisition.frontmatter.get('tools')):
                 raise ValueError('acquisition must request read_file')
             demanded.update({tool: descriptors[tool] for tool in requested & descriptors.keys()})
+        elif kind == 'tool':
+            schema_steps.add(name)
+            tool = step.get('tool')
+            if (type(tool) is not str or tool not in descriptors or tool not in workflow.custom_tools or tool in BUILTIN_TOOLS
+                    or tool not in workflow.config.allowed_tools
+                    or tool not in workflow.allowed_direct_tools):
+                raise ValueError('direct tool requires explicit host permission and custom registration')
+            if type(step.get('arguments')) is not dict:
+                raise ValueError('tool arguments must be a literal JSON object')
+            # The caller snapshots native proposals; enforce JSON also for YAML/manual paths.
+            from .admission_data import snapshot_json
+            snapshot_json(step['arguments'], maximum_bytes=8_388_608, maximum_depth=512, maximum_nodes=1_048_576)
+            if type(step.get('schema')) is not str or not step['schema']:
+                raise ValueError('tool schema is required')
+            for field in ('inputs', 'optional_inputs'):
+                refs = step.get(field, [])
+                _strings(refs, field)
+                if any(ref not in steps or steps[ref].get('kind') not in {'agent', 'tool'} for ref in refs):
+                    raise ValueError('tool inputs must reference output steps')
+            demanded[tool] = descriptors[tool]
+            targets = [step.get('next')]
         elif kind in {'gate', 'check'}:
             ref = step.get('from')
-            if type(ref) is not str or ref not in steps or steps[ref].get('kind') != 'agent':
+            if type(ref) is not str or ref not in steps or steps[ref].get('kind') not in {'agent', 'tool'}:
                 raise ValueError('gate/check must reference an agent step')
             if kind == 'gate':
                 _strings(step.get('field'), 'gate field', empty=True)
@@ -182,7 +208,7 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
         elif step.get('outcome', 'completed') not in {'completed', 'rejected'}:
             raise ValueError('invalid finish outcome')
         if any(type(target) is not str or target not in steps for target in targets):
-            field = 'next' if kind == 'agent' else 'choices' if kind == 'pause' else (
+            field = 'next' if kind in {'agent', 'tool'} else 'choices' if kind == 'pause' else (
                 'pass' if type(step.get('pass')) is not str or step.get('pass') not in steps else 'fail')
             raise GraphAdmissionError('unknown transition target', logical_location(
                 'definition', 'steps', logical_alias(name), field))
@@ -191,3 +217,13 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
     for schema in workflow.schemas.values():
         admit_schema(schema, profile=profile)
     return demanded
+
+
+def validate_initial_tool(step):
+    if 'initial_tool' not in step:
+        return
+    name=step['initial_tool']
+    if type(name) is not str or not name or name not in step.get('tools', []):
+        raise ValueError('initial_tool must be a granted tool')
+    if step.get('acquisition') or step.get('require_reads') and name!='read_file':
+        raise ValueError('initial_tool conflicts with acquisition or required reads')

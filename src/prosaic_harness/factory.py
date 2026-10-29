@@ -238,6 +238,7 @@ class WorkflowPolicy:
     max_provider_requests_per_invocation: int | None = None
     max_tool_calls_per_invocation: int | None = None
     bounded_tool_recovery: bool = False
+    allowed_direct_tools: frozenset = frozenset()
 
     def __post_init__(self):
         for item in fields(self):
@@ -265,6 +266,8 @@ class WorkflowPolicy:
                 _fail('invalid_definition')
             elif item.name.endswith('_bytes') and value > _STORAGE_BYTES:
                 _fail('limit_exceeded')
+        if self.allowed_direct_tools - self.allowed_tools:
+            _fail('policy_denied')
         if self.max_output_bytes > 100000:
             _fail('limit_exceeded')
 
@@ -272,7 +275,8 @@ class WorkflowPolicy:
         return {item.name: sorted(getattr(self, item.name)) if item.name.startswith('allowed_')
                 else getattr(self, item.name) for item in fields(self)
                 if (item.name not in _INVOCATION_CAPS or getattr(self, item.name) is not None)
-                and (item.name != 'bounded_tool_recovery' or getattr(self, item.name))}
+                and (item.name != 'bounded_tool_recovery' or getattr(self, item.name))
+                and (item.name != 'allowed_direct_tools' or getattr(self, item.name))}
 
     def schema_profile(self, human=False):
         return {'version': 1, 'dialect': '2020-12', 'refs': 'acyclic-local-static',
@@ -304,7 +308,7 @@ def _identity_payload(workflow, policy, *, operation=None, adapter=None):
         maximum_bytes=min(_STORAGE_BYTES, policy.max_proposal_bytes * 6 + 4096),
         maximum_depth=policy.max_json_depth, maximum_nodes=policy.max_json_nodes)
     expected_schemas = {name for name, step in definition.get('steps', {}).items()
-                        if type(step) is dict and (step.get('kind') == 'agent'
+                        if type(step) is dict and (step.get('kind') in {'agent', 'tool'}
                             or step.get('kind') == 'pause' and 'response_schema' in step)}
     if (type(workflow.schemas) is not dict or len(workflow.schemas) > policy.max_steps
             or set(workflow.schemas) != expected_schemas):
@@ -402,6 +406,9 @@ def _policy_graph(workflow, policy, *, inline_names=frozenset()):
             tier = workflow.artifacts[name].frontmatter.get('model_tier')
             if tier is not None and tier not in policy.allowed_model_tiers:
                 _fail('policy_denied', location('agent'))
+        elif step.get('kind') == 'tool':
+            if step['tool'] not in policy.allowed_direct_tools or step['schema'] not in policy.allowed_schemas:
+                _fail('policy_denied', location('tool'))
         elif 'response_schema' in step and step['response_schema'] not in policy.allowed_schemas:
             _fail('policy_denied', location('response_schema'))
 
@@ -631,15 +638,15 @@ class WorkflowFactory:
                     _fail('invalid_artifact')
                 artifacts[name] = artifact
                 step.setdefault('max_attempts', policy.max_attempts)
-            schema_alias = step.get('schema') if step.get('kind') == 'agent' else step.get('response_schema')
+            schema_alias = step.get('schema') if step.get('kind') in {'agent', 'tool'} else step.get('response_schema')
             if schema_alias is not None:
-                _alias(schema_alias, location('schema' if step.get('kind') == 'agent' else 'response_schema'))
+                _alias(schema_alias, location('schema' if step.get('kind') in {'agent', 'tool'} else 'response_schema'))
                 if schema_alias not in self._schemas:
-                    _fail('unknown_reference', location('schema' if step.get('kind') == 'agent' else 'response_schema'))
+                    _fail('unknown_reference', location('schema' if step.get('kind') in {'agent', 'tool'} else 'response_schema'))
                 try:
                     schema = admit_schema(json.loads(self._schemas[schema_alias]), profile=policy.schema_profile())
                 except WorkflowAdmissionError as exc:
-                    _fail(exc.code, location('schema' if step.get('kind') == 'agent' else 'response_schema'))
+                    _fail(exc.code, location('schema' if step.get('kind') in {'agent', 'tool'} else 'response_schema'))
                 schema_total += len(_encode(schema).encode())
                 if schema_total > policy.max_total_schema_bytes:
                     _fail('limit_exceeded')
@@ -654,7 +661,7 @@ class WorkflowFactory:
                         _fail('binding_mismatch', logical_location('definition', 'steps',
                             logical_alias(name), 'validators', index))
         workflow = _NativeWorkflow(None, definition, config, artifacts, schemas, '',
-                                   custom_tools=self._tools)
+                                   custom_tools=self._tools, allowed_direct_tools=policy.allowed_direct_tools)
         descriptors = custom_descriptors(self._tools)
         demanded = validate_resolved_workflow(workflow, descriptors=descriptors,
                                                profile=policy.schema_profile(), native=True)
@@ -677,6 +684,10 @@ class WorkflowFactory:
 def _check_adapter(workflow, runtime, descriptors, *, native):
     if runtime is None:
         return
+    if any(step.get('kind') == 'tool' for step in workflow.definition['steps'].values()):
+        if ('direct_tool_v1' not in getattr(runtime, 'capabilities', ())
+                or not callable(getattr(runtime, 'run_tool', None))):
+            _fail('binding_mismatch')
     if native:
         declared = workflow._admission.runtime_adapter
         if declared is not None:
@@ -717,6 +728,8 @@ def admit_workflow(workflow, *, runtime=None, validators=None):
                 _fail('identity_mismatch')
             if _encode(_operation_bindings(record.operation_namespace, record.tool_journal)) != record.operation_json:
                 _fail('binding_mismatch')
+            if workflow.allowed_direct_tools != record.policy.allowed_direct_tools:
+                _fail('identity_mismatch')
             current = _identity_payload(workflow, record.policy)
             if (workflow.fingerprint != record.original_seal or digest(current) != record.original_seal
                     or _encode(current) != record.content_json
