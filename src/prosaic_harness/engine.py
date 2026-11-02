@@ -24,6 +24,7 @@ from .interaction import project_interaction
 from .schema_validation import evaluate_schema, SchemaEvaluationError
 from .factory import admit_workflow, _config_from_json
 from .observations import CommittedObserver
+from .terminal import effective_tools, validate_candidate, failure_evidence, accounting_evidence
 
 _TERMINAL_HEADROOM = 4096
 _TERMINAL_NODES = 16
@@ -533,6 +534,8 @@ class Harness:
                     raise ValueError('invocation ledger receipt mismatch')
                 for name, binding in state['bindings'].items():
                     if binding['id'] == invocation['id']:
+                        validate_candidate(self.workflow, receipt,
+                            self._admission.policy if self._admission else None)
                         refs = self.workflow.definition['steps'][name].get('inputs', [])
                         dependencies = {ref: receipt['arguments']['artifact_bindings'][ref] for ref in refs}
                         if (name != invocation['step'] or self._output(receipt['result']['stdout']) != state['outputs'][name]
@@ -563,13 +566,17 @@ class Harness:
             if total > budget or (before_call and total >= budget):
                 return 'token_limit'
 
-    def _checks(self, state, name, output, names):
+    def _checks(self, state, name, output, names, *, terminal_completion=None):
         context = CheckContext(name, deepcopy(state['inputs']), deepcopy(state['outputs']),
                                deepcopy(state['evidence']), deepcopy(state['bindings']), self._human_responses(state))
         issues = []
         for validator in names:
             try:
-                result = self.validators[validator].check(deepcopy(output), context)
+                owned_context = (CheckContext(context.step, deepcopy(context.request),
+                    deepcopy(context.artifacts), deepcopy(context.evidence), deepcopy(context.bindings),
+                    deepcopy(context.human_responses), deepcopy(terminal_completion))
+                    if terminal_completion is not None else context)
+                result = self.validators[validator].check(deepcopy(output), owned_context)
                 if not isinstance(result, list) or any(not isinstance(i, str) or not i for i in result):
                     raise ValueError('validators must return a list of nonempty issue strings')
             except StoreError:
@@ -669,6 +676,15 @@ class Harness:
             return self._block(state, reason)
         step = self.workflow.definition['steps'][state['current']]
         result = receipt['result']
+        terminal_candidate = None
+        terminal_enabled = effective_tools(self.workflow, state['current'],
+            self._admission.policy if self._admission else None)
+        if result['exit_code'] == 0:
+            try:
+                terminal_candidate = validate_candidate(self.workflow, receipt,
+                    self._admission.policy if self._admission else None)
+            except (ValueError, TypeError, KeyError, OverflowError, RecursionError):
+                return self._block(state, 'terminal_completion_invalid')
         error = None
         output = None
         tool_feedback = ''
@@ -727,7 +743,8 @@ class Harness:
                     break
         if error is None:
             try:
-                error = self._checks(state, state['current'], output, step.get('validators', []))
+                error = self._checks(state, state['current'], output, step.get('validators', []),
+                                     terminal_completion=terminal_candidate)
             except StoreError:
                 raise
             except ValueError:
@@ -738,7 +755,7 @@ class Harness:
         if error:
             state['feedback'] = error
             self._event(state, 'validation_failed', attempt_id=receipt['id'], message=error)
-            if state['attempt'] >= (1 if step['kind'] == 'tool' else step.get('max_attempts', 2)):
+            if terminal_enabled or state['attempt'] >= (1 if step['kind'] == 'tool' else step.get('max_attempts', 2)):
                 self._block(state, 'attempt_limit')
             else:
                 self._save(state)
@@ -839,12 +856,19 @@ class Harness:
                 if self._admission:
                     # Even the failure form must fit before a remote operation
                     # can begin. A tiny host receipt cap cannot strand a call.
-                    minimum = seal({'version': 1, 'run_id': state['run_id'], 'id': attempt_id, 'step': name,
-                        'arguments_sha256': digest(arguments), 'arguments': arguments,
-                        'result': self._failure_result({}, 'receipt_limit'), 'events': []})
                     try:
+                        minimum_payload = {}
+                        if self._admission.policy.allowed_terminal_tools and accounting_options.get('context') is not None:
+                            scope = self._accounting_scope() or {'namespace': None, 'environment': None}
+                            minimum_payload = {'metadata': {'accounting_v1': {
+                                'context': accounting_options['context'].to_dict(), **scope,
+                                'providerCallBinding': {'version': 1, 'count': 2**256 - 1,
+                                                        'sha256': '0' * 64}}}}
+                        minimum = seal({'version': 1, 'run_id': state['run_id'], 'id': attempt_id, 'step': name,
+                            'arguments_sha256': digest(arguments), 'arguments': arguments,
+                            'result': self._failure_result(minimum_payload, 'receipt_limit'), 'events': []})
                         self._bounded_document(minimum, self._admission.policy.max_receipt_bytes,
-                                               reserve=4096, reserve_nodes=_TERMINAL_NODES)
+                            reserve=4096, reserve_nodes=64 if self._admission.policy.allowed_terminal_tools else _TERMINAL_NODES)
                     except WorkflowAdmissionError:
                         return self._block(state, 'receipt_limit')
                 state['calls'] += 1
@@ -887,6 +911,8 @@ class Harness:
                                       else {**event, 'step': name, 'attempt_id': attempt_id})
                 timeout = limits['timeout_s'] if state['deadline'] is None else min(limits['timeout_s'], max(0.001, state['deadline'] - self.clock()))
                 policy = RunPolicy(allowed_tools=frozenset([step['tool']] if kind == 'tool' else step.get('tools', [])),
+                                   allowed_terminal_tools=effective_tools(self.workflow, name,
+                                       self._admission.policy if self._admission else None),
                                    read_roots=tuple(step.get('read_roots', [])),
                                    timeout_s=timeout, max_tool_rounds=self.workflow.config.limits.max_tool_rounds,
                                    **({'bounded_tool_recovery': True} if self._admission and
@@ -976,7 +1002,10 @@ class Harness:
                 # Invalid accounting/result shape cannot become immutable poison
                 # evidence. Strip invalid lineage and retain known safe usage.
                 safe = self._failure_result(payload, failure or 'result_limit')
-                safe['metadata'].pop('accounting_v1', None)
+                try:
+                    validate_receipt(seal({**receipt, 'result': safe, 'events': []}), state, state['pending'])
+                except (ValueError, TypeError, OverflowError):
+                    safe['metadata'].pop('accounting_v1', None)
                 receipt['result'], receipt['events'] = safe, []
                 receipt = seal(receipt)
             try:
@@ -988,20 +1017,34 @@ class Harness:
                 try:
                     self._bounded_document(receipt, policy.max_receipt_bytes)
                 except WorkflowAdmissionError:
-                    receipt['result']['metadata'].pop('accounting_v1', None)
+                    if self._admission.policy.allowed_terminal_tools:
+                        receipt['result'] = self._failure_result(payload, failure or 'receipt_limit', compact_accounting=True)
+                    else:
+                        receipt['result']['metadata'].pop('accounting_v1', None)
                     receipt = seal(receipt)
                     self._bounded_document(receipt, policy.max_receipt_bytes)
             validate_receipt(receipt, state, state['pending'])
         return receipt
 
-    def _failure_result(self, payload, reason):
+    def _failure_result(self, payload, reason, *, compact_accounting=False):
         metadata = {'failure_reason': reason}
+        if self._admission and self._admission.policy.allowed_terminal_tools:
+            metadata.update(failure_evidence(payload.get('metadata')))
         # Keep safe accounting lineage where it fits, without retaining arbitrary
         # oversized product metadata or claiming truncated stdout is valid JSON.
         if type(payload.get('metadata')) is dict and 'accounting_v1' in payload['metadata']:
             try:
-                metadata['accounting_v1'] = self._bounded_document(payload['metadata']['accounting_v1'], 2048)
-            except WorkflowAdmissionError:
+                value = payload['metadata']['accounting_v1']
+                if self._admission and self._admission.policy.allowed_terminal_tools:
+                    value = accounting_evidence(value, compact=compact_accounting)
+                    try:
+                        metadata['accounting_v1'] = self._bounded_document(value, self._admission.policy.max_receipt_bytes)
+                    except WorkflowAdmissionError:
+                        metadata['accounting_v1'] = self._bounded_document(
+                            accounting_evidence(value, compact=True), self._admission.policy.max_receipt_bytes)
+                else:
+                    metadata['accounting_v1'] = self._bounded_document(value, 2048)
+            except (WorkflowAdmissionError, ValueError, KeyError, TypeError):
                 pass
         usage = payload.get('token_usage')
         usage = usage if type(usage) is int and usage >= 0 and usage.bit_length() <= 256 else None

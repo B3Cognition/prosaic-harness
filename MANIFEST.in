@@ -3,6 +3,7 @@ recursive-include docs *.md
 include scripts/workflow_factory_smoke.py
 include scripts/conversation_smoke.py
 include scripts/release_artifacts.py
+include scripts/terminal_completion_smoke.py
 include .github/workflows/publish.yml .github/ci/bwrap.apparmor
 include LICENSE NOTICE
 recursive-include adapters/postgres *.toml *.md *.py LICENSE NOTICE MANIFEST.in

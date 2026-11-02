@@ -23,6 +23,7 @@ class CheckContext:
     evidence: dict
     bindings: dict
     human_responses: dict = field(default_factory=dict)
+    terminal_completion: dict | None = None
 
 
 def load_validators(path):

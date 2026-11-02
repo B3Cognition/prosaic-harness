@@ -84,6 +84,10 @@ def _config_payload(config, *, native=False):
                 or type(endpoint.features) is not dict):
             _fail('binding_mismatch')
         profiles[name] = {item.name: getattr(endpoint, item.name) for item in fields(EndpointConfig)}
+        if profiles[name].get('supported_efforts') is None:
+            profiles[name].pop('supported_efforts', None)
+        else:
+            profiles[name]['supported_efforts'] = list(endpoint.supported_efforts)
     value = {'profiles': profiles, 'routes': config.routes,
              'default_profile': config.default_profile,
              'allowed_tools': sorted(config.allowed_tools),
@@ -239,6 +243,7 @@ class WorkflowPolicy:
     max_tool_calls_per_invocation: int | None = None
     bounded_tool_recovery: bool = False
     allowed_direct_tools: frozenset = frozenset()
+    allowed_terminal_tools: frozenset = frozenset()
 
     def __post_init__(self):
         for item in fields(self):
@@ -268,6 +273,8 @@ class WorkflowPolicy:
                 _fail('limit_exceeded')
         if self.allowed_direct_tools - self.allowed_tools:
             _fail('policy_denied')
+        if self.allowed_terminal_tools - self.allowed_tools:
+            _fail('policy_denied')
         if self.max_output_bytes > 100000:
             _fail('limit_exceeded')
 
@@ -276,7 +283,7 @@ class WorkflowPolicy:
                 else getattr(self, item.name) for item in fields(self)
                 if (item.name not in _INVOCATION_CAPS or getattr(self, item.name) is not None)
                 and (item.name != 'bounded_tool_recovery' or getattr(self, item.name))
-                and (item.name != 'allowed_direct_tools' or getattr(self, item.name))}
+                and (item.name not in {'allowed_direct_tools', 'allowed_terminal_tools'} or getattr(self, item.name))}
 
     def schema_profile(self, human=False):
         return {'version': 1, 'dialect': '2020-12', 'refs': 'acyclic-local-static',
@@ -378,6 +385,7 @@ class _NativeWorkflow(Workflow):
 
 
 def _policy_graph(workflow, policy, *, inline_names=frozenset()):
+    from prosaic_runtime.terminal import admit_terminal_tools
     steps = workflow.definition['steps']
     if len(steps) > policy.max_steps:
         _fail('limit_exceeded')
@@ -387,6 +395,15 @@ def _policy_graph(workflow, policy, *, inline_names=frozenset()):
     if count > 1 and not policy.allow_agent_composition:
         _fail('policy_denied')
     for name, step in steps.items():
+        try:
+            names = set(step.get('tools', ())) if step.get('kind') == 'agent' else (
+                {step['tool']} if step.get('kind') == 'tool' else set())
+            if step.get('kind') == 'agent':
+                names &= requested_tools(workflow.artifacts[name].frontmatter.get('tools'))
+            admit_terminal_tools(workflow.custom_tools, names & workflow.config.allowed_tools,
+                policy.allowed_terminal_tools, supported=step.get('kind') == 'agent')
+        except ValueError:
+            _fail('policy_denied')
         location = lambda field: logical_location('definition', 'steps', logical_alias(name), field)
         _alias(name)
         if step.get('max_visits', workflow.definition['limits']['max_visits']) > policy.max_visits:
@@ -457,7 +474,7 @@ class WorkflowFactory:
                 tools[name] = CustomTool(tool.name, tool.description, decoded(tool._schema_json),
                     tool.handler, tool.version, max_argument_bytes=tool.max_argument_bytes,
                     max_result_bytes=tool.max_result_bytes, authorize=tool.authorize,
-                    with_context=tool.with_context, operation_key=tool.operation_key)
+                    with_context=tool.with_context, operation_key=tool.operation_key, terminal=tool.terminal)
             validators = {}
             for name, value in self._validators.items():
                 if type(value) is not Validator:
@@ -701,6 +718,8 @@ def _check_adapter(workflow, runtime, descriptors, *, native):
     if native:
         record = workflow._admission
         required = {'invocation_budgets_v1', 'tool_context_v1'}
+        if record.policy.allowed_terminal_tools:
+            required.add('terminal_tool_v1')
         if record.policy.bounded_tool_recovery:
             required.update({'tool_outcomes_v1', 'bounded_tool_recovery_v1'})
         if record.tool_journal is not None or any(d.get('journaled') for d in descriptors.values()):
