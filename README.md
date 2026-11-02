@@ -1,5 +1,9 @@
 # Prosaic Harness
 
+Native tools can now finish an admitted task with host-owned output and a durable
+inline artifact. See [terminal completion](docs/terminal-completion.md) for policy,
+validation, restart recovery and the consumer integration example.
+
 Version **0.8.0** adds [graph-free conversation sessions](docs/conversations.md)
 with bounded full history, memory/file storage, immutable receipts and explicit
 uncertainty recovery. An optional bridge accepts natural-language replies to

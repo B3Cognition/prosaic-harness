@@ -136,6 +136,11 @@ def test_legacy_fingerprint_unchanged(endpoint, tmp_path):
     # Legacy snapshots also predate CLI sandbox configuration. Default-off is
     # deliberately omitted; enabling it must change the sealed identity.
     legacy_runtime.pop('cli_sandbox', None)
+    # Pre-effort snapshots also lacked this optional Runtime 0.9.10 field.
+    # The fixed historic golden tests independently pin the original identity.
+    for profile in legacy_runtime['profiles'].values():
+        if profile.get('supported_efforts') is None:
+            profile.pop('supported_efforts', None)
     expected = digest({'workflow': workflow.definition, 'runtime': legacy_runtime,
                        'schemas': workflow.schemas, 'prose': {name: a.digest for name, a in workflow.artifacts.items()}})
     assert workflow.fingerprint == expected and workflow.current_fingerprint() == expected

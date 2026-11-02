@@ -24,6 +24,9 @@ def digest(value):
 
 def runtime_identity(config):
     value = asdict(config) | {'allowed_tools': sorted(config.allowed_tools)}
+    for endpoint in value.get('profiles', {}).values():
+        if endpoint.get('supported_efforts') is None:
+            endpoint.pop('supported_efforts', None)
     if not value.get('tool_directories'):
         value.pop('tool_directories', None)
     # Preserve existing checkpoints when the newly added sandbox policy is

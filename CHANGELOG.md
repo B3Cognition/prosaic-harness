@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.6 — 2026-11-02
+
+- Admit explicit host terminal-tool policy and preserve the inline artifact in a
+  durable receipt before schema, tool-evidence and product semantic acceptance.
+- Expose owned terminal evidence to validators and recover saved completion
+  without replay; rejected candidates never automatically retry successful tools.
+- Retain bounded completion/usage breadcrumbs on receipt limits and preserve
+  legacy workflow identities with absent optional Runtime effort metadata.
+- Require Runtime 0.9.11; Core and PostgreSQL adapters are unchanged.
+
 ## 0.8.2 — 2026-10-13
 
 - Add deterministic structured conversation choices and terminal workflow detachment.

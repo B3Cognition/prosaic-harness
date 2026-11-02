@@ -128,6 +128,8 @@ def _policy(value):
         raise ConversationError('bindingMismatch')
     # Bound containers before any recursive conversion of mutable aliases.
     raw = {f.name: getattr(value, f.name) for f in fields(value)}
+    if raw.pop('allowed_terminal_tools', frozenset()):
+        raise ConversationError('capabilityMissing')
     if type(raw['allowed_tools']) is not frozenset:
         raise ConversationError('bindingMismatch')
     raw['allowed_tools'] = sorted(raw['allowed_tools'])
