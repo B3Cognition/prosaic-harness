@@ -750,6 +750,10 @@ class Harness:
             except ValueError:
                 return self._block(state, 'validator_error')
         self._check_ownership()
+        if terminal_enabled:
+            reason = self._resource_reason(state)
+            if reason:
+                return self._block(state, reason)
         if error is None and any(not self._fresh(state, ref) for ref in step.get('inputs', [])):
             return self._block(state, 'stale_artifact')
         if error:

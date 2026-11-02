@@ -2,6 +2,7 @@
 from copy import deepcopy
 from dataclasses import replace
 import json
+import time
 
 import pytest
 from prosaic_runtime import CustomTool, EndpointConfig, ProsaicArtifact, ProsaicRuntime, RuntimeConfig, RunLimits, TerminalCompletion
@@ -211,3 +212,21 @@ def test_terminal_admission_reserves_accounting_failure_headroom(endpoint, tmp_p
     h = Harness(w, tmp_path / 'run', context=context, accounting=recorder); state = h.run({})
     assert state['reason'] == 'receipt_limit' and state['calls'] == 0
     assert requests == [] and seen == [] and recorder.intents == {}
+
+
+@pytest.mark.parametrize('reason', ['cancelled', 'run_deadline'])
+def test_terminal_validation_cannot_bind_output_after_cancellation_or_deadline(endpoint, tmp_path, reason):
+    url, requests, replies = endpoint
+    stopped = []
+    def validate(output, context):
+        stopped.append(True)
+        return []
+    checks = {'validate': Validator('v1', validate)}
+    w = factory(url, validators=checks).build(graph(validators=checks)); queue(replies)
+    h = Harness(w, tmp_path / 'run',
+        cancelled=lambda: bool(stopped) and reason == 'cancelled',
+        clock=lambda: time.time() + (10_000 if stopped and reason == 'run_deadline' else 0))
+    state = h.run({})
+    assert state['reason'] == reason and state['status'] == 'blocked'
+    assert state['outputs'] == {} and state['bindings'] == {} and len(requests) == 1
+    assert h.recovery_evidence()['receipts'][0]['result']['metadata']['terminalCompletion']['artifact']['rows'] == [7]
