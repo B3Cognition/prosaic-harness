@@ -1,6 +1,6 @@
 # Prosaic Harness
 
-Native tools can now finish an admitted task with host-owned output and a durable
+Harness **0.9.6** lets native tools finish an admitted task with host-owned output and a durable
 inline artifact. See [terminal completion](docs/terminal-completion.md) for policy,
 validation, restart recovery and the consumer integration example.
 
@@ -10,13 +10,13 @@ uncertainty recovery. An optional bridge accepts natural-language replies to
 existing workflow pauses through a tool-free interpreter and current host admission.
 No new graph, framework, Markdown kind or distribution is required for ordinary chat.
 
-The candidate `b3-prosaic-harness` distribution selects
-`b3-prosaic-runtime>=0.9,<0.10` and optional `b3-prosaic-harness-postgres` **0.3.0**,
-which adds a separate conversation schema while preserving existing workflow storage.
+The published `b3-prosaic-harness` 0.9.6 distribution selects
+`b3-prosaic-runtime>=0.9.11,<0.10`. The optional `b3-prosaic-harness-postgres`
+**0.4.1** package supports shared workflow and conversation storage.
 Imports (`prosaic_harness`) and CLI commands (`prosaic-harness`) remain unchanged.
-Conversation candidates still require linked Runtime/Harness/Lab qualification
-and publication; the released baseline remains Harness 0.7.1/Runtime 0.8.1.
-See [the conversation installation guide](docs/conversations.md#install-the-compatible-candidate-train)
+Use Runtime **0.9.12** for canonical `effort: none` and Gemma thinking controls.
+See [reasoning in workflows](docs/reasoning-effort.md), the
+[conversation installation guide](docs/conversations.md#install-the-compatible-candidate-train)
 and [package migration](docs/package-migration.md) for fresh environments.
 
 Version **0.6.2** added a [validated in-memory workflow factory](docs/workflow-factory.md)
@@ -115,9 +115,9 @@ environment so another application's older runtime cannot be picked up by accide
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout <exact-candidate-commit>
+git checkout v0.9.6
 python3 -m venv .venv
-.venv/bin/python -m pip install --find-links /absolute/path/to/curated-wheelhouse .
+.venv/bin/python -m pip install 'b3-prosaic-harness==0.9.6' 'b3-prosaic-runtime==0.9.12'
 
 export PATH="$PWD/.venv/bin:$PATH"
 prosaic --help
@@ -126,10 +126,11 @@ prosaic --help
 
 ALWAYS use a fresh clone/environment for migration; NEVER reuse an environment
 containing legacy distributions. In a future terminal, return to the repository and add its `.venv/bin` to PATH
-again. Node.js and npm are not required. Candidate dependency metadata selects
-`b3-prosaic-runtime` 0.9.x, `b3-prosaic` 0.4.x, PyYAML, jsonschema and referencing.
-Use only the manifest-selected b3 wheels in the curated wheelhouse. Candidate
-installation requires the qualified Runtime 0.9 producer; it is not yet a published index install.
+again. Node.js and npm are not required. Current dependency metadata selects
+`b3-prosaic-runtime>=0.9.11,<0.10`, `b3-prosaic` 0.4.x, PyYAML, jsonschema and referencing.
+Published packages resolve through PyPI. Reproducible deployments should use
+checksum-pinned complete manifests, such as the Integration Lab's separate
+[reasoning lane](https://github.com/B3Cognition/prosaic-integration-lab/blob/main/docs/reasoning-effort.md).
 No sibling checkout or manual Prosaic installation is needed. Older Harness
 tags retain their historical installation docs.
 

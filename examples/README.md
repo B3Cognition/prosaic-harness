@@ -1,5 +1,11 @@
 # Reusable workflow blueprints
 
+For neutral reasoning effort, use the [workflow guide](../docs/reasoning-effort.md)
+and the Integration Lab's [copyable reasoning blueprints](https://github.com/B3Cognition/prosaic-integration-lab/tree/main/lab_runner/reasoning_eval/data).
+They include API/native profiles, seven Markdown effort variants and a one-call
+API-backed workflow. Validation is offline; execution requires explicit provider
+setup. The Lab keeps fixture control tests separate from live answer grading.
+
 ## Cross-worker PostgreSQL storage (development Harness 0.6.0)
 
 The [PostgreSQL walkthrough](postgres/README.md) starts a human-only workflow in

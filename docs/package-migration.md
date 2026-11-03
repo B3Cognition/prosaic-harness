@@ -1,40 +1,38 @@
 # Harness package migration
 
-The candidate distribution names are `b3-prosaic-harness` 0.7.1 and optional
-`b3-prosaic-harness-postgres` 0.2.1. Harness selects
-`b3-prosaic-runtime>=0.8,<0.9`; the PostgreSQL adapter selects
-`b3-prosaic-harness>=0.7,<0.8`. Python imports and CLI commands remain
+The published packages are `b3-prosaic-harness` **0.9.6** and optional
+`b3-prosaic-harness-postgres` **0.4.1**. Harness requires
+`b3-prosaic-runtime>=0.9.11,<0.10`; the PostgreSQL adapter requires
+`b3-prosaic-harness>=0.9,<0.10`. Runtime 0.9.12 supplies the latest canonical
+none/Gemma controls. Core remains 0.4.1. Imports and CLI names remain
 `prosaic_harness`, `prosaic_harness_postgres`, `prosaic-harness` and
 `prosaic-harness-postgres`.
 
-ALWAYS create a fresh virtual environment or consumer image for migration.
-NEVER install the legacy and b3 distributions together: they share import paths,
-and uninstalling one can remove files belonging to the other. ALWAYS retain
-historical wheels and receipts separately; NEVER glob-install historical caches.
-PyPI's unrelated `prosaic` distribution is not part of this ecosystem.
-
-Before index publication, the release owner supplies a curated wheelhouse and
-an explicit candidate manifest binding all five b3 wheel filenames and hashes
-to their reviewed source commits. The Runtime 0.8 producer and final Harness
-features remain prerequisites for this closure; metadata preparation alone
-does not qualify the complete train.
+ALWAYS create a fresh environment or consumer image. NEVER install legacy and
+`b3-` distributions together: they own the same import paths, and uninstalling
+one can remove another's files. Preserve historical environments and receipts
+separately. PyPI's unrelated `prosaic` distribution is not part of this ecosystem.
 
 ```sh
-python3 -m venv .venv-candidate
-.venv-candidate/bin/python -m pip install --find-links /absolute/path/to/curated-wheelhouse \
-  b3-prosaic-harness==0.7.1 b3-prosaic-harness-postgres==0.2.1
-.venv-candidate/bin/prosaic-harness --help
-.venv-candidate/bin/prosaic-harness-postgres --help
-.venv-candidate/bin/python -I scripts/workflow_factory_smoke.py
+python3 -m venv .venv-harness
+.venv-harness/bin/python -m pip install 'b3-prosaic==0.4.1' \
+  'b3-prosaic-runtime==0.9.12' 'b3-prosaic-harness==0.9.6'
+# Optional shared state; no database is initialized during installation:
+.venv-harness/bin/python -m pip install 'b3-prosaic-harness-postgres==0.4.1'
+.venv-harness/bin/python -m pip check
+.venv-harness/bin/prosaic-harness --help
+.venv-harness/bin/prosaic-harness-postgres --help
 ```
 
-After publication is verified, the same requirements resolve through the index
-without `--find-links`. Current candidate artifacts are unpublished. ALWAYS run
-the synthetic installed-wheel check from the matching candidate checkout;
-NEVER interpret a local fixture pass as live-provider or database qualification.
+For reproducible deployments, select a complete checksum-pinned release manifest
+and verify downloaded bytes before installing. Candidate wheelhouses apply only
+to explicitly selected unpublished development versions, not these public releases.
+The Integration Lab's [reasoning lane](https://github.com/B3Cognition/prosaic-integration-lab/blob/main/docs/reasoning-effort.md)
+uses a separate manifest and environment; it does not silently replace its
+ordinary integration baseline or certify all five packages on every platform.
 
-Candidate source builds use an exact committed Git archive. Recursive source
-documentation inclusion is safe only within that tracked snapshot; private,
-untracked research and generated run data must stay outside the archive.
-The packaging regression accepts `PROSAIC_RELEASE_REF` for a staged Git tree
-before commit, and defaults to `HEAD` for committed-source verification.
+Run installed smoke scripts from the matching source archive. Fixture success
+does not qualify a live model, database deployment or storage configuration.
+Candidate source builds use an exact committed archive. Keep private research,
+untracked files and run data outside release archives. The packaging regression
+accepts `PROSAIC_RELEASE_REF` for a staged Git tree and defaults to `HEAD`.

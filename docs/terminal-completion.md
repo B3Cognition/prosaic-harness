@@ -14,8 +14,8 @@ python3.11 -m venv .venv
 ```
 
 Existing optional PostgreSQL packages remain Runtime recorder 0.3.0 and Harness
-store 0.4.1. No adapter migration or Core release is required. These version pins
-describe this release candidate until its public release qualification completes.
+store 0.4.1. No adapter migration or Core release is required. These packages
+are published; Runtime 0.9.12 also retains this terminal-completion support.
 
 ## Integration
 

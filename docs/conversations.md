@@ -2,7 +2,7 @@
 
 ## Optional context assembly
 
-Context-capable SDK candidates support separate `context_policy` and
+Current SDKs support separate `context_policy` and
 `interpretation_context_policy` on `ConversationBindings`, with a trusted
 `token_counters` registry supplied by the host. Each policy validates its own
 endpoint/model descriptor. Missing per-purpose policies retain legacy fitting;
@@ -35,12 +35,11 @@ only. Provider usage remains accounting evidence and Lago handles submitted
 billing events separately. Run installed qualification with
 `python -I scripts/conversation_smoke.py --context-assembly`.
 
-Harness **0.8.0** adds optional ordered conversation sessions, using Runtime
-**0.9.x** for stateless model turns. The existing PostgreSQL adapter **0.3.0**
-adds shared session storage. These are candidate versions until the linked
-Runtime, Harness and Integration Lab qualification and publication gates pass.
-Use exact qualified candidate wheels meanwhile; this page does not establish
-that these versions are available from the public package index.
+Ordered conversation sessions were introduced in Harness **0.8.0**, using
+Runtime **0.9.x** for stateless model turns. Current published versions are
+Harness **0.9.6**, Runtime **0.9.12** and optional PostgreSQL store **0.4.1**.
+The store supplies shared workflow/session persistence; deployment readiness
+still requires the operator's database and durability checks.
 
 An ordinary conversation needs an approved agent, private host bindings and a
 session store. It needs no workflow graph or filesystem workspace. Attach an
@@ -48,25 +47,25 @@ existing admitted workflow only when the application needs its pauses and
 validation. Agent Markdown stays the existing `subagent` kind; Python imports
 and distribution names stay in the `b3-prosaic` family.
 
-## Install the compatible candidate train
+<a id="install-the-compatible-candidate-train"></a>
 
-Use a new environment and the qualified wheelhouse selected by the release
-receipt. Core remains **0.4.1**. Candidate Harness depends on
-`b3-prosaic-runtime>=0.9,<0.10`; its optional adapter depends on
-`b3-prosaic-harness>=0.8,<0.9`.
+## Install the compatible published train
+
+Use a fresh environment. Core remains **0.4.1**. Harness depends on
+`b3-prosaic-runtime>=0.9.11,<0.10`; its optional adapter depends on
+`b3-prosaic-harness>=0.9,<0.10`.
 
 ```sh
 python3 -m venv .venv-chat
-.venv-chat/bin/python -m pip install --find-links /absolute/path/to/qualified-wheelhouse \
-  'b3-prosaic-harness==0.8.0'
+.venv-chat/bin/python -m pip install \
+  'b3-prosaic-harness==0.9.6' 'b3-prosaic-runtime==0.9.12'
 .venv-chat/bin/python -m pip check
 # Add this only for shared durable sessions:
-.venv-chat/bin/python -m pip install --find-links /absolute/path/to/qualified-wheelhouse \
-  'b3-prosaic-harness-postgres==0.3.0'
+.venv-chat/bin/python -m pip install 'b3-prosaic-harness-postgres==0.4.1'
 ```
 
 Do not mix legacy `prosaic-*` distributions with `b3-prosaic-*` distributions in
-one environment; they own the same import paths. The candidate installed API
+one environment; they own the same import paths. The installed API
 gate is `python -I scripts/conversation_smoke.py`, using the wheel environment's
 Python. Its provider is a disposable loopback fixture; it needs no model key.
 

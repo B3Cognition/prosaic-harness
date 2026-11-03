@@ -38,12 +38,12 @@ persistence/restart/failover qualification before enabling production work.
 
 Python 3.11+, PostgreSQL 16 or 18 on a writable primary, and libpq 17+ are
 required. `psycopg[binary]` supplies libpq; older libpq is rejected.
-From the exact candidate Harness checkout, use a new environment and a curated
-wheelhouse containing only the manifest-selected b3 candidate wheels:
+Use a fresh environment and the published compatible SDKs:
 
 ```sh
 python3 -m venv .venv-postgres
-.venv-postgres/bin/python -m pip install --find-links /absolute/path/to/curated-wheelhouse . ./adapters/postgres
+.venv-postgres/bin/python -m pip install 'b3-prosaic-harness==0.9.6' \
+  'b3-prosaic-runtime==0.9.12' 'b3-prosaic-harness-postgres==0.4.1'
 export PATH="$PWD/.venv-postgres/bin:$PATH"
 prosaic --version
 prosaic-harness-postgres --help
@@ -51,8 +51,13 @@ prosaic-harness-postgres --help
 
 ALWAYS migrate using a fresh environment or image; NEVER install legacy and b3
 distributions together because they own the same import paths. See
-[package migration](../../docs/package-migration.md). The Runtime 0.9 candidate
-must be available before this installation can resolve.
+[package migration](../../docs/package-migration.md). For reproducible installs,
+verify the complete selected manifest's wheel hashes before installation.
+
+Agent reasoning effort is passed through Harness to Runtime; this store does
+not turn thinking on or prove provider compliance. Frozen prose/configuration
+and workflow identity still govern resume. See [reasoning effort](../../docs/reasoning-effort.md)
+and the Integration Lab's separate blueprint and control-check lane.
 
 Harness does **not** provision PostgreSQL, create databases/users, start a
 service, or fall back to files. Your operator supplies two DSNs through a secret
