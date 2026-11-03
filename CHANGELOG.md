@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.7 — 2026-11-03
+
+- ALWAYS allow terminal-step first-tool repair only with an explicit recovery
+  grant, remaining attempts and complete zero-dispatch first-turn evidence.
+  NEVER use this exception for terminal rejection, interrupted or uncertain work.
+- ALWAYS preserve failed and accepted receipts and actual usage across repair
+  and fresh-process adoption. NEVER increase budgets or replay completed tools.
+- Runtime minimum remains 0.9.11; Core and PostgreSQL adapters are unchanged.
+
 ## 0.9.6 — 2026-11-02
 
 - Admit explicit host terminal-tool policy and preserve the inline artifact in a

@@ -9,7 +9,7 @@ Create a fresh environment and install the coherent SDK versions:
 ```sh
 python3.11 -m venv .venv
 .venv/bin/python -m pip install 'b3-prosaic==0.4.1' \
-  'b3-prosaic-runtime==0.9.11' 'b3-prosaic-harness==0.9.6'
+  'b3-prosaic-runtime==0.9.11' 'b3-prosaic-harness==0.9.7'
 .venv/bin/python -m pip check
 ```
 
@@ -71,6 +71,25 @@ When an agent step has effective terminal grants, ordinary model-final JSON is
 insufficient even if its schema is valid. A terminal-capable handler may return
 ordinary JSON for incomplete work and continue the loop, but successful final
 completion requires TerminalCompletion(output, artifact=...).
+
+## Bounded first-tool repair (Harness 0.9.7)
+
+When a provider ignores an admitted `initial_tool`, Runtime rejects that first
+turn before dispatch. Harness 0.9.7 can consume another already-granted attempt
+on a terminal-enabled agent step when the host enables
+`WorkflowPolicy.bounded_tool_recovery=True` and the step has remaining
+`max_attempts` within the host's attempt cap. This does not raise any limit or
+automatically reopen an existing blocked run.
+
+The exception requires a completed first-turn refusal, exactly one metered
+provider request, complete matching token usage, zero dispatched tools, and no
+tool/acquisition events or terminal evidence. Cancellation, deadlines, resource
+limits, unknown usage and contradictory evidence block repair. Schema, artifact
+and semantic rejection after dispatch retain the terminal no-retry rule.
+
+ALWAYS retain both immutable receipts and actual usage, and bind only the
+accepted terminal receipt. NEVER use this pre-dispatch exception to repeat
+effects, recover an uncertain invocation or admit a model-authored completion.
 
 ## Durability and retrieval
 
