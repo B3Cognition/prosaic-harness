@@ -1,4 +1,7 @@
-"""Installed public-API terminal workflow, durable artifact and fresh-worker adoption."""
+"""Installed public-API terminal workflow, durable artifact and recovery.
+
+ALWAYS retain the granted repair budget and actual receipts. NEVER replay effects.
+"""
 import json
 from pathlib import Path
 import runpy
@@ -51,7 +54,7 @@ def main():
                     validators={'verified': Validator('artifact-v1', validate)}),
                 policy=WorkflowPolicy(allowed_agents={'finder'}, allowed_schemas={'ack'},
                     allowed_tools={'lookup_item'}, allowed_terminal_tools={'lookup_item'},
-                    allowed_validators={'verified'}))
+                    allowed_validators={'verified'}, bounded_tool_recovery=True))
             graph = {'version': 1, 'start': 'find', 'steps': {
                 'find': {'kind': 'agent', 'agent': 'finder', 'schema': 'ack',
                     'tools': ['lookup_item'], 'require_tools': ['lookup_item'],
@@ -78,6 +81,28 @@ def main():
             assert state['invocations'][0]['token_usage'] == 7
             print(json.dumps({'terminalCompletion': 'passed', 'restartAdoption': 'passed',
                               'providerRequests': 1, 'toolCalls': 1}))
+
+            requests.clear(); effects.clear(); checked.clear()
+            replies[:] = [helpers['completion']('{"complete":true}'), helpers['completion'](calls=[{
+                'id': 'lookup-repair', 'type': 'function', 'function': {
+                    'name': 'lookup_item', 'arguments': '{"query":"sample"}'}}]),
+                helpers['completion']('Unneeded acknowledgement')]
+            graph['steps']['find'].update(initial_tool='lookup_item', max_attempts=2)
+            repair_id = uuid.uuid4().hex
+            repair = Harness(factory.build(graph), store=store, run_id=repair_id)
+            state = repair.run({'query': 'sample'})
+            assert state['status'] == 'completed' and state['calls'] == 2
+            assert len(requests) == 2 and len(replies) == 1 and checked == [1]
+            assert effects == [{'query': 'sample'}]
+            receipts = repair.recovery_evidence()['receipts']
+            assert len(receipts) == 2 and [r['result']['exit_code'] for r in receipts] == [1, 0]
+            assert state['bindings']['find']['id'] == receipts[1]['id'] != receipts[0]['id']
+            assert [i['token_usage'] for i in state['invocations']] == [7, 7]
+            fresh = Harness(factory.build(graph), store=store, run_id=repair_id)
+            assert fresh.resume()['status'] == 'completed' and len(requests) == 2
+            assert fresh.recovery_evidence()['receipts'] == receipts
+            print(json.dumps({'terminalFirstToolRecovery': 'passed', 'providerRequests': 2,
+                              'toolCalls': 1, 'receipts': 2}))
 
 
 if __name__ == '__main__':

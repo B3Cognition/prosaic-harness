@@ -42,7 +42,7 @@ Use a fresh environment and the published compatible SDKs:
 
 ```sh
 python3 -m venv .venv-postgres
-.venv-postgres/bin/python -m pip install 'b3-prosaic-harness==0.9.6' \
+.venv-postgres/bin/python -m pip install 'b3-prosaic-harness==0.9.7' \
   'b3-prosaic-runtime==0.9.12' 'b3-prosaic-harness-postgres==0.4.1'
 export PATH="$PWD/.venv-postgres/bin:$PATH"
 prosaic --version

@@ -1,6 +1,6 @@
 # Harness package migration
 
-The published packages are `b3-prosaic-harness` **0.9.6** and optional
+The published packages are `b3-prosaic-harness` **0.9.7** and optional
 `b3-prosaic-harness-postgres` **0.4.1**. Harness requires
 `b3-prosaic-runtime>=0.9.11,<0.10`; the PostgreSQL adapter requires
 `b3-prosaic-harness>=0.9,<0.10`. Runtime 0.9.12 supplies the latest canonical
@@ -16,7 +16,7 @@ separately. PyPI's unrelated `prosaic` distribution is not part of this ecosyste
 ```sh
 python3 -m venv .venv-harness
 .venv-harness/bin/python -m pip install 'b3-prosaic==0.4.1' \
-  'b3-prosaic-runtime==0.9.12' 'b3-prosaic-harness==0.9.6'
+  'b3-prosaic-runtime==0.9.12' 'b3-prosaic-harness==0.9.7'
 # Optional shared state; no database is initialized during installation:
 .venv-harness/bin/python -m pip install 'b3-prosaic-harness-postgres==0.4.1'
 .venv-harness/bin/python -m pip check

@@ -648,7 +648,7 @@ class Harness:
         reason = 'invalid_arguments' if repair else 'missing_required_tool'
         return f'toolRecovery {reason}: execute required granted tools successfully before returning JSON: {sorted(missing)}'
 
-    def _first_tool_recovery(self, step, result, events):
+    def _first_tool_recovery(self, step, result, events, *, terminal=False):
         """Only completed, proven pre-dispatch failures may consume repair budget."""
         if not self._admission or not self._admission.policy.bounded_tool_recovery:
             return None
@@ -663,6 +663,25 @@ class Harness:
                        for key in ('tool_call_count', 'tool_rounds'))
                 or any(event.get('event', '').startswith(('tool_', 'acquisition_')) for event in events)):
             return None
+        if terminal:
+            # ALWAYS require the first-turn budget proof for this exception.
+            # NEVER reinterpret terminal evidence or partial usage as no work.
+            budget = metadata.get('invocation_budgets_v1')
+            if (result['stdout'] != '' or 'terminalCompletion' in metadata
+                    or any('terminalCompletion' in event for event in events)
+                    or type(metadata.get('observed_tool_call_count')) is not int
+                    or metadata['observed_tool_call_count'] < 0
+                    or metadata.get('token_usage_status') != 'reported'
+                    or type(metadata.get('reported_token_usage')) is not int
+                    or metadata['reported_token_usage'] != result['token_usage']
+                    or type(budget) is not dict
+                    or set(budget) != {'provider_requests', 'tool_calls', 'reported_tokens', 'usage_complete'}
+                    or budget['usage_complete'] is not True
+                    or type(budget['provider_requests']) is not int or budget['provider_requests'] != 1
+                    or type(budget['tool_calls']) is not int or budget['tool_calls'] != 0
+                    or type(budget['reported_tokens']) is not int
+                    or budget['reported_tokens'] != result['token_usage']):
+                return None
         return f'Execute the required first native tool {name}; no tool executed in the previous attempt.'
 
     def _accept(self, state, receipt):
@@ -686,6 +705,7 @@ class Harness:
             except (ValueError, TypeError, KeyError, OverflowError, RecursionError):
                 return self._block(state, 'terminal_completion_invalid')
         error = None
+        first_tool_repair = False
         output = None
         tool_feedback = ''
         if result['exit_code'] != 0:
@@ -697,9 +717,10 @@ class Harness:
                       'tool_choice_not_honored' if result['metadata'].get('failure_reason') == 'tool_choice_not_honored' else
                       'acquisition_failed' if result['metadata'].get('failure_reason') == 'acquisition_failed' else
                       'runtime_failure')
-            error = self._first_tool_recovery(step, result, receipt['events'])
+            error = self._first_tool_recovery(step, result, receipt['events'], terminal=bool(terminal_enabled))
             if error is None:
                 return self._block(state, self._resource_reason(state) or reason)
+            first_tool_repair = True
         else:
             if step['kind'] == 'agent' and self._admission and self._admission.policy.bounded_tool_recovery:
                 tool_feedback = self._tool_recovery(receipt['events'], step.get('require_tools', []), step.get('tools', []))
@@ -759,7 +780,7 @@ class Harness:
         if error:
             state['feedback'] = error
             self._event(state, 'validation_failed', attempt_id=receipt['id'], message=error)
-            if terminal_enabled or state['attempt'] >= (1 if step['kind'] == 'tool' else step.get('max_attempts', 2)):
+            if (terminal_enabled and not first_tool_repair) or state['attempt'] >= (1 if step['kind'] == 'tool' else step.get('max_attempts', 2)):
                 self._block(state, 'attempt_limit')
             else:
                 self._save(state)

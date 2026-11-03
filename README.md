@@ -1,6 +1,6 @@
 # Prosaic Harness
 
-Harness **0.9.6** lets native tools finish an admitted task with host-owned output and a durable
+Harness **0.9.7** lets native tools finish an admitted task with host-owned output and a durable
 inline artifact. See [terminal completion](docs/terminal-completion.md) for policy,
 validation, restart recovery and the consumer integration example.
 
@@ -10,7 +10,7 @@ uncertainty recovery. An optional bridge accepts natural-language replies to
 existing workflow pauses through a tool-free interpreter and current host admission.
 No new graph, framework, Markdown kind or distribution is required for ordinary chat.
 
-The published `b3-prosaic-harness` 0.9.6 distribution selects
+The published `b3-prosaic-harness` 0.9.7 distribution selects
 `b3-prosaic-runtime>=0.9.11,<0.10`. The optional `b3-prosaic-harness-postgres`
 **0.4.1** package supports shared workflow and conversation storage.
 Imports (`prosaic_harness`) and CLI commands (`prosaic-harness`) remain unchanged.
@@ -115,9 +115,9 @@ environment so another application's older runtime cannot be picked up by accide
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.9.6
+git checkout v0.9.7
 python3 -m venv .venv
-.venv/bin/python -m pip install 'b3-prosaic-harness==0.9.6' 'b3-prosaic-runtime==0.9.12'
+.venv/bin/python -m pip install 'b3-prosaic-harness==0.9.7' 'b3-prosaic-runtime==0.9.12'
 
 export PATH="$PWD/.venv/bin:$PATH"
 prosaic --help
