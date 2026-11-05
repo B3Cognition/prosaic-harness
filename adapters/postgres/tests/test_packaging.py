@@ -192,7 +192,7 @@ def curated_candidates(release_tool, tmp_path):
     directory.mkdir(); wheelhouse.mkdir()
     candidates = []
     for repo, expected in (
-        ('B3Cognition/prosaic', {'b3-prosaic': '0.4.1'}),
+        ('B3Cognition/prosaic', {'b3-prosaic': '0.5.0'}),
         ('B3Cognition/prosaic-runtime', {'b3-prosaic-runtime': RUNTIME_VERSION,
                                        'b3-prosaic-runtime-postgres': '0.3.0'})):
         artifacts = []
