@@ -23,6 +23,7 @@ from .errors import WorkflowAdmissionError, GraphAdmissionError, logical_alias, 
 from .graph_admission import validate_resolved_workflow
 from .schema_validation import admit_schema
 from .validation import Validator
+from .conversation_rules import requires_rule_support
 from .workflow import Workflow, digest, runtime_identity
 
 
@@ -95,6 +96,8 @@ def _config_payload(config, *, native=False):
              'tool_directories': [] if native else list(config.tool_directories),
              'cli_sandbox': {'mode': config.cli_sandbox.mode,
                              'runtime_roots': list(config.cli_sandbox.runtime_roots)}}
+    if getattr(config, 'required_guards', None):
+        value['required_guards'] = config.required_guards
     try:
         owned = _host_snapshot(value)
         # Constructors recheck shallowly frozen dataclasses after caller mutation.
@@ -113,13 +116,17 @@ def _config_from_json(config_json):
         allowed_tools=frozenset(value['allowed_tools']), limits=RunLimits(**value['limits']),
         tool_directories=tuple(value['tool_directories']),
         cli_sandbox=CliSandboxConfig(value['cli_sandbox']['mode'],
-                                    tuple(value['cli_sandbox']['runtime_roots'])))
+                                    tuple(value['cli_sandbox']['runtime_roots'])),
+        **({'required_guards': value['required_guards']} if 'required_guards' in value else {}))
 
 
 def _artifact_data(artifact):
     if isinstance(artifact, ProsaicArtifact):
-        return {'id': artifact.id, 'type': artifact.type, 'frontmatter': artifact.frontmatter,
+        data = {'id': artifact.id, 'type': artifact.type, 'frontmatter': artifact.frontmatter,
                 'body': artifact.body, 'resources': list(artifact.resources)}
+        if getattr(artifact, 'rules', None) is not None or getattr(artifact, 'rule_issues', None) is not None:
+            data.update(rules=list(artifact.rules or ()), ruleIssues=list(artifact.rule_issues or ()))
+        return data
     if type(artifact) is dict:
         return artifact
     _fail('invalid_artifact')
@@ -140,6 +147,8 @@ def _artifact_snapshot(artifact, *, maximum_bytes=_STORAGE_BYTES, maximum_depth=
             data = {'id': inline_id, **data}
         owned = snapshot_json(data, maximum_bytes=maximum_bytes, maximum_depth=maximum_depth,
                               maximum_nodes=maximum_nodes)
+        if 'rule_admission_v1' not in ProsaicRuntime.capabilities and requires_rule_support(owned):
+            _fail('policy_denied')
         result = ProsaicArtifact.from_inspection(owned)
         if not validate_artifact_definition(result.type, result.frontmatter)['ok']:
             _fail('invalid_artifact')

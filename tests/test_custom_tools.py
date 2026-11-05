@@ -136,6 +136,8 @@ def test_legacy_fingerprint_unchanged(endpoint, tmp_path):
     # Legacy snapshots also predate CLI sandbox configuration. Default-off is
     # deliberately omitted; enabling it must change the sealed identity.
     legacy_runtime.pop('cli_sandbox', None)
+    # Rule admission is also absent from the released unguarded checkpoint.
+    legacy_runtime.pop('required_guards', None)
     # Pre-effort snapshots also lacked this optional Runtime 0.9.10 field.
     # The fixed historic golden tests independently pin the original identity.
     for profile in legacy_runtime['profiles'].values():

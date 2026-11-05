@@ -17,6 +17,7 @@ from .factory import (_config_payload, _config_from_json, _artifact_snapshot,
 from .schema_validation import admit_schema
 from .session_codec import encode, decode, owned, digest, reference
 from .validation import Validator
+from .conversation_rules import registrations, descriptors, receipt_bound, source_options
 
 _ADMITTED = object()
 
@@ -256,17 +257,22 @@ class ConversationBindings:
     _workflows: object
     _admitted: object
     _token_counters: object
+    _guards: object
+    _rule_project: object
     def __init__(self, agent, *, version, config, policy, run_policy, turn_limits=None,
                  custom_tools=None, operation_namespace=None, tool_journal=None,
                  workspace=None, workspace_identity=None, interpreter=None,
                  interpretation_policy=None, interpretation_schema=None, workflows=None,
-                 context_policy=None, interpretation_context_policy=None, token_counters=None):
+                 context_policy=None, interpretation_context_policy=None, token_counters=None,
+                 guards=(), rule_project=None, rule_project_identity=None):
         try:
             reference(version)
             if type(policy) is not ConversationPolicy:
                 raise ConversationError('bindingMismatch')
             policy.__post_init__()
             config_data = _config_payload(config)
+            if (guards or config_data.get('required_guards')) and 'rule_admission_v1' not in ProsaicRuntime.capabilities:
+                raise ConversationError('capabilityMissing')
             if config_data['tool_directories']:
                 raise ConversationError('capabilityMissing')
             if 'conversation_turn_v1' not in ProsaicRuntime.capabilities:
@@ -282,6 +288,23 @@ class ConversationBindings:
             operation = tool_journal_descriptor(tool_journal)
             if tool_journal is not None and operation_namespace is None:
                 raise ConversationError('bindingMismatch')
+            tools = validate_custom_tools(custom_tools)
+            registered_guards = registrations(guards)
+            if rule_project is not None:
+                if not isinstance(rule_project, (str, Path)) or not Path(rule_project).is_absolute():
+                    raise ConversationError('bindingMismatch')
+                reference(rule_project_identity)
+                rule_project = str(Path(rule_project).resolve())
+            elif rule_project_identity is not None or any(g.path_settings for g in registered_guards):
+                raise ConversationError('bindingMismatch')
+            runtime = ProsaicRuntime(_config_from_json(encode(config_data).decode()), custom_tools=tools,
+                **({'guards': registered_guards} if registered_guards else {}),
+                **source_options(rule_project))
+            approved = _artifact_snapshot(agent, maximum_depth=policy.max_json_depth,
+                maximum_nodes=policy.max_json_nodes)
+            interpreting_agent = _artifact_snapshot(interpreter) if interpreter is not None else None
+            rule_room = max(receipt_bound(runtime, approved),
+                receipt_bound(runtime, interpreting_agent) if interpreting_agent is not None else 0)
             shared = {f.name: getattr(policy, f.name) for f in fields(TurnLimits)
                       if hasattr(policy, f.name)}
             # Both retained history and private evidence fit inside their new
@@ -290,6 +313,9 @@ class ConversationBindings:
             shared['max_json_nodes'] = (policy.max_json_nodes - 8192) // 2
             evidence_room=policy.max_receipt_bytes-policy.max_turn_bytes-encoded_answer_bound(
                 policy.max_assistant_bytes,policy.max_turn_bytes)-8192
+            evidence_room -= rule_room
+            if rule_room and evidence_room < 1024:
+                raise ConversationError('sessionLimit', 'maxReceiptBytes')
             if context_policy is not None or interpretation_context_policy is not None:
                 if 'context_assembly_v1' not in ProsaicRuntime.capabilities:
                     raise ConversationError('capabilityMissing')
@@ -304,10 +330,6 @@ class ConversationBindings:
             if any(getattr(limits, key) != val for key, val in shared.items()):
                 raise ConversationError('bindingMismatch')
             if limits.max_evidence_bytes>evidence_room: raise ConversationError('bindingMismatch')
-            tools = validate_custom_tools(custom_tools)
-            runtime = ProsaicRuntime(_config_from_json(encode(config_data).decode()), custom_tools=tools)
-            approved = _artifact_snapshot(agent, maximum_depth=policy.max_json_depth,
-                maximum_nodes=policy.max_json_nodes)
             invocation = _policy(run_policy)
             runtime.prepare_turn(approved, message='a', policy=run_policy, limits=limits, workspace=workspace)
             interpreting = None
@@ -322,7 +344,7 @@ class ConversationBindings:
                         or material['max_tool_calls'] != 0 or material['max_provider_requests'] != 1
                         or material['max_tool_rounds'] != 1 or material['timeout_s'] > 30):
                     raise ConversationError('bindingMismatch')
-                interpreting = _artifact_snapshot(interpreter)
+                interpreting = interpreting_agent
                 if interpreting.frontmatter.get('tools') not in (None, '', 'none', []):
                     raise ConversationError('bindingMismatch')
                 runtime.prepare_turn(interpreting, message='a', policy=interpret_policy, limits=limits)
@@ -342,6 +364,10 @@ class ConversationBindings:
                 'tools': custom_descriptors(tools), 'operationNamespace': operation_namespace,
                 'toolJournal': operation or None, 'workspaceIdentity': workspace_identity,
                 'interpreter': interpreting, 'workflows': {k: v.readmit() for k,v in registered.items()}}
+            if registered_guards:
+                data['guards'] = descriptors(registered_guards)
+            if rule_project:
+                data['ruleProjectIdentity'] = rule_project_identity
             context_data, owned_counters = _context_material(config, approved,
                 ProsaicArtifact.from_inspection(interpreting['artifact']) if interpreting else None,
                 context_policy, interpretation_context_policy, token_counters)
@@ -349,7 +375,8 @@ class ConversationBindings:
             for key, value in {'_encoded': encode(data), '_config': encode(config_data),
                 '_tools': MappingProxyType(tools), '_journal': tool_journal, '_workspace': workspace,
                 '_workflows': MappingProxyType(registered), '_admitted': _ADMITTED,
-                '_token_counters': owned_counters}.items():
+                '_token_counters': owned_counters, '_guards': registered_guards,
+                '_rule_project': rule_project}.items():
                 object.__setattr__(self, key, value)
         except ConversationError:
             raise
@@ -410,12 +437,17 @@ class ConversationBindings:
         try:
             if self._admitted is not _ADMITTED:
                 raise ValueError()
+            if self._guards and 'rule_admission_v1' not in ProsaicRuntime.capabilities:
+                raise ConversationError('capabilityMissing')
             data = decode(self._encoded)
             if (data['toolJournal'] != (tool_journal_descriptor(self._journal) or None)
                     or data['tools'] != custom_descriptors(validate_custom_tools(self._tools))
+                    or data.get('guards', []) != descriptors(self._guards)
                     or data['workflows'] != {k: v.readmit() for k,v in self._workflows.items()}):
                 raise ValueError()
-            runtime = ProsaicRuntime(self.config, custom_tools=self._tools)
+            runtime = ProsaicRuntime(self.config, custom_tools=self._tools,
+                **({'guards': self._guards} if self._guards else {}),
+                **source_options(self._rule_project))
             context_data, _ = _context_material(self.config, self.agent,
                 ProsaicArtifact.from_inspection(data['interpreter']['artifact']) if data['interpreter'] else None,
                 self.context_policy, self.interpretation_context_policy, self._token_counters)
@@ -432,7 +464,9 @@ class ConversationBindings:
             raise ConversationError('bindingMismatch') from None
     def runtime(self, *, lifecycle=None):
         self.readmit()
-        return ProsaicRuntime(self.config, custom_tools=self._tools, lifecycle=lifecycle)
+        return ProsaicRuntime(self.config, custom_tools=self._tools, lifecycle=lifecycle,
+            **({'guards': self._guards} if self._guards else {}),
+            **source_options(self._rule_project))
 
 
 def _context_material(config, agent, interpreter, ordinary, interpreting, registry):

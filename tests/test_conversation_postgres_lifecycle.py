@@ -68,3 +68,29 @@ def test_postgres_prepared_action_never_dispatches_on_recovery(workflow_fixture,
         reply=fx.fresh_controller().recover(fx.session_id)
         assert reply.document['status']=='needsResolution'
         assert fx.harness.status()==before and fx.provider_calls==0
+
+
+def test_postgres_guarded_failure_receipt_recovers_without_dispatch(conversation_fixture, lifecycle_stores):
+    from prosaic_harness import ConversationBindings
+    from prosaic_runtime.guards import strict_json
+    from test_conversation_rules import artifact
+    sessions, _ = lifecycle_stores
+    with conversation_fixture(store=sessions) as fx:
+        fx.bindings = ConversationBindings(artifact(), version='guard-v1', config=fx.bindings.config,
+            policy=fx.bindings.policy, run_policy=fx.bindings.run_policy, guards=[strict_json()])
+        fx.controller = fx.fresh_controller()
+        snapshot = fx.controller.create()
+        fx.queue_text('invalid JSON')
+        def crash(event):
+            if event['event'] == 'receiptSaved': raise Crash()
+        with pytest.raises(Crash):
+            fx.controller.send(snapshot.session_id, message_id='one', message='Hello',
+                expected_revision=snapshot.revision, on_event=crash)
+        reply = fx.fresh_controller().recover(snapshot.session_id).document
+        assert reply['failureCode'] == 'ruleViolation' and reply['status'] == 'failed'
+        state = sessions.load_session(snapshot.session_id, scope=fx.scope).state
+        aid = state['turns'][-1]['attempts'][-1]
+        assert sessions.load_receipt(snapshot.session_id, aid, scope=fx.scope)['rules']['violated'] == [
+            'companions/check.md:1:strict_json']
+        assert fx.fresh_controller().recover(snapshot.session_id).document == reply
+        assert fx.provider_calls == 1

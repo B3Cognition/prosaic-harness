@@ -479,3 +479,41 @@ host outcome must stop reconstruction. Keep this private evidence out of public
 HTTP replies, model arguments and transcripts. Authenticate/authorize the host
 before reading it. Receipt adoption still uses ordinary Harness recovery after
 host reconstruction has been proved safe.
+# Guarded conversation turns
+
+ALWAYS register guards in trusted host code and bind a host `required_guards`
+floor before creating a session. NEVER accept registrations or policy from a
+message. Use `ConversationBindings(..., guards=[...])`; the same registrations
+are supplied during admission, readmission, ordinary turns and interpretation.
+Composed inspection `rules` and `ruleIssues` survive snapshots, and required
+guards survive configuration reconstruction.
+
+Guard names, versions, supported stages, settings schema, path settings and
+repair/echo flags are part of binding identity. Callables remain in the host;
+they are never serialized. Change a guard's version when its behavior changes.
+A changed declaration cannot resume an existing session. Supply the same
+registrations in a fresh worker when reopening a session.
+
+Path-setting guards additionally require an absolute `rule_project` and a
+logical `rule_project_identity`. Runtime resolves guard files inside that
+project in every phase, independently of worker CWD. Equivalent relocated
+projects can share the same logical identity; changing policy contents requires
+the host's version/identity update. Never point this root at caller-chosen paths.
+
+Guarded turns need Runtime's `rule_admission_v1` capability. Until Runtime #16
+ships, use its exact reviewed `498ffc7` candidate, rather than assuming that
+the published 0.9.13 contains the feature. Unguarded hosts remain compatible
+with published Runtime 0.9.13. Legacy graph `run()` execution remains outside
+the conversation rule-hook contract.
+
+Private receipts accept `ruleViolation` and optionally include a version-1
+`rules` extension: `evaluated`, `violated`, `fixed`, `faulted` IDs and
+`fingerprint`. No rule text, reasons or settings are copied into it. The
+extension is limited to 256 distinct IDs per group and 262,144 encoded bytes;
+the maximum possible extension is reserved at admission before provider spend.
+Existing receipt size/node limits still apply, and unguarded receipts keep
+their original shape. This extension is supported in both legacy and context
+receipts; recovery adopts a saved guarded failure without another model call.
+
+Older Harness readers reject receipts with this extension. Upgrade all workers
+that share guarded sessions together; existing unguarded sessions are unchanged.
