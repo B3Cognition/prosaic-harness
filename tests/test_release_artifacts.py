@@ -437,8 +437,8 @@ def curated_candidates(release_tool, tmp_path):
     directory.mkdir(); wheelhouse.mkdir()
     candidates = []
     for repo, expected in (
-        ('B3Cognition/prosaic', {'b3-prosaic': '0.4.1'}),
-        ('B3Cognition/prosaic-runtime', {'b3-prosaic-runtime': '0.9.11',
+        ('B3Cognition/prosaic', {'b3-prosaic': '0.5.0'}),
+        ('B3Cognition/prosaic-runtime', {'b3-prosaic-runtime': '0.9.13',
                                        'b3-prosaic-runtime-postgres': '0.3.0'})):
         artifacts = []
         for name, version in expected.items():
@@ -469,7 +469,7 @@ def test_verified_wheelhouse_rejects_mixed_or_changed_candidates(
         release_tool, curated_candidates, change):
     directory, wheelhouse = curated_candidates
     release_tool.verify_upstream(directory, wheelhouse)
-    path = wheelhouse / 'b3_prosaic-0.4.1-py3-none-any.whl'
+    path = wheelhouse / 'b3_prosaic-0.5.0-py3-none-any.whl'
     if change == 'extra':
         (wheelhouse / 'prosaic-0.3.0-py3-none-any.whl').write_bytes(b'old')
     elif change == 'missing':
@@ -516,7 +516,7 @@ def test_index_selection_leaves_unselected_distributions_unpublished(release_too
 
 
 @pytest.mark.parametrize('distribution,prefix,version', [
-    ('b3-prosaic-harness', 'b3_prosaic_harness', '0.9.7'),
+    ('b3-prosaic-harness', 'b3_prosaic_harness', '0.9.8'),
     ('b3-prosaic-harness-postgres', 'b3_prosaic_harness_postgres', '0.4.1'),
 ])
 def test_sdk_publication_uploads_only_explicit_distribution(tmp_path, distribution, prefix, version):
@@ -533,7 +533,7 @@ def test_sdk_publication_uploads_only_explicit_distribution(tmp_path, distributi
     prepare = next(step['run'] for step in steps if step.get('name') == 'Prepare only distribution files for upload')
     artifacts = tmp_path/'release/artifacts'
     artifacts.mkdir(parents=True)
-    for name, value in [('b3_prosaic_harness','0.9.7'), ('b3_prosaic_harness_postgres','0.4.1')]:
+    for name, value in [('b3_prosaic_harness','0.9.8'), ('b3_prosaic_harness_postgres','0.4.1')]:
         for suffix in ('-py3-none-any.whl', '.tar.gz'):
             (artifacts/(name+'-'+value+suffix)).write_bytes(b'fixture')
     subprocess.run(['sh', '-e', '-c', prepare], cwd=tmp_path,

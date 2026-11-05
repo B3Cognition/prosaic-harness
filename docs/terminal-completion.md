@@ -8,14 +8,14 @@ Create a fresh environment and install the coherent SDK versions:
 
 ```sh
 python3.11 -m venv .venv
-.venv/bin/python -m pip install 'b3-prosaic==0.4.1' \
-  'b3-prosaic-runtime==0.9.11' 'b3-prosaic-harness==0.9.7'
+.venv/bin/python -m pip install 'b3-prosaic==0.5.0' \
+  'b3-prosaic-runtime==0.9.13' 'b3-prosaic-harness==0.9.8'
 .venv/bin/python -m pip check
 ```
 
 Existing optional PostgreSQL packages remain Runtime recorder 0.3.0 and Harness
-store 0.4.1. No adapter migration or Core release is required. These packages
-are published; Runtime 0.9.12 also retains this terminal-completion support.
+store 0.4.1. No adapter migration is required. Runtime 0.9.13 and Harness 0.9.8
+retain terminal-completion support while selecting Core 0.5.0.
 
 ## Integration
 

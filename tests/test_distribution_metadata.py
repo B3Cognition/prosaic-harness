@@ -13,8 +13,8 @@ import pytest
 
 
 @pytest.mark.parametrize('project,name,version,module,dependency,entry', [
-    ('.', 'b3-prosaic-harness', '0.9.7', 'prosaic_harness',
-     'b3-prosaic-runtime>=0.9.11,<0.10', 'prosaic-harness = prosaic_harness.cli:main'),
+    ('.', 'b3-prosaic-harness', '0.9.8', 'prosaic_harness',
+     'b3-prosaic-runtime>=0.9.13,<0.10', 'prosaic-harness = prosaic_harness.cli:main'),
     ('adapters/postgres', 'b3-prosaic-harness-postgres', '0.4.1',
      'prosaic_harness_postgres', 'b3-prosaic-harness>=0.9,<0.10',
      'prosaic-harness-postgres = prosaic_harness_postgres.cli:main'),
@@ -57,5 +57,6 @@ def test_clean_wheel_public_identity_and_dependencies(tmp_path, project, name,
         for filename in ('LICENSE', 'NOTICE'):
             assert wheel.read(license_root + filename) == (source / project / filename).read_bytes()
         if project == '.':
+            assert Requirement('b3-prosaic>=0.5.0,<0.6') in requirements
             assert not any(path.startswith('prosaic_harness_postgres/') for path in names)
             assert not any(requirement.name.startswith('psycopg') for requirement in requirements)

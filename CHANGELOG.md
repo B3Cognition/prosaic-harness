@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.8 — 2026-11-05
+
+- Require Prosaic >=0.5.0,<0.6 directly and Runtime >=0.9.13,<0.10.
+- Update installation and exact-artifact qualification pins for the published
+  Core 0.5.0 train; retain existing workflow identities and recovery contracts.
+- Keep PostgreSQL store 0.4.1 as a compatibility witness without republishing it.
+
 ## 0.9.7 — 2026-11-03
 
 - ALWAYS allow terminal-step first-tool repair only with an explicit recovery

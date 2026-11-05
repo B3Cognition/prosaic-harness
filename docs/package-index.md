@@ -1,15 +1,20 @@
 # Public package channel
 
+The current compatible train is Harness 0.9.8, Runtime 0.9.13 and Core 0.5.0.
+Harness directly requires Core >=0.5.0,<0.6 and Runtime >=0.9.13,<0.10.
+The PostgreSQL store stays at 0.4.1; unchanged adapter builds are qualification
+witnesses. See [current installation pins](package-migration.md).
+
 Install the B3 distribution in a fresh Python 3.11+ environment:
 
 ```sh
 python -m venv .venv
-.venv/bin/python -m pip install 'b3-prosaic-harness>=0.7.1,<0.8'
+.venv/bin/python -m pip install 'b3-prosaic-harness==0.9.8'
 .venv/bin/prosaic-harness --help
 ```
 
 The Python import remains `prosaic_harness`, and the command remains `prosaic-harness`.
-The optional PostgreSQL store is `b3-prosaic-harness-postgres==0.2.1`; its import
+The optional PostgreSQL store is `b3-prosaic-harness-postgres==0.4.1`; its import
 and command remain `prosaic_harness_postgres` and `prosaic-harness-postgres`.
 PyPI's package named `prosaic` belongs to an unrelated publisher. The previous
 GitHub-only distributions and the B3 packages share installed module paths;
@@ -87,21 +92,22 @@ For local preparation:
 ```sh
 .venv/bin/python scripts/release_artifacts.py build --ref COMMIT \
   --output /tmp/harness-release-COMMIT --project . --project adapters/postgres \
-  --expect b3-prosaic-harness=0.7.1 --expect b3-prosaic-harness-postgres=0.2.1
+  --expect b3-prosaic-harness=0.9.8 --expect b3-prosaic-harness-postgres=0.4.1
 .venv/bin/python scripts/release_artifacts.py verify \
   --directory /tmp/harness-release-COMMIT/artifacts --commit COMMIT
 ```
 
 Complete the ecosystem's downstream/native acceptance against these candidate
-bytes before public uploads. Publish Core, Runtime and its recorder adapter,
-Harness and its store adapter, then the lab. The train's final qualification
+bytes before public uploads. Publish Core first, Runtime second and Harness third, then adopt the train
+in the lab. Unchanged adapter versions remain qualification witnesses and are
+not republished. The train's final qualification
 must include its intended source, dependency floors and four architecture/PG
 cells; synthetic results do not certify live provider or staging capacity.
 
-Tag the same source commit `v0.7.1`. Tags prepare candidates; they do not
+Tag the same source commit `v0.9.8`. Tags prepare candidates; they do not
 automatically upload them. Dispatch **Publish SDK** on that tag with
 `candidate_run_id` pointing to its successful exact-source build and
-`publish=true`. Promotion downloads those original bytes and reruns the
+`distribution=core` and `publish=true`. Promotion downloads those original bytes and reruns the
 required checks. It does not rebuild after qualification. Missing publisher
 configuration fails the publication job rather than treating GitHub artifacts
 as evidence of package-index availability.
@@ -116,9 +122,9 @@ Update the lab's exact-version manifest only from verified public downloads.
 
 ## Qualified upstream candidates
 
-Until upstream packages are published, dispatch with explicit `core_run_id`,
-`core_commit`, `runtime_run_id` and `runtime_commit`. The hardening train has no default upstream run: choose successful exact-source
-Core and Runtime candidates containing these patch fixes. A tag-triggered qualification uses repository
+Dispatch with explicit `core_run_id`, `core_commit`, `runtime_run_id` and
+`runtime_commit` selecting the successful Core 0.5.0 and Runtime 0.9.13
+qualification runs. A tag-triggered qualification uses repository
 variables `QUALIFIED_CORE_RUN_ID`, `QUALIFIED_CORE_COMMIT`,
 `QUALIFIED_RUNTIME_RUN_ID` and `QUALIFIED_RUNTIME_COMMIT`; missing Runtime
 identity fails qualification.
@@ -126,7 +132,7 @@ identity fails qualification.
 The builder checks the upstream run's repository, successful conclusion, workflow,
 event and exact source commit, then downloads its original `qualified-release`
 artifact. It verifies the receipt and every distribution hash, allowing exactly
-Core 0.4.1, Runtime 0.8.1 and Runtime PostgreSQL 0.2.1. It curates exactly those
+Core 0.5.0, Runtime 0.9.13 and Runtime PostgreSQL 0.3.0. It curates exactly those
 three wheels, with no legacy wheels or unselected local caches.
 `upstream-receipt.json` retains both upstream receipts, run/source identities and
 selected hashes. Every Harness qualification record binds its digest. Promotion

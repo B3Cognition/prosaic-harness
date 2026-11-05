@@ -37,7 +37,7 @@ billing events separately. Run installed qualification with
 
 Ordered conversation sessions were introduced in Harness **0.8.0**, using
 Runtime **0.9.x** for stateless model turns. Current published versions are
-Harness **0.9.7**, Runtime **0.9.12** and optional PostgreSQL store **0.4.1**.
+Harness **0.9.8**, Runtime **0.9.13** and optional PostgreSQL store **0.4.1**.
 The store supplies shared workflow/session persistence; deployment readiness
 still requires the operator's database and durability checks.
 
@@ -51,14 +51,14 @@ and distribution names stay in the `b3-prosaic` family.
 
 ## Install the compatible published train
 
-Use a fresh environment. Core remains **0.4.1**. Harness depends on
-`b3-prosaic-runtime>=0.9.11,<0.10`; its optional adapter depends on
+Use a fresh environment. Core is **0.5.0**. Harness depends on
+`b3-prosaic-runtime>=0.9.13,<0.10`; its optional adapter depends on
 `b3-prosaic-harness>=0.9,<0.10`.
 
 ```sh
 python3 -m venv .venv-chat
 .venv-chat/bin/python -m pip install \
-  'b3-prosaic-harness==0.9.7' 'b3-prosaic-runtime==0.9.12'
+  'b3-prosaic-harness==0.9.8' 'b3-prosaic-runtime==0.9.13'
 .venv-chat/bin/python -m pip check
 # Add this only for shared durable sessions:
 .venv-chat/bin/python -m pip install 'b3-prosaic-harness-postgres==0.4.1'
