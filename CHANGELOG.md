@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.10 — 2026-11-06
+
 - Expose read-only effective input byte caps for ordinary conversation requests
   and their separately configured interpreters, without changing sealed binding
   declarations, existing defaults, explicit tighter run caps or errors.

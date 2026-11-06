@@ -13,7 +13,7 @@ import pytest
 
 
 @pytest.mark.parametrize('project,name,version,module,dependency,entry', [
-    ('.', 'b3-prosaic-harness', '0.9.9', 'prosaic_harness',
+    ('.', 'b3-prosaic-harness', '0.9.10', 'prosaic_harness',
      'b3-prosaic-runtime>=0.9.14,<0.10', 'prosaic-harness = prosaic_harness.cli:main'),
     ('adapters/postgres', 'b3-prosaic-harness-postgres', '0.4.1',
      'prosaic_harness_postgres', 'b3-prosaic-harness>=0.9,<0.10',
