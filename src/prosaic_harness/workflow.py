@@ -29,6 +29,8 @@ def runtime_identity(config):
             endpoint.pop('supported_efforts', None)
     if not value.get('tool_directories'):
         value.pop('tool_directories', None)
+    if not value.get('required_guards'):
+        value.pop('required_guards', None)
     # Preserve existing checkpoints when the newly added sandbox policy is
     # absent/default-off. Required mode or trusted runtime roots are sealed.
     if value.get('cli_sandbox') == {'mode': 'off', 'runtime_roots': ()}:

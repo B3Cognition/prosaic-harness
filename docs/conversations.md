@@ -37,7 +37,7 @@ billing events separately. Run installed qualification with
 
 Ordered conversation sessions were introduced in Harness **0.8.0**, using
 Runtime **0.9.x** for stateless model turns. Current published versions are
-Harness **0.9.8**, Runtime **0.9.13** and optional PostgreSQL store **0.4.1**.
+Harness **0.9.9**, Runtime **0.9.14** and optional PostgreSQL store **0.4.1**.
 The store supplies shared workflow/session persistence; deployment readiness
 still requires the operator's database and durability checks.
 
@@ -52,13 +52,13 @@ and distribution names stay in the `b3-prosaic` family.
 ## Install the compatible published train
 
 Use a fresh environment. Core is **0.5.0**. Harness depends on
-`b3-prosaic-runtime>=0.9.13,<0.10`; its optional adapter depends on
+`b3-prosaic-runtime>=0.9.14,<0.10`; its optional adapter depends on
 `b3-prosaic-harness>=0.9,<0.10`.
 
 ```sh
 python3 -m venv .venv-chat
 .venv-chat/bin/python -m pip install \
-  'b3-prosaic-harness==0.9.8' 'b3-prosaic-runtime==0.9.13'
+  'b3-prosaic-harness==0.9.9' 'b3-prosaic-runtime==0.9.14'
 .venv-chat/bin/python -m pip check
 # Add this only for shared durable sessions:
 .venv-chat/bin/python -m pip install 'b3-prosaic-harness-postgres==0.4.1'
@@ -479,3 +479,41 @@ host outcome must stop reconstruction. Keep this private evidence out of public
 HTTP replies, model arguments and transcripts. Authenticate/authorize the host
 before reading it. Receipt adoption still uses ordinary Harness recovery after
 host reconstruction has been proved safe.
+# Guarded conversation turns
+
+ALWAYS register guards in trusted host code and bind a host `required_guards`
+floor before creating a session. NEVER accept registrations or policy from a
+message. Use `ConversationBindings(..., guards=[...])`; the same registrations
+are supplied during admission, readmission, ordinary turns and interpretation.
+Composed inspection `rules` and `ruleIssues` survive snapshots, and required
+guards survive configuration reconstruction.
+
+Guard names, versions, supported stages, settings schema, path settings and
+repair/echo flags are part of binding identity. Callables remain in the host;
+they are never serialized. Change a guard's version when its behavior changes.
+A changed declaration cannot resume an existing session. Supply the same
+registrations in a fresh worker when reopening a session.
+
+Path-setting guards additionally require an absolute `rule_project` and a
+logical `rule_project_identity`. Runtime resolves guard files inside that
+project in every phase, independently of worker CWD. Equivalent relocated
+projects can share the same logical identity; changing policy contents requires
+the host's version/identity update. Never point this root at caller-chosen paths.
+
+Guarded turns need Runtime's `rule_admission_v1` capability, published in
+Runtime 0.9.14. Harness 0.9.9 requires that released Runtime version; no git
+candidate override is needed. The prior Runtime 0.9.13 release lacks this
+capability. Legacy graph `run()` execution remains outside the conversation
+rule-hook contract.
+
+Private receipts accept `ruleViolation` and optionally include a version-1
+`rules` extension: `evaluated`, `violated`, `fixed`, `faulted` IDs and
+`fingerprint`. No rule text, reasons or settings are copied into it. The
+extension is limited to 256 distinct IDs per group and 262,144 encoded bytes;
+the maximum possible extension is reserved at admission before provider spend.
+Existing receipt size/node limits still apply, and unguarded receipts keep
+their original shape. This extension is supported in both legacy and context
+receipts; recovery adopts a saved guarded failure without another model call.
+
+Older Harness readers reject receipts with this extension. Upgrade all workers
+that share guarded sessions together; existing unguarded sessions are unchanged.

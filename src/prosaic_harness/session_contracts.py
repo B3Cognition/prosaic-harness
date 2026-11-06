@@ -8,12 +8,13 @@ from .conversation_bindings import ConversationScope, ConversationPolicy, Conver
 from .conversation_errors import ConversationError
 from .run_store import StoreCorrupt, validate_id, validate_revision
 from .session_codec import encode, decode, owned, digest, reference, node_count
+from .conversation_rules import rule_receipt, validate_rule_receipt
 
 _HASH = re.compile('[0-9a-f]{64}')
 _FAILURES = frozenset({'providerFailure','invalidToolRequest','cancelled','timeout','contextLimit',
     'inputLimit','outputLimit','budgetExceeded','accountingFailure','observationFailure',
     'toolEffectUncertain','toolJournalFailure','toolFailure','incompleteGeneration',
-    'bindingMismatch','interrupted','invalidInterpretation','confirmationRequired','interactionStale'})
+    'bindingMismatch','interrupted','invalidInterpretation','confirmationRequired','interactionStale','ruleViolation'})
 _UNCERTAIN = frozenset({'toolEffectUncertain', 'toolJournalFailure', 'interrupted'})
 HOST_ANSWER_BYTES = 64
 
@@ -507,7 +508,7 @@ def verify_receipt(document):
             from .session_context import RECEIPT_FIELDS, validate_receipt_context
         closed(value,{'version','recordType','sessionId','scope','bindingIdentity','invocationId','turnSequence',
             'contextIdentity','encodingVersion','context','result','completedTurn','evidence','sha256',
-            *(RECEIPT_FIELDS if value.get('version')==2 else ())})
+            *(RECEIPT_FIELDS if value.get('version')==2 else ())}, optional={'rules'})
         verify_seal(value)
         if type(value['version']) is not int or value['version'] not in (1,2) or value['recordType']!='receipt':
             raise ValueError('receipt version')
@@ -532,6 +533,8 @@ def verify_receipt(document):
         TurnEvidence.from_dict(value['evidence'])
         if value['evidence']['failureCode']!=result['failureCode']:
             raise ValueError('evidence result mismatch')
+        if 'rules' in value:
+            validate_rule_receipt(value['rules'])
         return value
     except (ValueError,TypeError,KeyError,UnicodeError,AttributeError,RecursionError):
         raise StoreCorrupt('invalid conversation receipt') from None
@@ -578,13 +581,17 @@ def make_receipt(document, invocation_id, result):
     if type(result) is not TurnResult: raise StoreCorrupt('invalid Runtime turn result')
     attempt=state['attempts'][invocation_id]
     evidence=result.evidence.to_dict()
+    try:
+        rules = rule_receipt(result)
+    except (ValueError, TypeError, UnicodeError, AttributeError):
+        raise StoreCorrupt('invalid Runtime rule result') from None
     packet=seal({'version':1,'recordType':'receipt','sessionId':state['sessionId'],'scope':state['scope'],
         'bindingIdentity':state['bindingIdentity'],'invocationId':invocation_id,'turnSequence':attempt['turnSequence'],
         'contextIdentity':attempt['contextIdentity'],'encodingVersion':attempt['encodingVersion'],'context':attempt['context'],
         'result':{'exitCode':result.result.exit_code,'answer':result.result.stdout if result.result.exit_code==0 else '',
                   'failureCode':evidence['failureCode'],'timedOut':result.result.timed_out},
         'completedTurn':result.completed_turn.to_dict() if result.completed_turn is not None else None,
-        'evidence':evidence})
+        'evidence':evidence, **({'rules': rules} if rules is not None else {})})
     if state['version']==2:
         purpose=state['contextBindings'][attempt['purpose']]
         packet=seal({**packet,'version':2,'contextSelection':attempt['contextSelection'],
