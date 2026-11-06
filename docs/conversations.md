@@ -250,6 +250,58 @@ Default limits are sealed into the session:
 | Effective Runtime depth / nodes | 56 / 28,672 |
 | Public view bytes / nodes | 256 KiB / 7,168 |
 
+### Input request caps
+
+Both `ConversationPolicy.max_input_bytes` and `RunPolicy.max_input_bytes` bound
+the encoded model request. Runtime enforces the **smaller** value. The defaults
+are 196,608 bytes (192 KiB) and 262,144 bytes (256 KiB), respectively, so the
+default effective cap is 192 KiB. Raising only the conversation cap to 512 KiB
+still leaves a 256 KiB run cap. A tighter explicit run cap remains supported;
+Harness never widens it automatically.
+
+Inspect the effective byte ceilings on admitted bindings:
+
+```python
+bindings.effective_max_input_bytes
+bindings.effective_interpretation_max_input_bytes
+```
+
+The first uses the ordinary `run_policy`. The second uses the interpreter's
+separate `interpretation_policy`, and is `None` without an interpreter. The
+default interpretation policy inherits the conversation input cap; an explicit
+tighter interpretation policy is preserved. These read-only properties do not
+change binding identities, policies or saved sessions. Configured values remain
+available through `bindings.policy`, `bindings.run_policy` and
+`bindings.interpretation_policy`.
+
+To configure one shared input ceiling for a **new** ordinary session, pass the
+same host-owned value to both policies:
+
+```python
+input_cap = 524_288
+conversation_policy = ConversationPolicy(max_input_bytes=input_cap)
+run_policy = RunPolicy(
+    max_input_bytes=input_cap, max_provider_requests=2, max_tool_calls=0,
+)
+bindings = ConversationBindings(
+    agent, version='my-chat-v2', config=config,
+    policy=conversation_policy, run_policy=run_policy,
+)
+assert bindings.effective_max_input_bytes == input_cap
+```
+
+The cap covers the full encoded request, including instructions and selected
+history, rather than user text alone. Its exhaustion depends on bytes, not a
+fixed turn number. If the next initial request exceeds it, `send()` raises
+`ConversationError` with `.code == 'contextLimit'` and `.limit == 'maxInputBytes'`
+before reserving a new attempt or calling the provider; existing history and
+revision remain intact. Applications should surface this explicit error.
+Other session limits or a provider's token window can still reject input sooner.
+
+Policy changes still produce a different binding identity. Retain the original
+bindings for existing sessions and use updated policies for new sessions; these
+diagnostics do not introduce session policy migration.
+
 The first exhausted bound wins; these limits do not guarantee that every session
 can reach 64 turns. Version 1 has hard ceilings of 8 MiB for each snapshot/receipt
 and 65,536 outer JSON nodes, matching all three store codecs; custom policies

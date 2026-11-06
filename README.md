@@ -14,6 +14,12 @@ uncertainty recovery. An optional bridge accepts natural-language replies to
 existing workflow pauses through a tool-free interpreter and current host admission.
 No new graph, framework, Markdown kind or distribution is required for ordinary chat.
 
+For conversation sizing, inspect `bindings.effective_max_input_bytes` and the
+separate `bindings.effective_interpretation_max_input_bytes`. The smaller of the
+conversation and run caps wins; explicit tighter run caps stay intact. See
+[input request caps](docs/conversations.md#input-request-caps) to configure both
+policies from one value for new sessions.
+
 The published `b3-prosaic-harness` 0.9.9 distribution selects
 `b3-prosaic-runtime>=0.9.14,<0.10` and directly requires `b3-prosaic>=0.5.0,<0.6`. The optional `b3-prosaic-harness-postgres`
 **0.4.1** package supports shared workflow and conversation storage.

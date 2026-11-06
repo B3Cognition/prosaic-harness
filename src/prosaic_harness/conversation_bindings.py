@@ -400,6 +400,19 @@ class ConversationBindings:
     def run_policy(self):
         return _policy_from(decode(self._encoded)['runPolicy'])
     @property
+    def effective_max_input_bytes(self) -> int:
+        """Encoded initial-request byte cap, without changing either policy."""
+        data = decode(self._encoded)
+        return min(data['policy']['max_input_bytes'], data['runPolicy']['max_input_bytes'])
+    @property
+    def effective_interpretation_max_input_bytes(self) -> int | None:
+        """Interpreter's encoded request cap, or None when none is registered."""
+        data = decode(self._encoded)
+        interpreter = data['interpreter']
+        if interpreter is None:
+            return None
+        return min(data['policy']['max_input_bytes'], interpreter['policy']['max_input_bytes'])
+    @property
     def turn_limits(self):
         return TurnLimits(**decode(self._encoded)['turnLimits'])
     @property
