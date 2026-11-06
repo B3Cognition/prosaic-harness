@@ -37,7 +37,7 @@ billing events separately. Run installed qualification with
 
 Ordered conversation sessions were introduced in Harness **0.8.0**, using
 Runtime **0.9.x** for stateless model turns. Current published versions are
-Harness **0.9.8**, Runtime **0.9.13** and optional PostgreSQL store **0.4.1**.
+Harness **0.9.9**, Runtime **0.9.14** and optional PostgreSQL store **0.4.1**.
 The store supplies shared workflow/session persistence; deployment readiness
 still requires the operator's database and durability checks.
 
@@ -52,13 +52,13 @@ and distribution names stay in the `b3-prosaic` family.
 ## Install the compatible published train
 
 Use a fresh environment. Core is **0.5.0**. Harness depends on
-`b3-prosaic-runtime>=0.9.13,<0.10`; its optional adapter depends on
+`b3-prosaic-runtime>=0.9.14,<0.10`; its optional adapter depends on
 `b3-prosaic-harness>=0.9,<0.10`.
 
 ```sh
 python3 -m venv .venv-chat
 .venv-chat/bin/python -m pip install \
-  'b3-prosaic-harness==0.9.8' 'b3-prosaic-runtime==0.9.13'
+  'b3-prosaic-harness==0.9.9' 'b3-prosaic-runtime==0.9.14'
 .venv-chat/bin/python -m pip check
 # Add this only for shared durable sessions:
 .venv-chat/bin/python -m pip install 'b3-prosaic-harness-postgres==0.4.1'
@@ -500,11 +500,11 @@ project in every phase, independently of worker CWD. Equivalent relocated
 projects can share the same logical identity; changing policy contents requires
 the host's version/identity update. Never point this root at caller-chosen paths.
 
-Guarded turns need Runtime's `rule_admission_v1` capability. Until Runtime #16
-ships, use its exact reviewed `498ffc7` candidate, rather than assuming that
-the published 0.9.13 contains the feature. Unguarded hosts remain compatible
-with published Runtime 0.9.13. Legacy graph `run()` execution remains outside
-the conversation rule-hook contract.
+Guarded turns need Runtime's `rule_admission_v1` capability, published in
+Runtime 0.9.14. Harness 0.9.9 requires that released Runtime version; no git
+candidate override is needed. The prior Runtime 0.9.13 release lacks this
+capability. Legacy graph `run()` execution remains outside the conversation
+rule-hook contract.
 
 Private receipts accept `ruleViolation` and optionally include a version-1
 `rules` extension: `evaluated`, `violated`, `fixed`, `faulted` IDs and

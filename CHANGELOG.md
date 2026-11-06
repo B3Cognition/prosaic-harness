@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.9 — 2026-11-06
 
 - Preserve host rule floors and composed inspection rules in owned snapshots.
 - Register conversation guards explicitly with `ConversationBindings(guards=...)`;
@@ -8,7 +8,7 @@
 - Persist `ruleViolation` failures and bounded rule IDs/fingerprints in private
   receipts, including context receipts, without replaying provider/tool effects.
 - Require Runtime's `rule_admission_v1` capability for guarded conversations.
-  The exact Runtime #16 candidate is qualified in CI until a feature release exists.
+  Requires the released Runtime 0.9.14 rule-admission contract.
 - Keep unguarded conversation and workflow identities unchanged with the new SDK.
 
 ## 0.9.8 — 2026-11-05
