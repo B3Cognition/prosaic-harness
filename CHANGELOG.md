@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+## 0.9.10 — 2026-11-06
+
+- Expose read-only effective input byte caps for ordinary conversation requests
+  and their separately configured interpreters, without changing sealed binding
+  declarations, existing defaults, explicit tighter run caps or errors.
+- Document both input caps, a shared-value configuration recipe for new sessions,
+  and explicit overflow handling. Existing sessions retain their original policy;
+  session policy migration remains separate.
+
 ## 0.9.9 — 2026-11-06
 
 - Preserve host rule floors and composed inspection rules in owned snapshots.

@@ -1,6 +1,6 @@
 # Prosaic Harness
 
-Harness **0.9.9** supports Prosaic **0.5.0** through Runtime **0.9.14**.
+Harness **0.9.10** supports Prosaic **0.5.0** through Runtime **0.9.14**.
 Canonical inspection and existing workflow identities, permissions and recovery
 contracts stay unchanged when Core renders native tool layouts.
 
@@ -14,12 +14,18 @@ uncertainty recovery. An optional bridge accepts natural-language replies to
 existing workflow pauses through a tool-free interpreter and current host admission.
 No new graph, framework, Markdown kind or distribution is required for ordinary chat.
 
-The published `b3-prosaic-harness` 0.9.9 distribution selects
+For conversation sizing, inspect `bindings.effective_max_input_bytes` and the
+separate `bindings.effective_interpretation_max_input_bytes`. The smaller of the
+conversation and run caps wins; explicit tighter run caps stay intact. See
+[input request caps](docs/conversations.md#input-request-caps) to configure both
+policies from one value for new sessions.
+
+The published `b3-prosaic-harness` 0.9.10 distribution selects
 `b3-prosaic-runtime>=0.9.14,<0.10` and directly requires `b3-prosaic>=0.5.0,<0.6`. The optional `b3-prosaic-harness-postgres`
 **0.4.1** package supports shared workflow and conversation storage.
 Imports (`prosaic_harness`) and CLI commands (`prosaic-harness`) remain unchanged.
 Use Runtime **0.9.14** for canonical `effort: none` and Gemma thinking controls.
-Install with `python -m pip install 'b3-prosaic-harness==0.9.9'`.
+Install with `python -m pip install 'b3-prosaic-harness==0.9.10'`.
 See [reasoning in workflows](docs/reasoning-effort.md), the
 [conversation installation guide](docs/conversations.md#install-the-compatible-candidate-train)
 and [package migration](docs/package-migration.md) for fresh environments.
@@ -120,9 +126,9 @@ environment so another application's older runtime cannot be picked up by accide
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.9.9
+git checkout v0.9.10
 python3 -m venv .venv
-.venv/bin/python -m pip install 'b3-prosaic-harness==0.9.9' 'b3-prosaic-runtime==0.9.14'
+.venv/bin/python -m pip install 'b3-prosaic-harness==0.9.10' 'b3-prosaic-runtime==0.9.14'
 
 export PATH="$PWD/.venv/bin:$PATH"
 prosaic --help
