@@ -3,6 +3,9 @@
 Current published release: **0.9.12**. See [release notes and compatible SDK versions](docs/releases.md).
 
 Harness **0.9.12** adds [workflow enforcement tags over accepted earlier outputs](docs/workflow-rules.md) and a [copyable V2 blueprint](examples/workflow-enforcement/README.md). The existing [Validator V1 blueprint](examples/revision-review/README.md) remains supported.
+
+[Integration Lab 0.9.9](https://github.com/B3Cognition/prosaic-integration-lab/releases/tag/v0.9.9) includes the installed workflow-enforcement blueprint and its synthetic qualification.
+
 It supports Prosaic **0.5.0** and qualifies against Runtime **0.9.16**.
 Canonical inspection and existing workflow identities, permissions and recovery
 contracts stay unchanged when Core renders native tool layouts.
