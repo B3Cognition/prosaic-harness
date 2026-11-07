@@ -3,8 +3,8 @@
 Versions checked against published GitHub releases on 2026-11-07.
 The latest SDKs and the Lab's qualified dependency train are separate selections.
 Harness 0.9.12 targets Runtime 0.9.16 and Core 0.5.0, with declared Runtime floor
-`>=0.9.16,<0.10`. Lab0.9.8 retains its checksum-pinned Runtime0.9.16/Harness0.9.11
-train until the separate Lab0.9.9 qualification adopts actual published0.9.12 bytes.
+`>=0.9.16,<0.10`. Lab0.9.9 qualifies the checksum-pinned Runtime0.9.16/Harness0.9.12
+train with the workflow-enforcement blueprint. Lab0.9.8 retains its original train.
 A new SDK release does not certify a partial Lab mixture.
 
 | Component | Latest published version | Scope |
@@ -14,7 +14,7 @@ A new SDK release does not certify a partial Lab mixture.
 | Harness (`b3-prosaic-harness`) | 0.9.12 | Workflow enforcement with accepted earlier outputs; V1 retained |
 | Runtime PostgreSQL recorder | 0.3.0 | Optional usage persistence; unchanged adapter release |
 | Harness PostgreSQL store | 0.4.1 | Optional workflow/session persistence; unchanged adapter release |
-| Integration Lab | 0.9.8 | Qualified Core0.5.0 / Runtime0.9.16 / Harness0.9.11 |
+| Integration Lab | 0.9.9 | Qualified Core0.5.0 / Runtime0.9.16 / Harness0.9.12 |
 
 Install current SDKs in a fresh environment; pin versions and archive hashes for reproducible deployments. Optional PostgreSQL adapters require explicit provisioning and operator readiness checks. Never co-install legacy and renamed distributions that own the same imports.
 
@@ -33,6 +33,7 @@ Every published version is linked below. Backfilled notes explain changes using 
 
 | Release | Published (UTC) | Notes |
 | --- | --- | --- |
+| [v0.9.12](https://github.com/B3Cognition/prosaic-harness/releases/tag/v0.9.12) | 2026-11-07 | Published notes |
 | [v0.9.11](https://github.com/B3Cognition/prosaic-harness/releases/tag/v0.9.11) | 2026-11-07 | Published notes |
 | [v0.9.10](https://github.com/B3Cognition/prosaic-harness/releases/tag/v0.9.10) | 2026-11-06 | Published notes |
 | [v0.9.9](https://github.com/B3Cognition/prosaic-harness/releases/tag/v0.9.9) | 2026-11-06 | [backfilled notes](release-history/v0.9.9.md) |
