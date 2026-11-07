@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.11
+
+- Ship a copyable, versioned first-review/revision/review blueprint through existing Validator and CheckContext APIs.
+- Refuse unrelated findings, malformed or duplicate IDs, stale dependencies and changed validator versions; retain bounded feedback, human acceptance and explicit recovery.
+- No engine API or existing identity changes. Runtime enforcement tags inside workflows remain deferred. Qualify the release against actual published Runtime0.9.16 and Core0.5.0.
+- Track the remaining Cerebro requests and publish version-specific release notes.
+
 ## Unreleased
 
 ## 0.9.10 — 2026-11-06

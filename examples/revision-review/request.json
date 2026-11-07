@@ -1,0 +1,16 @@
+{
+  "insights": [
+    {
+      "id": "A",
+      "text": "First synthetic insight."
+    },
+    {
+      "id": "B",
+      "text": "Second synthetic insight."
+    },
+    {
+      "id": "C",
+      "text": "Unchanged synthetic insight."
+    }
+  ]
+}
