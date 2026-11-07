@@ -43,7 +43,12 @@ def test_enabled_host_caps_change_identity_and_discovery(field, value):
     name = 'maxProviderRequestsPerInvocation' if field.startswith('max_provider') else 'maxToolCallsPerInvocation'
     assert f.describe()['limits'][name] == value
     assert f.describe()['limitUnits'][name] == 'perInvocation'
-    assert field not in f.proposal_schema()['properties']['definition']['properties']['limits']['properties']
+    assert f.proposal_schema()['properties']['definition']['properties']['limits']['properties'][field] == {
+        'type': 'integer', 'minimum': 0, 'maximum': value}
+    proposal = graph(); proposal['limits'] = {field: value}
+    assert f.build(proposal).definition['limits'][field] == value
+    proposal['limits'][field] = value + 1
+    with pytest.raises(WorkflowAdmissionError): f.build(proposal)
 
 
 def test_native_dispatch_receives_remaining_units_and_separate_scope(tmp_path, monkeypatch):

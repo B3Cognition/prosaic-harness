@@ -8,6 +8,7 @@ from prosaic_runtime import validate_execution_artifact
 from prosaic_runtime.policy import READ_TOOLS, BUILTIN_TOOLS, requested_tools
 
 from .schema_validation import admit_schema
+from .workflow_rules import CAPS
 from .errors import GraphAdmissionError, logical_location, logical_alias
 
 
@@ -20,7 +21,7 @@ STEP_KEYS = {
     'pause': {'kind', 'question', 'choices', 'max_visits', 'requires', 'response_schema', 'validators'},
     'finish': {'kind', 'outcome', 'max_visits', 'requires'},
 }
-LIMIT_KEYS = {'max_calls', 'max_visits', 'timeout_s', 'max_tokens', 'max_run_s'}
+LIMIT_KEYS = {'max_calls', 'max_visits', 'timeout_s', 'max_tokens', 'max_run_s', *CAPS}
 ROOT_KEYS = {'version', 'name', 'start', 'limits', 'steps', 'source', 'runtime', 'evidence'}
 
 
@@ -76,7 +77,11 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
     if type(limits) is not dict or set(limits) - LIMIT_KEYS or {'max_calls', 'max_visits', 'timeout_s'} - limits.keys():
         raise ValueError('workflow needs effective valid limits')
     for key, value in limits.items():
-        _positive(value, key)
+        if key in CAPS:
+            if type(value) is not int or value < 0:
+                raise ValueError('invalid invocation cap')
+        else:
+            _positive(value, key)
     evidence = raw.get('evidence', [])
     _strings(evidence, 'evidence', unique=True)
     if len(evidence) > 64 or any(Path(item).is_absolute() or '..' in Path(item).parts for item in evidence):

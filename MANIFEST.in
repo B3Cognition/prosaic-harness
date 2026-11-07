@@ -10,3 +10,6 @@ recursive-include adapters/postgres *.toml *.md *.py LICENSE NOTICE MANIFEST.in
 global-exclude *.local.yml *.local.yaml
 
 include tests/test_revision_review_blueprint.py
+
+include tests/test_workflow_rules_admission.py tests/test_workflow_rules_execution.py tests/test_workflow_rules_recovery.py tests/test_workflow_enforcement_blueprint.py
+include tests/test_workflow_factory.py tests/test_transport.py

@@ -2,23 +2,23 @@
 
 Versions checked against published GitHub releases on 2026-11-07.
 The latest SDKs and the Lab's qualified dependency train are separate selections.
-Harness 0.9.11 was qualified with Runtime 0.9.16 and Core 0.5.0; its declared
-Runtime floor remains `>=0.9.14,<0.10`. Lab 0.9.7 retains its checksum-pinned
-Runtime 0.9.14 / Harness 0.9.10 manifests. Newer SDK availability does not certify
-that mixture in the Lab, and this documentation update changes no SDK pins.
+Harness 0.9.12 targets Runtime 0.9.16 and Core 0.5.0, with declared Runtime floor
+`>=0.9.16,<0.10`. Lab0.9.8 retains its checksum-pinned Runtime0.9.16/Harness0.9.11
+train until the separate Lab0.9.9 qualification adopts actual published0.9.12 bytes.
+A new SDK release does not certify a partial Lab mixture.
 
 | Component | Latest published version | Scope |
 | --- | --- | --- |
 | Core (`b3-prosaic`) | 0.5.0 | Canonical Markdown, native outputs and inert rule tags |
 | Runtime (`b3-prosaic-runtime`) | 0.9.16 | Per-call OpenAI-compatible headers; includes 0.9.15 fee enforcement |
-| Harness (`b3-prosaic-harness`) | 0.9.11 | Copyable versioned cross-step validator blueprint V1 |
+| Harness (`b3-prosaic-harness`) | 0.9.12 | Workflow enforcement with accepted earlier outputs; V1 retained |
 | Runtime PostgreSQL recorder | 0.3.0 | Optional usage persistence; unchanged adapter release |
 | Harness PostgreSQL store | 0.4.1 | Optional workflow/session persistence; unchanged adapter release |
-| Integration Lab | 0.9.7 | Qualified Core 0.5.0 / Runtime 0.9.14 / Harness 0.9.10 |
+| Integration Lab | 0.9.8 | Qualified Core0.5.0 / Runtime0.9.16 / Harness0.9.11 |
 
 Install current SDKs in a fresh environment; pin versions and archive hashes for reproducible deployments. Optional PostgreSQL adapters require explicit provisioning and operator readiness checks. Never co-install legacy and renamed distributions that own the same imports.
 
-Runtime 0.9.15 advances `value_in_tool_output` to `value-in-tool-output-v2`; explicitly readmit affected bindings when upgrading from 0.9.14. Runtime 0.9.16 headers add no identity fields and leave guard versions unchanged. Harness 0.9.11 adds a source-archive blueprint using versioned validators; enforcement tags inside workflow agent steps remain future work.
+Runtime 0.9.15 advances `value_in_tool_output` to `value-in-tool-output-v2`; explicitly readmit affected bindings when upgrading from 0.9.14. Runtime 0.9.16 headers add no identity fields and leave guard versions unchanged. Harness 0.9.11 adds a source-archive blueprint using versioned validators; Harness0.9.12 adds guarded workflow identity and bounded proof while preserving untagged seals; see [identity/readmission](workflow-rules.md).
 
 ## Independently versioned store
 

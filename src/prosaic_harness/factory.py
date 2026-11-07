@@ -18,6 +18,7 @@ from prosaic_runtime import (CliSandboxConfig, CustomTool, EndpointConfig, Prosa
                              tool_journal_descriptor, RuntimeAdapter)
 from prosaic_runtime.policy import BUILTIN_TOOLS, requested_tools
 
+from .workflow_rules import RuleBindings, material as rule_material, check_runtime as check_rule_runtime, CAPS
 from .admission_data import parse_bounded_json, snapshot_json
 from .errors import WorkflowAdmissionError, GraphAdmissionError, logical_alias, logical_location
 from .graph_admission import validate_resolved_workflow
@@ -183,7 +184,9 @@ class WorkflowCatalog:
 class WorkflowBindings:
     """Native effective configuration and trusted registrations, without probes."""
     def __init__(self, *, config, custom_tools=None, validators=None,
-                 operation_namespace=None, tool_journal=None, runtime_adapter=None):
+                 operation_namespace=None, tool_journal=None, runtime_adapter=None,
+                 guards=(), rule_project=None, rule_project_identity=None):
+        self._rule_bindings = RuleBindings.create(guards, rule_project, rule_project_identity)
         self._config_json = _encode(_config_payload(config, native=True))
         if runtime_adapter is not None:
             if type(runtime_adapter) is not RuntimeAdapter:
@@ -223,6 +226,7 @@ class WorkflowPolicy:
     allowed_schemas: frozenset = frozenset()
     allowed_tools: frozenset = frozenset()
     allowed_validators: frozenset = frozenset()
+    allowed_guards: frozenset = frozenset()
     allowed_model_tiers: frozenset = frozenset()
     allow_agent_composition: bool = False
     allow_inline_agents: bool = False
@@ -292,7 +296,7 @@ class WorkflowPolicy:
                 else getattr(self, item.name) for item in fields(self)
                 if (item.name not in _INVOCATION_CAPS or getattr(self, item.name) is not None)
                 and (item.name != 'bounded_tool_recovery' or getattr(self, item.name))
-                and (item.name not in {'allowed_direct_tools', 'allowed_terminal_tools'} or getattr(self, item.name))}
+                and (item.name not in {'allowed_direct_tools', 'allowed_terminal_tools', 'allowed_guards'} or getattr(self, item.name))}
 
     def schema_profile(self, human=False):
         return {'version': 1, 'dialect': '2020-12', 'refs': 'acyclic-local-static',
@@ -365,7 +369,7 @@ def _identity_payload(workflow, policy, *, operation=None, adapter=None):
         record = getattr(workflow, '_admission', None)
         declared = record.runtime_adapter if type(record) is _AdmissionRecord else None
         adapter = declared.descriptor if declared is not None else None
-    return {'workflow': definition, 'runtime': runtime_identity(config),
+    return {**rule_material(workflow), 'workflow': definition, 'runtime': runtime_identity(config),
             'schemas': schemas, 'prose': artifacts,
             **({'custom_tools': descriptors} if descriptors else {}),
             **({'operation_bindings': operation} if operation else {}),
@@ -446,6 +450,7 @@ class WorkflowFactory:
             _fail('binding_mismatch')
         self._agents = MappingProxyType(dict(catalog._agents))
         self._schemas = MappingProxyType(dict(catalog._schemas))
+        self._rule_bindings = bindings._rule_bindings
         self._runtime_adapter = bindings._runtime_adapter
         self._config_json = bindings._config_json
         self._tools = MappingProxyType(dict(bindings._tools))
@@ -494,6 +499,8 @@ class WorkflowFactory:
             policy = WorkflowPolicy(**self._policy._identity())
             bindings = WorkflowBindings(config=_config_from_json(_encode(decoded(self._config_json))),
                                         custom_tools=tools, validators=validators,
+                                        guards=self._rule_bindings.guards, rule_project=self._rule_bindings.project,
+                                        rule_project_identity=self._rule_bindings.identity,
                                         operation_namespace=self._operation_namespace,
                                         tool_journal=self._tool_journal, runtime_adapter=self._runtime_adapter)
             return WorkflowFactory(catalog=catalog, bindings=bindings, policy=policy)
@@ -513,6 +520,7 @@ class WorkflowFactory:
             runtime['cli_sandbox']['runtime_roots'] = list(runtime['cli_sandbox']['runtime_roots'])
         operation = self._check_operation_bindings()
         return _host_snapshot({'version': 1,
+            **({'rule_bindings': self._rule_bindings.bundle_material()} if self._rule_bindings.bundle_material() else {}),
             **({'operation_bindings': operation} if operation else {}),
             'agents': {name: json.loads(text) for name, text in self._agents.items()},
             'schemas': {name: json.loads(text) for name, text in self._schemas.items()},
@@ -620,6 +628,11 @@ class WorkflowFactory:
                 _fail('invalid_definition', logical_location('definition', 'limits', name))
             if value > cap:
                 _fail('limit_exceeded', logical_location('definition', 'limits', name))
+        for name in CAPS:
+            cap = getattr(policy, name)
+            if name in limits:
+                if cap is None or type(limits[name]) is not int or not 0 <= limits[name] <= cap:
+                    _fail('limit_exceeded')
         config = _config_from_json(self._config_json)
         artifacts, schemas, used_inline = {}, {}, set()
         schema_total = artifact_total = 0
@@ -688,6 +701,19 @@ class WorkflowFactory:
                             logical_alias(name), 'validators', index))
         workflow = _NativeWorkflow(None, definition, config, artifacts, schemas, '',
                                    custom_tools=self._tools, allowed_direct_tools=policy.allowed_direct_tools)
+        workflow._rule_bindings = RuleBindings(self._rule_bindings.guards, self._rule_bindings.project,
+            self._rule_bindings.identity, policy.allowed_guards)
+        # Only enforced-rule graphs gain explicit host defaults, preserving old seals.
+        from prosaic_runtime.rules import artifact_rules
+        parsed_rules = [artifact_rules(a) for a in artifacts.values()]
+        if config.required_guards or any(issues or any(entry.get('kind') == 'enforce' for entry in entries)
+                for entries, issues in parsed_rules):
+            for name in CAPS:
+                if name not in limits and getattr(policy, name) is not None:
+                    limits[name] = getattr(policy, name)
+        rule_material(workflow)
+        if rule_material(workflow) and self._runtime_adapter is not None:
+            _fail('binding_mismatch')
         descriptors = custom_descriptors(self._tools)
         demanded = validate_resolved_workflow(workflow, descriptors=descriptors,
                                                profile=policy.schema_profile(), native=True)
@@ -708,6 +734,7 @@ class WorkflowFactory:
 
 
 def _check_adapter(workflow, runtime, descriptors, *, native):
+    check_rule_runtime(workflow, runtime)
     if runtime is None:
         return
     if any(step.get('kind') == 'tool' for step in workflow.definition['steps'].values()):

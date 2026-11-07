@@ -6,7 +6,7 @@ from .run_store import validate_id
 
 _REASONS = frozenset({'cancelled', 'invocation_timeout', 'inspection_timeout',
                      'budget_exceeded', 'accounting_failed', 'incomplete_response',
-                     'admission_failure', 'critical_hook_error', 'execution_failure'})
+                     'admission_failure', 'critical_hook_error', 'execution_failure', 'rule_violation'})
 
 
 class CommittedObserver:

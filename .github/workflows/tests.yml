@@ -125,12 +125,12 @@ jobs:
           PIP_FIND_LINKS: ${{ github.workspace }}/.ci-upstream/wheels
         run: |
           python -m venv "$RUNNER_TEMP/harness-wheel"
-          "$RUNNER_TEMP/harness-wheel/bin/python" -m pip install pytest .ci-upstream/wheels/b3_prosaic-0.5.0-py3-none-any.whl .ci-upstream/wheels/b3_prosaic_runtime-0.9.16-py3-none-any.whl dist/b3_prosaic_harness-0.9.11-py3-none-any.whl
+          "$RUNNER_TEMP/harness-wheel/bin/python" -m pip install pytest .ci-upstream/wheels/b3_prosaic-0.5.0-py3-none-any.whl .ci-upstream/wheels/b3_prosaic_runtime-0.9.16-py3-none-any.whl dist/b3_prosaic_harness-0.9.12-py3-none-any.whl
           "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/workflow_factory_smoke.py
           "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/conversation_smoke.py
           "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/conversation_smoke.py --context-assembly
           "$RUNNER_TEMP/harness-wheel/bin/python" -I -m pytest -o pythonpath=tests tests/test_conversation_input_caps.py -q
-          "$RUNNER_TEMP/harness-wheel/bin/python" -I -m pytest -o pythonpath=tests tests/test_conversation_rules.py tests/test_revision_review_blueprint.py -q
+          "$RUNNER_TEMP/harness-wheel/bin/python" -I -m pytest -o pythonpath=tests tests/test_conversation_rules.py tests/test_revision_review_blueprint.py tests/test_workflow_rules_admission.py tests/test_workflow_rules_execution.py tests/test_workflow_rules_recovery.py tests/test_workflow_enforcement_blueprint.py -q
   postgres:
     runs-on: '${{ matrix.os }}'
     timeout-minutes: 15
@@ -161,7 +161,7 @@ jobs:
           python -m build "$RUNNER_TEMP/harness-source/adapters/postgres" --outdir adapters/postgres/dist
       - name: Install local core wheel before adapter
         run: |
-          python -m pip install dist/b3_prosaic_harness-0.9.11-py3-none-any.whl
+          python -m pip install dist/b3_prosaic_harness-0.9.12-py3-none-any.whl
           python -m pip install adapters/postgres/dist/b3_prosaic_harness_postgres-0.4.1-py3-none-any.whl
           prosaic --version
       - name: Required real-database, owned crash/standby and clean-wheel gates
