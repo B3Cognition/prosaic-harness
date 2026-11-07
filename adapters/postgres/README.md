@@ -1,6 +1,6 @@
 # PostgreSQL persistence for Prosaic Harness
 
-Current published adapter release: **0.4.1**. See [release notes and compatible SDK versions](../../docs/releases.md).
+Current published adapter release: **0.4.1**. See [release notes and compatible SDK versions](https://github.com/B3Cognition/prosaic-harness/blob/main/docs/releases.md).
 
 Run on worker A, inspect/resume on worker B, without a shared writable run
 directory. Core remains database-free; install this separate adapter only when
