@@ -20,7 +20,8 @@ PROJECT = tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']
 CORE_VERSION = PROJECT['version']
 RUNTIME_REQUIREMENT = next(Requirement(value) for value in PROJECT['dependencies']
                            if Requirement(value).name == 'b3-prosaic-runtime')
-RUNTIME_VERSION = next(spec.version for spec in RUNTIME_REQUIREMENT.specifier if spec.operator == '>=')
+# The qualified train may be newer than the declared compatibility floor.
+RUNTIME_VERSION = '0.9.16'
 CORE = project_wheel(ROOT)
 ADAPTER = project_wheel(ROOT, 'adapters/postgres')
 
@@ -188,6 +189,7 @@ def release_tool():
 
 @pytest.fixture
 def curated_candidates(release_tool, tmp_path):
+    assert RUNTIME_VERSION in RUNTIME_REQUIREMENT.specifier
     directory, wheelhouse = tmp_path / 'artifacts', tmp_path / 'wheels'
     directory.mkdir(); wheelhouse.mkdir()
     candidates = []
