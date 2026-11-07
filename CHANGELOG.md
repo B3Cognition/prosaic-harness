@@ -1,5 +1,7 @@
 # Changelog
 
+See [published release notes and compatibility](docs/releases.md), including backfilled historical release notes. Documentation refreshed on 2026-11-07; package versions and release archives are unchanged.
+
 ## 0.9.11
 
 - Ship a copyable, versioned first-review/revision/review blueprint through existing Validator and CheckContext APIs.

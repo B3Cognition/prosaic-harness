@@ -1,5 +1,7 @@
 # Versioned cross-step review — V1
 
+Current published release: **0.9.11**. See [release notes and compatible SDK versions](../../docs/releases.md).
+
 The wheel supplies the Harness APIs; the blueprint files ship in the source
 archive and the [immutable v0.9.11 source tag](https://github.com/B3Cognition/prosaic-harness/tree/v0.9.11/examples/revision-review).
 Obtain the source archive with `python -m pip download --no-deps --no-binary=:all: b3-prosaic-harness==0.9.11`,

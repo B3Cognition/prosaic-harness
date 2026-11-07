@@ -1,5 +1,7 @@
 # Prosaic Harness
 
+Current published release: **0.9.11**. See [release notes and compatible SDK versions](docs/releases.md).
+
 Harness **0.9.11** adds a [copyable versioned cross-step review blueprint](examples/revision-review/README.md).
 It supports Prosaic **0.5.0** and qualifies against Runtime **0.9.16**.
 Canonical inspection and existing workflow identities, permissions and recovery
@@ -57,7 +59,7 @@ Installation and CI no longer require Node.js or npm.
 
 Version 0.4.0 adds [manifest-defined CLI tools](examples/README.md#custom-command-line-tools)
 through the normal workflow CLI, with offline availability checks and required
-native execution evidence. Current candidates select the compatible Runtime 0.9 series.
+native execution evidence. The current release selects the compatible Runtime 0.9 series.
 
 ## CLI permissions and sandboxing
 
@@ -392,7 +394,7 @@ Register the same `CustomTool` descriptors with the workflow and adapter so
 Harness fingerprints and checks their contracts. Harness retains routing and
 checkpoint ownership; Runtime owns parsing, dispatch, bounds and repeat detection.
 
-### Host restoration evidence (unreleased)
+### Host restoration evidence (available since 0.8.2)
 
 `Harness.recovery_evidence(maximum_bytes=8_388_608)` provides verified ordered
 receipts and checkpoint identity without executing the workflow. It is a private

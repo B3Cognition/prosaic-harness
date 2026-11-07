@@ -1,5 +1,7 @@
 # PostgreSQL persistence for Prosaic Harness
 
+Current published adapter release: **0.4.1**. See [release notes and compatible SDK versions](../../docs/releases.md).
+
 Run on worker A, inspect/resume on worker B, without a shared writable run
 directory. Core remains database-free; install this separate adapter only when
 you need shared durable state. The API is synchronous; a private I/O thread
@@ -42,8 +44,8 @@ Use a fresh environment and the published compatible SDKs:
 
 ```sh
 python3 -m venv .venv-postgres
-.venv-postgres/bin/python -m pip install 'b3-prosaic-harness==0.9.7' \
-  'b3-prosaic-runtime==0.9.12' 'b3-prosaic-harness-postgres==0.4.1'
+.venv-postgres/bin/python -m pip install 'b3-prosaic-harness==0.9.11' \
+  'b3-prosaic-runtime==0.9.16' 'b3-prosaic-harness-postgres==0.4.1'
 export PATH="$PWD/.venv-postgres/bin:$PATH"
 prosaic --version
 prosaic-harness-postgres --help
