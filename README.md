@@ -1,6 +1,7 @@
 # Prosaic Harness
 
-Harness **0.9.10** supports Prosaic **0.5.0** through Runtime **0.9.14**.
+Harness **0.9.11** adds a [copyable versioned cross-step review blueprint](examples/revision-review/README.md).
+It supports Prosaic **0.5.0** and qualifies against Runtime **0.9.16**.
 Canonical inspection and existing workflow identities, permissions and recovery
 contracts stay unchanged when Core renders native tool layouts.
 
@@ -20,12 +21,12 @@ conversation and run caps wins; explicit tighter run caps stay intact. See
 [input request caps](docs/conversations.md#input-request-caps) to configure both
 policies from one value for new sessions.
 
-The published `b3-prosaic-harness` 0.9.10 distribution selects
+The published `b3-prosaic-harness` 0.9.11 distribution selects
 `b3-prosaic-runtime>=0.9.14,<0.10` and directly requires `b3-prosaic>=0.5.0,<0.6`. The optional `b3-prosaic-harness-postgres`
 **0.4.1** package supports shared workflow and conversation storage.
 Imports (`prosaic_harness`) and CLI commands (`prosaic-harness`) remain unchanged.
-Use Runtime **0.9.14** for canonical `effort: none` and Gemma thinking controls.
-Install with `python -m pip install 'b3-prosaic-harness==0.9.10'`.
+Use Runtime **0.9.16** for host per-invocation headers, canonical `effort: none` and Gemma thinking controls.
+Install with `python -m pip install 'b3-prosaic-harness==0.9.11'`.
 See [reasoning in workflows](docs/reasoning-effort.md), the
 [conversation installation guide](docs/conversations.md#install-the-compatible-candidate-train)
 and [package migration](docs/package-migration.md) for fresh environments.
@@ -126,9 +127,9 @@ environment so another application's older runtime cannot be picked up by accide
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.9.10
+git checkout v0.9.11
 python3 -m venv .venv
-.venv/bin/python -m pip install 'b3-prosaic-harness==0.9.10' 'b3-prosaic-runtime==0.9.14'
+.venv/bin/python -m pip install 'b3-prosaic-harness==0.9.11' 'b3-prosaic-runtime==0.9.16'
 
 export PATH="$PWD/.venv/bin:$PATH"
 prosaic --help
@@ -404,3 +405,5 @@ See [execution correlation and graceful drain](docs/execution-lifecycle.md) for 
 
 See [model-free tool steps](docs/direct-tool-step.md) for literal host-admitted
 `kind: tool` execution and the separate `allowed_direct_tools` permission.
+
+[Cerebro requests and deferred work](docs/cerebro-requests.md) track workflow enforcement tags and the remaining consumer feedback.

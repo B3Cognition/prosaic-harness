@@ -1,0 +1,41 @@
+version: 1
+name: Versioned cross-step review validation
+source: .prosaic
+runtime: runtime.yml
+start: first_review
+limits: {max_calls: 4, max_visits: 1, timeout_s: 60, max_run_s: 240}
+steps:
+  first_review:
+    kind: agent
+    agent: subagents/reviewer.md
+    schema: schemas/review.json
+    validators: [review_scope]
+    max_attempts: 1
+    next: revision
+  revision:
+    kind: agent
+    agent: subagents/reviser.md
+    schema: schemas/revision.json
+    inputs: [first_review]
+    validators: [revision_shape]
+    max_attempts: 1
+    next: revised_review
+  revised_review:
+    kind: agent
+    agent: subagents/reviewer.md
+    schema: schemas/review.json
+    inputs: [first_review, revision]
+    validators: [review_scope]
+    max_attempts: 2
+    next: approval
+  approval:
+    kind: pause
+    requires: [first_review, revision, revised_review]
+    question: Accept the revised review? No external action occurs.
+    choices: {accept: done, reject: rejected}
+  done:
+    kind: finish
+    requires: [first_review, revision, revised_review]
+  rejected:
+    kind: finish
+    outcome: rejected
