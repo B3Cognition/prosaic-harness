@@ -176,3 +176,12 @@ def test_released_yaml_and_prompt_goldens(tmp_path):
     from test_workflow_factory import factory as legacy_factory, graph
     native=legacy_factory().build(graph())
     assert hashlib.sha256(native.artifacts['find'].render(arguments).encode()).hexdigest()=='9d6af4c547341aa1312346202e715e42c936352e786678e813a49ecc864670d3'
+
+
+def test_prose_only_annotations_with_host_caps_keep_released_native_identity():
+    from test_workflow_factory import factory as legacy_factory, graph, agent
+    flow=legacy_factory(assets={'finder':agent(body='ALWAYS be warm. <!-- prose-only: tone is judged by people -->')},
+        max_provider_requests_per_invocation=2,max_tool_calls_per_invocation=0).build(graph())
+    # Independently captured from the installed released0.9.11 wheel.
+    assert flow.fingerprint=='1b1aa6af34014723818e7f234b202da460413a9ebc90f986dd3f78aab00b4475'
+    assert not set(CAPS) & flow.definition['limits'].keys()

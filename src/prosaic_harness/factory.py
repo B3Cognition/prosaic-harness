@@ -703,9 +703,11 @@ class WorkflowFactory:
                                    custom_tools=self._tools, allowed_direct_tools=policy.allowed_direct_tools)
         workflow._rule_bindings = RuleBindings(self._rule_bindings.guards, self._rule_bindings.project,
             self._rule_bindings.identity, policy.allowed_guards)
-        # Only rule-bearing graphs gain explicit host defaults, preserving old seals.
+        # Only enforced-rule graphs gain explicit host defaults, preserving old seals.
         from prosaic_runtime.rules import artifact_rules
-        if config.required_guards or any(artifact_rules(a)[0] or artifact_rules(a)[1] for a in artifacts.values()):
+        parsed_rules = [artifact_rules(a) for a in artifacts.values()]
+        if config.required_guards or any(issues or any(entry.get('kind') == 'enforce' for entry in entries)
+                for entries, issues in parsed_rules):
             for name in CAPS:
                 if name not in limits and getattr(policy, name) is not None:
                     limits[name] = getattr(policy, name)
