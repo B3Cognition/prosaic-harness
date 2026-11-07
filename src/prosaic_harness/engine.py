@@ -25,7 +25,7 @@ from .schema_validation import evaluate_schema, SchemaEvaluationError
 from .factory import admit_workflow, _config_from_json
 from .observations import CommittedObserver
 from .workflow_rules import (compiled as compiled_rules, facts as rule_facts, maximum_proof,
-    result_with_proof, validate_proof)
+    result_with_proof, dependency_bindings)
 from .terminal import effective_tools, validate_candidate, failure_evidence, accounting_evidence
 
 _TERMINAL_HEADROOM = 4096
@@ -540,8 +540,7 @@ class Harness:
                     if binding['id'] == invocation['id']:
                         validate_candidate(self.workflow, receipt,
                             self._admission.policy if self._admission else None)
-                        refs = self.workflow.definition['steps'][name].get('inputs', [])
-                        dependencies = {ref: receipt['arguments']['artifact_bindings'][ref] for ref in refs}
+                        dependencies = dependency_bindings(self.workflow, name, receipt['arguments'])
                         if (name != invocation['step'] or self._output(receipt['result']['stdout']) != state['outputs'][name]
                                 or binding['dependencies'] != dependencies):
                             raise ValueError('accepted output/binding differs from receipt')
@@ -780,7 +779,10 @@ class Harness:
             reason = self._resource_reason(state)
             if reason:
                 return self._block(state, reason)
-        if error is None and any(not self._fresh(state, ref) for ref in step.get('inputs', [])):
+        dependencies = dependency_bindings(self.workflow, state['current'], receipt['arguments'])
+        if error is None and any(not self._fresh(state, ref) or
+                (state['current'] in compiled_rules(self.workflow) and state['bindings'].get(ref) != binding)
+                for ref, binding in dependencies.items()):
             return self._block(state, 'stale_artifact')
         if error:
             state['feedback'] = error
@@ -792,7 +794,7 @@ class Harness:
         else:
             state['outputs'][state['current']] = output
             state['bindings'][state['current']] = {'id': receipt['id'], 'sha256': digest(output),
-                'dependencies': {ref: deepcopy(state['bindings'][ref]) for ref in step.get('inputs', [])}}
+                'dependencies': dependencies}
             self._event(state, 'accepted', attempt_id=receipt['id'], token_usage=result['token_usage'])
             self._advance(state, step['next'])
 

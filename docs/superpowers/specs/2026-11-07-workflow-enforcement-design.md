@@ -69,11 +69,14 @@ explicit fail and guard faults return terminal `rule_violation` for this step;
 Harness does not start a fresh invocation to bypass a guard's terminal decision.
 Schema/Validator retries retain their existing explicit max-attempt semantics.
 
-Guarded steps use API turns. Reject acquisition, terminal tools and argument
+Guarded steps use API turns. Reject acquisition, required file-read receipts, terminal tools and argument
 interpolation (`{{args}}`) in guarded artifacts before effects; these have no
 safe equivalent in Runtime's turn API. Preserve all existing untagged support.
-Required tools/reads, private workspaces, scopes, accounting attribution and
-recovery must remain authoritative for supported guarded steps. Advertise a
+Required tools, private workspaces, scopes, accounting attribution and recovery
+remain authoritative for supported guarded steps. Public Runtime turn callbacks
+omit file-read receipts, so guarded require_reads refuses admission; the untagged
+read path remains supported. Pair observed custom-tool completions with their
+already-readmitted sealed registration version. Advertise a
 Harness `workflow_rules_v1` capability after the supported paths are tested.
 
 ## Guard facts and dispatch

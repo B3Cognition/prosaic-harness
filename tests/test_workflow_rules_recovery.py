@@ -75,3 +75,49 @@ def test_guard_metadata_survives_bounded_event_failure(rule_endpoint, tmp_path, 
     receipt = h.store.load_receipt('legacy', state['invocations'][0]['id'])
     assert receipt['result']['metadata']['workflow_rules_v1']['rules']['evaluated']
     assert receipt['result']['token_usage'] == 5 and len(requests) == 1
+
+
+def optional_dependency_flow(cfg, *, pause=False, guarded=True):
+    from prosaic_harness import WorkflowBindings, WorkflowCatalog, WorkflowFactory, WorkflowPolicy
+    from test_workflow_rules_admission import artifact, SCHEMA, CAPS
+    f=WorkflowFactory(catalog=WorkflowCatalog(agents={'plain':artifact('Return JSON.'),'guarded':artifact()},
+        schemas={'result':SCHEMA}), bindings=WorkflowBindings(config=cfg,guards=[guard(check=strict)]),
+        policy=WorkflowPolicy(allowed_agents={'plain','guarded'},allowed_schemas={'result'},
+            allowed_guards={'review_scope'},allow_agent_composition=True,**CAPS))
+    graph=definition();graph['start']='base'
+    graph['steps'].update({
+        'base':{'kind':'agent','agent':'plain','schema':'result','next':'choose'},
+        'choose':{'kind':'gate','from':'base','field':['ok'],'equals':True,'pass':'review','fail':'done'},
+    })
+    graph['steps']['review'].update(agent='guarded' if guarded else 'plain',optional_inputs=['base'],next='approval' if pause else 'base')
+    if pause: graph['steps']['approval']={'kind':'pause','question':'Replace input?', 'choices':{'replace':'base'},'requires':['review']}
+    return f.build(graph)
+
+
+def test_replacing_optional_guard_fact_invalidates_accepted_output_and_resume(rule_endpoint,tmp_path):
+    cfg,requests,replies=rule_endpoint;replies.extend(['{"ok":true}','{"ok":true}','{"ok":false}'])
+    flow=optional_dependency_flow(cfg)
+    h=Harness(flow,tmp_path/'run');state=h.run({})
+    assert state['status']=='blocked' and state['reason']=='stale_artifact'
+    assert state['bindings']['review']['dependencies']['base']['id'] != state['bindings']['base']['id']
+    assert state['calls']==3 and len(requests)==3
+    assert Harness(flow,tmp_path/'run').resume()['reason']=='stale_artifact' and len(requests)==3
+
+
+def test_guard_optional_dependency_cannot_be_dropped_from_resealed_checkpoint(rule_endpoint,tmp_path):
+    cfg,requests,replies=rule_endpoint;replies.extend(['{"ok":true}','{"ok":true}'])
+    flow=optional_dependency_flow(cfg,pause=True)
+    state=Harness(flow,tmp_path/'run').run({})
+    assert state['status']=='waiting'
+    state['bindings']['review']['dependencies']={}
+    from copy import deepcopy
+    state['pause_bindings']=deepcopy(state['bindings'])
+    write_json(tmp_path/'run/run.json',seal(state))
+    with pytest.raises(ValueError):Harness(flow,tmp_path/'run').resume()
+    assert len(requests)==2
+
+
+def test_untagged_optional_dependency_keeps_released_behavior(rule_endpoint,tmp_path):
+    cfg,requests,replies=rule_endpoint;replies.extend(['{"ok":true}','{"ok":true}','{"ok":false}'])
+    state=Harness(optional_dependency_flow(cfg,guarded=False),tmp_path/'run').run({})
+    assert state['status']=='completed' and state['bindings']['review']['dependencies']=={} and len(requests)==3

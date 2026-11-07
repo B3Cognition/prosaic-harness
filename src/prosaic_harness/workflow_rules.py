@@ -97,6 +97,17 @@ def descriptors_unique(rules):
     return descriptors(list({b.guard.name: b.guard for b in rules.bindings}.values()))
 
 
+def dependency_bindings(workflow, step, arguments):
+    """Retain the exact accepted bindings that supplied authoritative guard facts."""
+    from copy import deepcopy
+    definition = workflow.definition['steps'][step]
+    selected = arguments['artifact_bindings']
+    refs = list(definition.get('inputs', []))
+    if step in compiled(workflow):
+        refs += [ref for ref in definition.get('optional_inputs', []) if ref in selected]
+    return {ref: deepcopy(selected[ref]) for ref in refs}
+
+
 def facts(step, arguments):
     return owned({'workflow': {**arguments, 'version': 1, 'step': step}})
 

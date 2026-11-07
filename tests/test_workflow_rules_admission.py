@@ -164,3 +164,15 @@ def test_malformed_unbound_and_unsupported_guarded_prose_refuses(body):
 def test_nonnegative_explicit_caps_are_admitted(cap):
     f = factory(policy_options={'max_provider_requests_per_invocation': cap})
     assert f.build(definition()).definition['limits']['max_provider_requests_per_invocation'] == cap
+
+
+
+def test_released_yaml_and_prompt_goldens(tmp_path):
+    import hashlib
+    flow=load(yaml_project(tmp_path,tagged=False,caps=False))
+    assert flow.fingerprint=='2372997aa333113e9df3a7ed07a44bbcfdb3fa8270250c9f52b427e939fac021'
+    arguments='{"request":{"golden":"untagged"}}'
+    assert hashlib.sha256(flow.artifacts['review'].render(arguments).encode()).hexdigest()=='8a320dcba720b96535cdda43349701a615a53bb6295cb5d28e1bd40da33f9b18'
+    from test_workflow_factory import factory as legacy_factory, graph
+    native=legacy_factory().build(graph())
+    assert hashlib.sha256(native.artifacts['find'].render(arguments).encode()).hexdigest()=='9d6af4c547341aa1312346202e715e42c936352e786678e813a49ecc864670d3'
