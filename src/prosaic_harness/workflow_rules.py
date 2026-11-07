@@ -5,11 +5,14 @@ NEVER execute guards during admission or infer permission from proposed tags.
 """
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 from prosaic_runtime import ProsaicRuntime, compile_rules
 from prosaic_runtime.rules import artifact_rules, turn_rules
 
 from .conversation_rules import registrations, descriptors, source_options
+from .conversation_rules import rule_receipt, validate_rule_receipt
+from .session_codec import owned
 
 CAPS = ('max_provider_requests_per_invocation', 'max_tool_calls_per_invocation')
 FACT_PROFILE = 'workflow-guard-input-v1'
@@ -51,10 +54,10 @@ def compiled(workflow):
         if not rules.bindings:
             continue
         step = workflow.definition['steps'][name]
-        if (step.get('acquisition') or '{{args}}' in artifact.body
+        if (step.get('acquisition') or step.get('require_reads') or '{{args}}' in artifact.body
                 or any(getattr(workflow.custom_tools.get(tool), 'terminal', False)
                        for tool in step.get('tools', []))):
-            raise ValueError('workflow rules need API turns without acquisition, terminal tools or args interpolation')
+            raise ValueError('workflow rules need API turns without acquisition, required read receipts, terminal tools or args interpolation')
         if bindings.allowed is not None and any(b.guard_name not in bindings.allowed for b in rules.bindings):
             raise ValueError('workflow guard is not host permitted')
         limits = workflow.definition['limits']
@@ -92,3 +95,47 @@ def check_runtime(workflow, runtime):
 
 def descriptors_unique(rules):
     return descriptors(list({b.guard.name: b.guard for b in rules.bindings}.values()))
+
+
+def facts(step, arguments):
+    return owned({'workflow': {**arguments, 'version': 1, 'step': step}})
+
+
+def proof(step, arguments, context_identity, rules):
+    from .workflow import digest
+    return {'version': 1, 'facts_sha256': digest(facts(step, arguments)),
+        'context_identity': context_identity, 'rules': validate_rule_receipt(rules)}
+
+
+def maximum_proof(workflow, step, arguments):
+    rules = compiled(workflow)[step]
+    ids = [b.rule_id for b in rules.bindings]
+    return proof(step, arguments, 'f' * 64, {'version': 1, 'fingerprint': rules.rules_fingerprint(),
+        **{key: ids for key in ('evaluated', 'violated', 'fixed', 'faulted')}})
+
+
+def result_with_proof(turn, step, arguments, prepared):
+    from dataclasses import replace
+    rules = rule_receipt(turn)
+    if rules is None:
+        raise ValueError('missing guarded Runtime evidence')
+    return replace(turn.result, metadata={**turn.result.metadata,
+        'workflow_rules_v1': proof(step, arguments, prepared.context_identity, rules)})
+
+
+def validate_proof(value, workflow, step, arguments, *, success=False):
+    from .workflow import digest
+    value = owned(value, maximum=262_144, nodes=4096)
+    if (type(value) is not dict or value.keys() != {'version', 'facts_sha256', 'context_identity', 'rules'}
+            or type(value['version']) is not int or value['version'] != 1
+            or value['facts_sha256'] != digest(facts(step, arguments))
+            or type(value['context_identity']) is not str or not re.fullmatch('[0-9a-f]{64}', value['context_identity'])):
+        raise ValueError('workflow rule proof identity')
+    rules = compiled(workflow)[step]
+    receipt = validate_rule_receipt(value['rules'])
+    ids = {b.rule_id for b in rules.bindings}
+    required = {b.rule_id for b in rules.bindings if b.stage in {'before_answer', 'final'}}
+    if (receipt['fingerprint'] != rules.rules_fingerprint() or not set(receipt['evaluated']) <= ids
+            or success and (not required <= set(receipt['evaluated']) or receipt['faulted'])):
+        raise ValueError('workflow rule proof coverage')
+    return value

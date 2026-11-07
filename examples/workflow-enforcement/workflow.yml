@@ -1,0 +1,59 @@
+version: 1
+name: Guarded cross-step workflow review
+source: .prosaic
+runtime: runtime.yml
+start: first_review
+limits:
+  max_calls: 3
+  max_visits: 1
+  timeout_s: 60
+  max_run_s: 240
+  max_provider_requests_per_invocation: 2
+  max_tool_calls_per_invocation: 0
+steps:
+  first_review:
+    kind: agent
+    agent: subagents/reviewer.md
+    schema: schemas/review.json
+    validators:
+    - review_scope
+    max_attempts: 1
+    next: revision
+  revision:
+    kind: agent
+    agent: subagents/reviser.md
+    schema: schemas/revision.json
+    inputs:
+    - first_review
+    validators:
+    - revision_shape
+    max_attempts: 1
+    next: revised_review
+  revised_review:
+    kind: agent
+    agent: subagents/guarded-reviewer.md
+    schema: schemas/review.json
+    inputs:
+    - first_review
+    - revision
+    max_attempts: 1
+    next: approval
+  approval:
+    kind: pause
+    requires:
+    - first_review
+    - revision
+    - revised_review
+    question: Accept the revised review? No external action occurs.
+    choices:
+      accept: done
+      reject: rejected
+  done:
+    kind: finish
+    requires:
+    - first_review
+    - revision
+    - revised_review
+  rejected:
+    kind: finish
+    outcome: rejected

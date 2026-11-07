@@ -2,6 +2,13 @@
 
 See [published release notes and compatibility](docs/releases.md), including backfilled historical release notes. Documentation refreshed on 2026-11-07; package versions and release archives are unchanged.
 
+## 0.9.12
+
+- Bind host Guards to workflow enforcement tags with declared fresh accepted dependency facts.
+- Seal used declarations, require finite invocation caps and retain bounded rule proof across recovery; keep untagged identities and Validator V1 intact.
+- Ship a separate YAML/native V2 review blueprint and version-specific identity/compatibility notes. Runtime floor advances to0.9.16; Core/adapters unchanged.
+- Refuse unsupported guarded acquisition, terminal, args interpolation and required-read proof before effects. See [release notes](docs/release-0.9.12.md).
+
 ## 0.9.11
 
 - Ship a copyable, versioned first-review/revision/review blueprint through existing Validator and CheckContext APIs.

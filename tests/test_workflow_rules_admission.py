@@ -1,5 +1,4 @@
 """Workflow rule permission, immutable binding and legacy identity contracts."""
-from dataclasses import replace
 import json
 from pathlib import Path
 import sys

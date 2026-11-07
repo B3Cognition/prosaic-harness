@@ -1,0 +1,8 @@
+default_profile: local
+routes: {fast: local}
+allowed_tools: []
+profiles:
+  local:
+    base_url: http://127.0.0.1:9/v1
+    model: synthetic-review-model
+    features: {streaming: false}

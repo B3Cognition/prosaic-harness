@@ -24,6 +24,8 @@ from .interaction import project_interaction
 from .schema_validation import evaluate_schema, SchemaEvaluationError
 from .factory import admit_workflow, _config_from_json
 from .observations import CommittedObserver
+from .workflow_rules import (compiled as compiled_rules, facts as rule_facts, maximum_proof,
+    result_with_proof, validate_proof)
 from .terminal import effective_tools, validate_candidate, failure_evidence, accounting_evidence
 
 _TERMINAL_HEADROOM = 4096
@@ -31,6 +33,8 @@ _TERMINAL_NODES = 16
 
 
 class Harness:
+    capabilities = frozenset({'workflow_rules_v1'})
+
     def __init__(self, workflow, run_dir=None, *, store=None, run_id=None, runtime=None, on_event=None, observer=None, validators=None, cancelled=None, clock=time.time, context=None, accounting=None, lifecycle=None):
         self.workflow = workflow
         admission = admit_workflow(workflow)
@@ -337,7 +341,7 @@ class Harness:
             receipt=self.store.load_receipt(self._storage_run_id,invocation['id'])
             if receipt is not None:
                 if self._admission: self._bounded_document(receipt,self._admission.policy.max_receipt_bytes)
-                validate_receipt(receipt,snapshot.state,invocation)
+                validate_receipt(receipt,snapshot.state,invocation,self.workflow)
                 document['receipts'].append(receipt)
             if snapshot.state['pending'] is not None and snapshot.state['pending']['id']==invocation['id']:
                 document['recoveryStatus']='receiptAvailable' if receipt is not None else 'needsResolution'
@@ -497,7 +501,7 @@ class Harness:
             if pending is not None:
                 receipt = self.store.load_receipt(self._storage_run_id, pending['id'])
                 if receipt is not None:
-                    validate_receipt(receipt, state, pending)
+                    validate_receipt(receipt, state, pending, self.workflow)
                     with self._observations.recovery():
                         self._accept(state, receipt)
                 elif not retry_interrupted or self.workflow.definition['steps'][pending['step']]['kind'] == 'tool':
@@ -529,7 +533,7 @@ class Harness:
                     raise StoreCorrupt('completed invocation is missing its receipt')
                 if self._admission:
                     self._bounded_document(receipt, self._admission.policy.max_receipt_bytes)
-                validate_receipt(receipt, state, invocation)
+                validate_receipt(receipt, state, invocation, self.workflow)
                 if receipt['sha256'] != invocation['receipt_sha256'] or receipt['result']['token_usage'] != invocation['token_usage']:
                     raise ValueError('invocation ledger receipt mismatch')
                 for name, binding in state['bindings'].items():
@@ -686,7 +690,7 @@ class Harness:
 
     def _accept(self, state, receipt):
         self._check_ownership()
-        validate_receipt(receipt, state, state['pending'])
+        validate_receipt(receipt, state, state['pending'], self.workflow)
         self._evidence_unchanged(state)
         state['invocations'][-1].update(status='complete', token_usage=receipt['result']['token_usage'], receipt_sha256=receipt['sha256'])
         state['pending'] = None
@@ -712,7 +716,8 @@ class Harness:
             if self._admission and result['metadata'].get('failure_reason') in {
                     'output_limit', 'metadata_limit', 'event_limit', 'receipt_limit', 'result_limit'}:
                 return self._block(state, self._resource_reason(state) or result['metadata']['failure_reason'])
-            reason = ('cancelled' if result['exit_code'] == 130 else
+            reason = ('rule_violation' if result['metadata'].get('failure_reason') == 'ruleViolation' else
+                      'cancelled' if result['exit_code'] == 130 else
                       'runtime_timeout' if result['timed_out'] else
                       'tool_choice_not_honored' if result['metadata'].get('failure_reason') == 'tool_choice_not_honored' else
                       'acquisition_failed' if result['metadata'].get('failure_reason') == 'acquisition_failed' else
@@ -856,6 +861,10 @@ class Harness:
                 reason = self._resource_reason(state, before_call=True)
                 if reason:
                     return self._block(state, reason)
+                guarded = name in compiled_rules(self.workflow)
+                if guarded and any(ref in state['outputs'] and not self._fresh(state, ref)
+                        for ref in step.get('optional_inputs', [])):
+                    return self._block(state, 'stale_artifact')
                 refs = step.get('inputs', []) + step.get('optional_inputs', [])
                 arguments = {'request': state['inputs'], 'artifacts': {ref: state['outputs'][ref] for ref in refs if ref in state['outputs']},
                              'artifact_bindings': {ref: state['bindings'][ref] for ref in refs if ref in state['outputs']},
@@ -896,6 +905,43 @@ class Harness:
                             reserve=4096, reserve_nodes=64 if self._admission.policy.allowed_terminal_tools else _TERMINAL_NODES)
                     except WorkflowAdmissionError:
                         return self._block(state, 'receipt_limit')
+                prepared = None
+                if guarded:
+                    from prosaic_runtime import TurnLimits, TurnAdmissionError
+                    try:
+                        policy = self._invocation_policy(state, name, step)
+                        if not self._admission:
+                            from dataclasses import replace
+                            policy = replace(policy,
+                                max_provider_requests=limits['max_provider_requests_per_invocation'],
+                                max_tool_calls=limits['max_tool_calls_per_invocation'])
+                        maximum = maximum_proof(self.workflow, name, arguments)
+                        caps = self._admission.policy if self._admission else None
+                        overhead = len(json.dumps({'workflow_rules_v1': maximum}).encode()) + 128
+                        if caps and overhead > caps.max_metadata_bytes:
+                            return self._block(state, 'metadata_limit')
+                        turn_limits = TurnLimits(**({
+                            'max_input_bytes': caps.max_invocation_bytes,
+                            'max_user_bytes': caps.max_invocation_bytes,
+                            'max_assistant_bytes': caps.max_output_bytes,
+                            'max_turn_bytes': caps.max_receipt_bytes,
+                            'max_metadata_bytes': caps.max_metadata_bytes - overhead + 128,
+                            'max_event_bytes': caps.max_event_bytes,
+                            'max_json_depth': min(64, caps.max_json_depth),
+                            'max_json_nodes': caps.max_json_nodes,
+                        } if caps else {}))
+                        prepared = self.runtime.prepare_turn(self.workflow.artifacts[name],
+                            message='Execute the current workflow step using inputData.workflow.',
+                            input_data=rule_facts(name, arguments), policy=policy,
+                            limits=turn_limits, workspace=self._cwd)
+                        if caps:
+                            minimum = seal({'version': 1, 'run_id': state['run_id'], 'id': attempt_id, 'step': name,
+                                'arguments_sha256': digest(arguments), 'arguments': arguments,
+                                'result': self._failure_result({'metadata': {'workflow_rules_v1': maximum}}, 'receipt_limit'),
+                                'events': []})
+                            self._bounded_document(minimum, caps.max_receipt_bytes, reserve=4096, reserve_nodes=64)
+                    except (TurnAdmissionError, WorkflowAdmissionError, ValueError, TypeError):
+                        return self._block(state, 'invocation_limit')
                 state['calls'] += 1
                 state['attempt'] += 1
                 state['pending'] = {'id': attempt_id, 'step': name, 'arguments_sha256': digest(arguments), 'arguments': arguments}
@@ -918,6 +964,10 @@ class Harness:
                         except WorkflowAdmissionError:
                             event_failure = 'event_limit'
                             return
+                    if guarded and event.get('event') == 'tool_completed' and event.get('name') in self.workflow.tool_descriptors:
+                        # Runtime turn events omit versions; readmission bound the actual
+                        # registry to these sealed declarations before dispatch.
+                        event = {**event, 'tool_version': self.workflow.tool_descriptors[event['name']]['version']}
                     if event['event'] not in {'text_delta', 'reasoning_delta', 'text', 'progress'}:
                         if len(events) >= 2048:
                             if self._admission:
@@ -934,23 +984,8 @@ class Harness:
                     if self.on_event:
                         self.on_event(deepcopy({**event, 'step': name, 'attempt_id': attempt_id}) if self._admission
                                       else {**event, 'step': name, 'attempt_id': attempt_id})
-                timeout = limits['timeout_s'] if state['deadline'] is None else min(limits['timeout_s'], max(0.001, state['deadline'] - self.clock()))
-                policy = RunPolicy(allowed_tools=frozenset([step['tool']] if kind == 'tool' else step.get('tools', [])),
-                                   allowed_terminal_tools=effective_tools(self.workflow, name,
-                                       self._admission.policy if self._admission else None),
-                                   read_roots=tuple(step.get('read_roots', [])),
-                                   timeout_s=timeout, max_tool_rounds=self.workflow.config.limits.max_tool_rounds,
-                                   **({'bounded_tool_recovery': True} if self._admission and
-                                      self._admission.policy.bounded_tool_recovery else {}),
-                                   **({'max_input_bytes': self._admission.policy.max_invocation_bytes} if self._admission else {}),
-                                   **({'max_provider_requests': self._admission.policy.max_provider_requests_per_invocation,
-                                       'max_tool_calls': self._admission.policy.max_tool_calls_per_invocation,
-                                       'max_reported_tokens': limits['max_tokens'] - sum(
-                                           i['token_usage'] for i in state['invocations'] if i['status'] == 'complete')}
-                                      if self._admission else {}),
-                                   **({'initial_tool': step['initial_tool']} if 'initial_tool' in step else
-                                      {'initial_tool': 'read_file'} if step.get('require_reads') and
-                                      'initial_tool_v1' in getattr(self.runtime, 'capabilities', ()) else {}))
+                if not guarded:
+                    policy = self._invocation_policy(state, name, step)
                 self._check_ownership()
                 self._admit()
                 observation_options = {}
@@ -968,6 +1003,11 @@ class Harness:
                         policy=policy, on_event=record,
                         cancelled=lambda: bool(event_failure) or self._runtime_cancelled(state),
                         **observation_options, **accounting_options)
+                elif guarded:
+                    turn = self.runtime.turn(prepared, on_event=record,
+                        cancelled=lambda: bool(event_failure) or self._runtime_cancelled(state),
+                        **observation_options, **accounting_options)
+                    result = result_with_proof(turn, name, arguments, prepared)
                 else:
                     result = self.runtime.run(self.workflow.artifacts[name], json.dumps(arguments),
                                           cwd=self._cwd, policy=policy, on_event=record,
@@ -980,6 +1020,32 @@ class Harness:
                 self.store.save_receipt(self._storage_run_id, attempt_id, receipt, self._lease)
                 self._accept(state, receipt)
         return state
+
+    def _invocation_policy(self, state, name, step):
+        limits = self.workflow.definition['limits']
+        kind = step['kind']
+        timeout = limits['timeout_s'] if state['deadline'] is None else min(limits['timeout_s'], max(0.001, state['deadline'] - self.clock()))
+        policy = RunPolicy(allowed_tools=frozenset([step['tool']] if kind == 'tool' else step.get('tools', [])),
+                           allowed_terminal_tools=effective_tools(self.workflow, name,
+                               self._admission.policy if self._admission else None),
+                           read_roots=tuple(step.get('read_roots', [])),
+                           timeout_s=timeout, max_tool_rounds=self.workflow.config.limits.max_tool_rounds,
+                           **({'bounded_tool_recovery': True} if self._admission and
+                              self._admission.policy.bounded_tool_recovery else {}),
+                           **({'max_input_bytes': self._admission.policy.max_invocation_bytes} if self._admission else {}),
+                           **({'max_provider_requests': limits.get('max_provider_requests_per_invocation', self._admission.policy.max_provider_requests_per_invocation),
+                               'max_tool_calls': limits.get('max_tool_calls_per_invocation', self._admission.policy.max_tool_calls_per_invocation),
+                               'max_reported_tokens': limits['max_tokens'] - sum(
+                                   i['token_usage'] for i in state['invocations'] if i['status'] == 'complete')}
+                              if self._admission else {}),
+                           **({field: limits[key] for key, field in (
+                               ('max_provider_requests_per_invocation', 'max_provider_requests'),
+                               ('max_tool_calls_per_invocation', 'max_tool_calls')) if key in limits}
+                              if not self._admission else {}),
+                           **({'initial_tool': step['initial_tool']} if 'initial_tool' in step else
+                              {'initial_tool': 'read_file'} if step.get('require_reads') and
+                              'initial_tool_v1' in getattr(self.runtime, 'capabilities', ()) else {}))
+        return policy
 
     def _receipt(self, state, attempt_id, name, arguments, result, events, failure):
         if not self._admission:
@@ -1022,13 +1088,13 @@ class Harness:
                         'result': payload, 'events': events})
         if self._admission:
             try:
-                validate_receipt(receipt, state, state['pending'])
+                validate_receipt(receipt, state, state['pending'], self.workflow)
             except (ValueError, TypeError, OverflowError):
                 # Invalid accounting/result shape cannot become immutable poison
                 # evidence. Strip invalid lineage and retain known safe usage.
                 safe = self._failure_result(payload, failure or 'result_limit')
                 try:
-                    validate_receipt(seal({**receipt, 'result': safe, 'events': []}), state, state['pending'])
+                    validate_receipt(seal({**receipt, 'result': safe, 'events': []}), state, state['pending'], self.workflow)
                 except (ValueError, TypeError, OverflowError):
                     safe['metadata'].pop('accounting_v1', None)
                 receipt['result'], receipt['events'] = safe, []
@@ -1048,11 +1114,14 @@ class Harness:
                         receipt['result']['metadata'].pop('accounting_v1', None)
                     receipt = seal(receipt)
                     self._bounded_document(receipt, policy.max_receipt_bytes)
-            validate_receipt(receipt, state, state['pending'])
+            validate_receipt(receipt, state, state['pending'], self.workflow)
         return receipt
 
     def _failure_result(self, payload, reason, *, compact_accounting=False):
         metadata = {'failure_reason': reason}
+        if type(payload.get('metadata')) is dict and 'workflow_rules_v1' in payload['metadata']:
+            from .session_codec import owned
+            metadata['workflow_rules_v1'] = owned(payload['metadata']['workflow_rules_v1'], maximum=262_144, nodes=4096)
         if self._admission and self._admission.policy.allowed_terminal_tools:
             metadata.update(failure_evidence(payload.get('metadata')))
         # Keep safe accounting lineage where it fits, without retaining arbitrary

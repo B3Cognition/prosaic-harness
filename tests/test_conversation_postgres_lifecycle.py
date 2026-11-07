@@ -5,6 +5,7 @@ import pytest
 from test_conversation_workflow import workflow_fixture
 from support.conversation_host import conversation_fixture
 from test_conversation_recovery import Crash
+from test_workflow_rules_execution import rule_endpoint, strict
 
 
 @pytest.fixture
@@ -94,3 +95,23 @@ def test_postgres_guarded_failure_receipt_recovers_without_dispatch(conversation
             'companions/check.md:1:strict_json']
         assert fx.fresh_controller().recover(snapshot.session_id).document == reply
         assert fx.provider_calls == 1
+
+
+def test_postgres_workflow_rule_receipt_recovers_without_dispatch(rule_endpoint, lifecycle_stores, monkeypatch):
+    from prosaic_harness import Harness
+    from test_workflow_rules_admission import factory, definition, guard
+    cfg, requests, replies = rule_endpoint
+    _, runs = lifecycle_stores
+    flow = factory(cfg=cfg, registered=[guard(check=strict)]).build(definition())
+    run_id = uuid4().hex
+    h = Harness(flow, store=runs, run_id=run_id)
+    replies.extend(['{"ok":false}', '{"ok":true}'])
+    def crash(*args): raise Crash()
+    monkeypatch.setattr(h, '_accept', crash)
+    with pytest.raises(Crash): h.run({})
+    fresh = Harness(flow, store=runs, run_id=run_id)
+    evidence = fresh.recovery_evidence()
+    assert evidence['recoveryStatus'] == 'receiptAvailable'
+    assert evidence['receipts'][0]['result']['metadata']['workflow_rules_v1']['rules']['violated']
+    assert fresh.resume()['status'] == 'completed'
+    assert fresh.resume()['status'] == 'completed' and len(requests) == 2

@@ -27,7 +27,7 @@ def output_json(text):
     return parse_json(match[1] if match else text)
 
 
-def validate_receipt(receipt, state, pending):
+def validate_receipt(receipt, state, pending, workflow=None):
     verify_seal(receipt)
     required = {'version', 'run_id', 'id', 'step', 'arguments_sha256', 'arguments', 'result', 'events', 'sha256'}
     if set(receipt) != required or receipt['version'] != 1:
@@ -45,6 +45,11 @@ def validate_receipt(receipt, state, pending):
             or not isinstance(receipt['events'], list) or len(receipt['events']) > 2048
             or any(not isinstance(e, dict) for e in receipt['events'])):
         raise ValueError('invalid invocation result schema')
+    if workflow is not None:
+        from .workflow_rules import compiled, validate_proof
+        if pending['step'] in compiled(workflow):
+            validate_proof(result['metadata'].get('workflow_rules_v1'), workflow, pending['step'],
+                receipt['arguments'], success=result['exit_code'] == 0)
     accounting = result['metadata'].get('accounting_v1')
     if 'accounting_v1' in result['metadata']:
         from prosaic_runtime.accounting import ResolvedContext

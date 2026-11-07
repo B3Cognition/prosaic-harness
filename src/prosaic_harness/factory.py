@@ -1,4 +1,3 @@
-from .workflow_rules import RuleBindings, material as rule_material, check_runtime as check_rule_runtime, CAPS
 """Owned native workflow construction and mandatory resolved admission.
 
 ALWAYS keep authority in host policy and bindings. NEVER execute proposal code,
@@ -19,6 +18,7 @@ from prosaic_runtime import (CliSandboxConfig, CustomTool, EndpointConfig, Prosa
                              tool_journal_descriptor, RuntimeAdapter)
 from prosaic_runtime.policy import BUILTIN_TOOLS, requested_tools
 
+from .workflow_rules import RuleBindings, material as rule_material, check_runtime as check_rule_runtime, CAPS
 from .admission_data import parse_bounded_json, snapshot_json
 from .errors import WorkflowAdmissionError, GraphAdmissionError, logical_alias, logical_location
 from .graph_admission import validate_resolved_workflow

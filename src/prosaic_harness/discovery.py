@@ -162,7 +162,10 @@ def proposal_schema(factory, *, maximum_bytes=262_144):
         'required': ['version', 'start', 'steps'], 'properties': {
             'version': {'const': 1, 'type': 'integer'}, 'name': {}, 'start': reference,
             'limits': {'type': 'object', 'additionalProperties': False,
-                       'properties': {key: positive(getattr(policy, key)) for key in sorted(LIMIT_KEYS)}},
+                       'properties': {key: ({'type': 'integer', 'minimum': 0, 'maximum': getattr(policy, key)}
+                           if key in {'max_provider_requests_per_invocation', 'max_tool_calls_per_invocation'}
+                           else positive(getattr(policy, key))) for key in sorted(LIMIT_KEYS)
+                           if getattr(policy, key) is not None}},
             'steps': {'type': 'object', 'minProperties': 1, 'maxProperties': policy.max_steps,
                       'propertyNames': alias, 'additionalProperties': {'oneOf': branches}},
         }}

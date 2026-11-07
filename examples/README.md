@@ -1,10 +1,12 @@
 # Reusable workflow blueprints
 
-Current published release: **0.9.11**. See [release notes and compatible SDK versions](../docs/releases.md).
+Current published release: **0.9.12**. See [release notes and compatible SDK versions](../docs/releases.md).
+
+For enforcement tags with accepted earlier outputs, use the [workflow enforcement V2 blueprint](workflow-enforcement/README.md) and [API contract](../docs/workflow-rules.md).
 
 Start with the [versioned cross-step review V1](revision-review/README.md) for
 rules that need accepted earlier step outputs. Obtain the copyable blueprint
-from the 0.9.11 source archive; the wheel supplies the public validator APIs.
+from the 0.9.12 source archive; the wheel supplies the public validator APIs.
 Runtime enforcement tags inside workflow agent steps remain a later extension.
 
 For neutral reasoning effort, use the [workflow guide](../docs/reasoning-effort.md)
@@ -15,7 +17,7 @@ setup. The Lab keeps fixture control tests separate from live answer grading.
 
 <a id="cross-worker-postgresql-storage-development-harness-060"></a>
 
-## Cross-worker PostgreSQL storage (Harness 0.9.11 / store 0.4.1)
+## Cross-worker PostgreSQL storage (Harness 0.9.12 / store 0.4.1)
 
 The [PostgreSQL walkthrough](postgres/README.md) starts a human-only workflow in
 one process and resumes it in another with a fresh revision. No model endpoint
