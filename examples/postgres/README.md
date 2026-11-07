@@ -1,7 +1,9 @@
 # Two-worker PostgreSQL example
 
+Current published release: **0.9.11**. See [release notes and compatible SDK versions](../../docs/releases.md).
+
 First complete [installation, explicit init, grants and doctor](../../adapters/postgres/README.md).
-Use the current checkout's unreleased core 0.6.0 / adapter 0.1.0. From repository
+Use released Harness 0.9.11 with Runtime 0.9.16, Core 0.5.0 and the separately published PostgreSQL store 0.4.1. From repository
 root with `.venv-postgres/bin` on PATH and a secret-managed `HARNESS_RUNTIME_DSN`,
 worker A starts a new run and reports state/revision:
 

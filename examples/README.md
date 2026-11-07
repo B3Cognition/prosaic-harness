@@ -1,19 +1,28 @@
 # Reusable workflow blueprints
 
+Current published release: **0.9.11**. See [release notes and compatible SDK versions](../docs/releases.md).
+
+Start with the [versioned cross-step review V1](revision-review/README.md) for
+rules that need accepted earlier step outputs. Obtain the copyable blueprint
+from the 0.9.11 source archive; the wheel supplies the public validator APIs.
+Runtime enforcement tags inside workflow agent steps remain a later extension.
+
 For neutral reasoning effort, use the [workflow guide](../docs/reasoning-effort.md)
 and the Integration Lab's [copyable reasoning blueprints](https://github.com/B3Cognition/prosaic-integration-lab/tree/main/lab_runner/reasoning_eval/data).
 They include API/native profiles, seven Markdown effort variants and a one-call
 API-backed workflow. Validation is offline; execution requires explicit provider
 setup. The Lab keeps fixture control tests separate from live answer grading.
 
-## Cross-worker PostgreSQL storage (development Harness 0.6.0)
+<a id="cross-worker-postgresql-storage-development-harness-060"></a>
+
+## Cross-worker PostgreSQL storage (Harness 0.9.11 / store 0.4.1)
 
 The [PostgreSQL walkthrough](postgres/README.md) starts a human-only workflow in
 one process and resumes it in another with a fresh revision. No model endpoint
 is needed. A synthetic-agent fixture separately exercises real Runtime inference.
 Install/initialize the optional adapter and apply the exact runtime grants in
 the [setup guide](../adapters/postgres/README.md); database permissions do not
-belong in Markdown. These development versions are not published releases.
+belong in Markdown. Both packages are published; the adapter remains independently versioned.
 
 ## Sandboxed CLI workflow (Harness 0.4.2)
 
