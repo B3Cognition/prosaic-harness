@@ -48,9 +48,9 @@ class Harness:
         self._revision = None
         self._ownership_failure = None
         self._execution_lock = threading.Lock()
-        self.runtime = runtime or (admission.runtime_adapter if admission else None) or (ProsaicRuntime(_config_from_json(admission.config_json), custom_tools=admission.tools, lifecycle=lifecycle) if admission else
-                                   ProsaicRuntime(workflow.config, custom_tools=workflow.custom_tools, lifecycle=lifecycle)
-                                   if workflow.custom_tools else ProsaicRuntime(workflow.config, lifecycle=lifecycle))
+        self.runtime = runtime or (admission.runtime_adapter if admission else None) or (ProsaicRuntime(_config_from_json(admission.config_json), custom_tools=admission.tools, lifecycle=lifecycle, **workflow._rule_bindings.runtime_options()) if admission else
+                                   ProsaicRuntime(workflow.config, custom_tools=workflow.custom_tools, lifecycle=lifecycle, **workflow._rule_bindings.runtime_options())
+                                   if workflow.custom_tools else ProsaicRuntime(workflow.config, lifecycle=lifecycle, **workflow._rule_bindings.runtime_options()))
         self.lifecycle = lifecycle if lifecycle is not None else getattr(self.runtime, 'lifecycle', None)
         if self.lifecycle is None:
             self.lifecycle = ExecutionLifecycle()

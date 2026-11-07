@@ -16,6 +16,7 @@ from .store import parse_json, read_bytes
 from .errors import WorkflowAdmissionError
 from .admission_data import snapshot_json
 from .graph_admission import validate_resolved_workflow, validate_initial_tool
+from .workflow_rules import RuleBindings, material as rule_material, CAPS
 
 
 def digest(value):
@@ -82,6 +83,7 @@ class Workflow:
     custom_tools: dict = field(default_factory=dict)
     _tool_descriptors: dict = field(default_factory=dict, repr=False)
     allowed_direct_tools: frozenset = frozenset()
+    _rule_bindings: RuleBindings = field(default_factory=RuleBindings, repr=False)
 
     def prepare_inputs(self, inputs):
         """Own and bound native input data before the host reserves a run.
@@ -108,7 +110,7 @@ class Workflow:
 
     def current_fingerprint(self):
         return digest({'workflow': self.definition, 'runtime': runtime_identity(self.config),
-                       'schemas': self.schemas, 'prose': {name: a.digest for name, a in self.artifacts.items()},
+                       **rule_material(self), 'schemas': self.schemas, 'prose': {name: a.digest for name, a in self.artifacts.items()},
                        **({'acquisitions': {name: a.digest for name, a in self.acquisitions.items()}} if self.acquisitions else {}),
                        **({'custom_tools': self.tool_descriptors} if self._tool_descriptors else {}),
                        **({'allowed_direct_tools': sorted(self.allowed_direct_tools)} if self.allowed_direct_tools else {})})
@@ -123,9 +125,9 @@ class Workflow:
         return evidence
 
     @classmethod
-    def load(cls, path, *, executable='prosaic', custom_tools=None, allowed_direct_tools=frozenset()):
+    def load(cls, path, *, executable='prosaic', custom_tools=None, allowed_direct_tools=frozenset(), guards=()):
         try:
-            return cls._load(path, executable=executable, custom_tools=custom_tools, allowed_direct_tools=allowed_direct_tools)
+            return cls._load(path, executable=executable, custom_tools=custom_tools, allowed_direct_tools=allowed_direct_tools, guards=guards)
         except WorkflowAdmissionError as exc:
             if exc.code == 'invalid_schema':
                 raise ValueError('invalid workflow definition: schema must be valid and support internal references only') from None
@@ -134,7 +136,7 @@ class Workflow:
             raise ValueError(f'invalid workflow definition: {type(exc).__name__}') from exc
 
     @classmethod
-    def _load(cls, path, *, executable, custom_tools, allowed_direct_tools):
+    def _load(cls, path, *, executable, custom_tools, allowed_direct_tools, guards):
         path = Path(path).resolve()
         if path.suffix not in {'.yml', '.yaml'}:
             raise ValueError('workflow must use YAML/YML')
@@ -149,13 +151,17 @@ class Workflow:
         if not all(isinstance(step, dict) for step in steps.values()):
             raise ValueError('every step must be a mapping')
         limits = raw.setdefault('limits', {})
-        if not isinstance(limits, dict) or set(limits) - {'max_calls', 'max_visits', 'timeout_s', 'max_tokens', 'max_run_s'}:
+        if not isinstance(limits, dict) or set(limits) - {'max_calls', 'max_visits', 'timeout_s', 'max_tokens', 'max_run_s', *CAPS}:
             raise ValueError('invalid workflow limits')
         limits.setdefault('max_calls', 12)
         limits.setdefault('max_visits', 4)
         limits.setdefault('timeout_s', 180)
         for key in limits:
-            positive(limits[key], key)
+            if key in CAPS:
+                if type(limits[key]) is not int or limits[key] < 0:
+                    raise ValueError('invalid invocation cap')
+            else:
+                positive(limits[key], key)
         root = path.parent
         config = RuntimeConfig.load(local(root, raw['runtime']))
         if type(allowed_direct_tools) not in (set, frozenset, list, tuple) or any(type(n) is not str for n in allowed_direct_tools):
@@ -293,10 +299,11 @@ class Workflow:
         # and manually assembled execution objects. No native limits are applied.
         workflow = cls(path, raw, config, artifacts, schemas, '', acquisitions,
                        MappingProxyType(registry), {}, allowed_direct_tools)
+        workflow._rule_bindings = RuleBindings.create(guards, root, 'workflow-directory-v1')
         workflow._registered_descriptors_json = json.dumps(registered, sort_keys=True, allow_nan=False)
         descriptors = validate_resolved_workflow(workflow, descriptors=registered,
                                                  profile=None, native=False)
-        fingerprint = digest({'workflow': raw, 'runtime': runtime_identity(config),
+        fingerprint = digest({**rule_material(workflow), 'workflow': raw, 'runtime': runtime_identity(config),
                               'schemas': schemas, 'prose': {name: a.digest for name, a in artifacts.items()},
                               **({'acquisitions': {name: a.digest for name, a in acquisitions.items()}} if acquisitions else {}),
                               **({'custom_tools': descriptors} if descriptors else {}),
