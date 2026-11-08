@@ -48,3 +48,10 @@ def test_grouped_variants_are_bounded_and_never_evict_required_items():
     result=ContextPacker(policy=ContextPackPolicy(max_variants=3)).compose(spec,snapshot)
     assert [len(v['items']) for v in result.variants]==[12,6,1]
     assert all(v['items'][0]['content']=='0' for v in result.variants)
+
+
+def test_text_content_byte_limit_counts_text_separately_from_json_framing():
+    snapshot=ContextSnapshot.from_items([ContextItem('root','s','v1','x')],sources=[ContextSource('s','source','v1','complete')],scope_binding=scope_case())
+    spec=ContextPackSpec('p','1',[ContextSlot('s',required=True)])
+    result=ContextPacker(policy=ContextPackPolicy(max_item_bytes=1)).compose(spec,snapshot)
+    assert result.variants[0]['items'][0]['content']=='x'

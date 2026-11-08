@@ -156,8 +156,9 @@ class ContextItem(_Record):
                  label=None, labels=None, derived_from=()):
         for value in (item_id, source_alias, source_revision): reference(value)
         if label is not None: reference(label)
-        encoded = encode(content, maximum=262144, depth=32, nodes=16384)
+        encoded = encode(content, maximum=1572866 if type(content) is str else 262144, depth=32, nodes=16384)
         content_bytes = content.encode('utf-8') if type(content) is str else encoded
+        if len(content_bytes)>262144: raise ContextPackError('contextSnapshotLimit')
         if type(derived_from) not in (tuple, list) or len(derived_from) > 128:
             raise ContextPackError()
         provenance=[]

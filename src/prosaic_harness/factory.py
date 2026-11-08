@@ -739,7 +739,7 @@ class WorkflowFactory:
         # Only enforced-rule graphs gain explicit host defaults, preserving old seals.
         from prosaic_runtime.rules import artifact_rules
         parsed_rules = [artifact_rules(a) for a in artifacts.values()]
-        if config.required_guards or any(issues or any(entry.get('kind') == 'enforce' for entry in entries)
+        if self._context_packs is not None or config.required_guards or any(issues or any(entry.get('kind') == 'enforce' for entry in entries)
                 for entries, issues in parsed_rules):
             for name in CAPS:
                 if name not in limits and getattr(policy, name) is not None:

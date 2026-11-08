@@ -29,7 +29,7 @@ def _map(values,maximum=128):
 
 class ContextPackBindings(_Record):
     def __init__(self,*,specs,sources,scope,authorizer,agent_defaults=None,required_packs=None):
-        if (type(specs) is not dict or len(specs)>32 or type(sources) is not dict or not 1<=len(sources)<=16
+        if (type(specs) is not dict or len(specs)>32 or type(sources) is not dict or not 1<=len(sources)<=256
                 or type(scope) is not ContextScope or type(authorizer) is not ContextAuthorizer):
             raise ContextPackError()
         owned_specs={};owned_sources={}
@@ -168,6 +168,10 @@ def validate_workflow(workflow):
     for node,step in workflow.definition['steps'].items():
         alias=binding.resolve(node,step)
         if alias is None: continue
+        from ..workflow_rules import CAPS
+        limits=workflow.definition['limits']
+        if any(type(limits.get(key)) is not int or limits[key]<0 for key in CAPS):
+            raise ContextPackError('contextBindingMismatch')
         spec=binding.specs[alias];sources=binding.sources
         if spec.task_source is None or type(sources.get(spec.task_source)) is not InputSource:
             raise ContextPackError('requiredContextMissing')

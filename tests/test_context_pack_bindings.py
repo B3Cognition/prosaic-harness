@@ -33,3 +33,12 @@ def test_bindings_are_owned_and_authorizer_descriptor_drift_is_rejected():
     assert registered.frozen_copy().identity==identity
     object.__setattr__(authorizer,'version','2')
     with pytest.raises(ContextPackError,match='contextBindingMismatch'): registered.readmit()
+
+
+def test_registry_can_serve_many_nodes_without_capturing_every_source():
+    from prosaic_harness.context_packs.sources import capture_sources
+    sources={'task':InputSource('/task'),**{f'facts{i}':InputSource(f'/facts{i}') for i in range(24)}}
+    registered=bindings(sources=sources)
+    snapshot=capture_sources(spec_case(),{'request':{'task':'Review','facts23':'UNSELECTED'}},{},registered)
+    assert len(registered.sources)==25
+    assert len(snapshot.sources)==1 and snapshot.sources[0].alias=='task'

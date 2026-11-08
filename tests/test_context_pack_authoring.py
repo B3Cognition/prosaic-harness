@@ -25,7 +25,7 @@ def graph():
 def factory(*, packs=None, public=None, guards=(), body=None):
     artifact=ProsaicArtifact('worker','subagent',{'name':'worker','description':'Synthetic reviewer'},body or 'ALWAYS use declared task and context. NEVER invent facts.')
     catalog=WorkflowCatalog(agents={'worker':artifact},schemas={'result':{'type':'object'}},public_metadata=public)
-    return WorkflowFactory(catalog=catalog,bindings=WorkflowBindings(config=config(),guards=guards,context_packs=packs or pack_bindings()),policy=WorkflowPolicy(allowed_agents=frozenset({'worker'}),allowed_schemas=frozenset({'result'}),allow_agent_composition=True,allowed_guards=frozenset(g.name for g in guards)))
+    return WorkflowFactory(catalog=catalog,bindings=WorkflowBindings(config=config(),guards=guards,context_packs=packs or pack_bindings()),policy=WorkflowPolicy(allowed_agents=frozenset({'worker'}),allowed_schemas=frozenset({'result'}),allow_agent_composition=True,allowed_guards=frozenset(g.name for g in guards),max_provider_requests_per_invocation=2,max_tool_calls_per_invocation=0))
 
 
 def test_same_agent_two_nodes_uses_different_context_and_bundle_preserves_bindings():
@@ -67,6 +67,7 @@ def test_static_markdown_workflow_admits_named_yaml_specs(tmp_path,monkeypatch):
     path=tmp_path/'flow.yml'; value=yaml.safe_load(path.read_text())
     value['contextPacks']={'task-only':{'version':'1','taskSource':'task','slots':[{'source':'task','required':True}]}}
     value['agentContextPacks']={'subagents/author.md':'task-only'}
+    value['limits'].update(max_provider_requests_per_invocation=2,max_tool_calls_per_invocation=0)
     path.write_text(yaml.safe_dump(value))
     binding=ContextPackBindings(specs={},sources={'task':InputSource('/task')},scope=scope_case(),authorizer=ContextAuthorizer('access','1',lambda use:True))
     workflow=Workflow.load(path,context_packs=binding)
@@ -116,3 +117,9 @@ def test_declared_feedback_and_repeatable_validator_options_survive_bundle_copy(
     copy=f._frozen_copy()
     assert copy._feedback_catalog==f._feedback_catalog and copy._repeatable_validators==('reviewer',)
     assert WorkflowBundle('1',copy).identity==WorkflowBundle('1',f).identity
+
+
+def test_pack_nodes_require_finite_host_invocation_caps():
+    from dataclasses import replace
+    f=factory();f._policy=replace(f._policy,max_provider_requests_per_invocation=None,max_tool_calls_per_invocation=None)
+    with pytest.raises(WorkflowAdmissionError): f.build(graph())

@@ -2,7 +2,7 @@
 import hashlib
 import math
 import time
-from .codec import ContextPackError, closed, decode, digest, encode, integer
+from .codec import ContextPackError, closed, decode, digest, encode, integer,locator as admit_locator
 from .types import ContextPackPolicy, ContextPackSpec, ContextSnapshot, _Record, _hash
 
 _clock = time.monotonic
@@ -11,6 +11,7 @@ RENDER_VERSION = 'context-pack-envelope-v1'
 
 def project(content, representation):
     """Select exact captured bytes/JSON; never consult a source."""
+    representation=admit_locator(representation,representation=True)
     kind=representation['kind']
     if kind=='whole': return content
     if kind=='utf8Range':
@@ -18,7 +19,10 @@ def project(content, representation):
         data=content.encode('utf-8')
         start,end=representation['start'],representation['end']
         if end>len(data): raise ContextPackError()
-        try: return data[start:end].decode('utf-8',errors='strict')
+        try:
+            data[:start].decode('utf-8',errors='strict')
+            data[:end].decode('utf-8',errors='strict')
+            return data[start:end].decode('utf-8',errors='strict')
         except UnicodeError: raise ContextPackError() from None
     pointer=representation['pointer']
     value=content
@@ -39,6 +43,22 @@ def project(content, representation):
 
 def _content_bytes(value):
     return value.encode('utf-8') if type(value) is str else encode(value)
+
+
+def _validate_capture(document,declaration,policy,check=lambda:None):
+    if (len(document['items'])>policy.max_captured_items or len(document['sources'])>policy.max_source_aliases
+            or len(encode(document))>policy.max_snapshot_bytes): raise ContextPackError('contextSnapshotLimit')
+    if len(declaration['slots'])>policy.max_slots: raise ContextPackError('contextPackLimit')
+    total=0
+    for item in document['items']:
+        check()
+        content=item['content']
+        maximum=policy.max_item_bytes*6+2 if type(content) is str else policy.max_item_bytes
+        encode(content,maximum=maximum,depth=policy.max_json_depth,nodes=policy.max_json_nodes)
+        size=len(_content_bytes(content));total+=size
+        if size>policy.max_item_bytes or len(item['labels'])>policy.max_labels_per_item:
+            raise ContextPackError('contextSnapshotLimit')
+    if total>policy.max_total_content_bytes: raise ContextPackError('contextSnapshotLimit')
 
 
 def _resolve(spec, snapshot, check):
@@ -67,6 +87,8 @@ def _resolve(spec, snapshot, check):
             chosen.append(item)
         if len(chosen)>slot['maxItems']: raise ContextPackError('selectionLimit')
         if len(chosen)<slot['minItems']: raise ContextPackError('requiredContextMissing')
+        if slot['required'] and not chosen and outcome!='complete':
+            raise ContextPackError('requiredContextMissing')
         selected_ids=[]
         for rank,item in enumerate(chosen):
             check()
@@ -152,10 +174,30 @@ class ContextPackCandidates(_Record):
         closed(value,{'version','spec','snapshot','policy','variants','reports'})
         encode(value,maximum=8388608,depth=48)
         if type(value['version']) is not int or value['version']!=1: raise ContextPackError()
-        instance=ContextPacker(policy=ContextPackPolicy.from_dict(value['policy'])).compose(
-            ContextPackSpec.from_dict(value['spec']),ContextSnapshot.from_dict(value['snapshot']))
-        if instance.to_dict()!=value: raise ContextPackError('contextBindingMismatch')
-        return instance
+        policy=ContextPackPolicy.from_dict(value['policy'])
+        spec=ContextPackSpec.from_dict(value['spec']);snapshot=ContextSnapshot.from_dict(value['snapshot'])
+        _validate_capture(snapshot.to_dict(),spec.to_dict(),policy)
+        variants=value['variants'];reports=value['reports']
+        if (type(variants) is not list or not 1<=len(variants)<=policy.max_variants
+                or type(reports) is not list or len(reports)!=len(variants)):
+            raise ContextPackError()
+        total=0;previous=None
+        for index,(envelope,report) in enumerate(zip(variants,reports)):
+            reference=dict(specDigest=spec.identity,snapshotIdentity=snapshot.identity,
+                selectedVariantIndex=index,envelopeDigest=digest(envelope),reportDigest=digest(report),renderVersion=RENDER_VERSION)
+            reference['packIdentity']=digest(reference)
+            PreparedContextPack.from_dict(dict(version=1,spec=spec.to_dict(),snapshot=snapshot.to_dict(),
+                envelope=envelope,report=report,reference=reference))
+            size=len(encode(envelope));total+=size
+            if size>policy.max_inline_bytes or len(encode(envelope['index']))>policy.max_index_bytes:
+                raise ContextPackError('contextPackLimit')
+            selected={entry['citationId'] for entry in envelope['items']}
+            if previous is not None and not selected<previous: raise ContextPackError('contextBindingMismatch')
+            previous=selected
+        if total>policy.max_variant_bytes: raise ContextPackError('contextPackLimit')
+        if any(not any(spec.slots[n].required for n in item['slotIndexes']) for item in variants[-1]['items']):
+            raise ContextPackError('contextBindingMismatch')
+        return cls._create(spec.to_dict(),snapshot.to_dict(),policy,variants,reports)
 
     def safe_report(self,index):
         reports=self.reports
@@ -225,16 +267,7 @@ class ContextPacker:
         def check():
             if (_clock()-start)*1000>=policy.composition_timeout_ms: raise ContextPackError('contextPackLimit')
         document=snapshot.to_dict(); declaration=spec.to_dict()
-        if (len(document['items'])>policy.max_captured_items or len(document['sources'])>policy.max_source_aliases
-                or len(snapshot._encoded)>policy.max_snapshot_bytes): raise ContextPackError('contextSnapshotLimit')
-        if len(declaration['slots'])>policy.max_slots: raise ContextPackError('contextPackLimit')
-        total=0
-        for item in document['items']:
-            check()
-            data=encode(item['content'],maximum=policy.max_item_bytes,depth=policy.max_json_depth,nodes=policy.max_json_nodes)
-            total+=len(_content_bytes(item['content']))
-            if len(item['labels'])>policy.max_labels_per_item: raise ContextPackError('contextSnapshotLimit')
-        if total>policy.max_total_content_bytes: raise ContextPackError('contextSnapshotLimit')
+        _validate_capture(document,declaration,policy,check)
         units,slots=_resolve(declaration,document,check)
         mandatory={c for c,u in units.items() if u['required']}
         optional=sorted((c for c,u in units.items() if u['inline'] and not u['required']),key=lambda c:units[c]['priority'])

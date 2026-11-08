@@ -59,6 +59,12 @@ def test_partial_empty_and_unavailable_captures_do_not_claim_full_coverage():
             with pytest.raises(ContextPackError,match='requiredContextMissing'): ContextPacker().compose(zero,snapshot)
 
 
+def test_required_empty_capture_must_be_complete_even_when_partial_is_allowed():
+    snapshot=ContextSnapshot.from_items([],sources=[ContextSource('facts','lookup','v1','partial')],scope_binding=scope_case())
+    spec=ContextPackSpec('p','1',[ContextSlot('facts',required=True,min_items=0,allow_partial=True)])
+    with pytest.raises(ContextPackError,match='requiredContextMissing'): ContextPacker().compose(spec,snapshot)
+
+
 @pytest.mark.parametrize('task', ['', '   ', {}, [], None])
 def test_task_cannot_be_empty(task):
     snapshot=ContextSnapshot.from_items([ContextItem('root','task','v1',task)],sources=[ContextSource('task','assignment','v1','complete')],scope_binding=scope_case())
@@ -73,6 +79,12 @@ def test_utf8_and_pointer_projections_are_exact_and_preserve_unicode():
     assert [i['content'] for i in result.variants[0]['items']]==['ž','e\u0301']
     bad=ContextPackSpec('p','1',[ContextSlot('facts',item_ids=['a'],representation={'kind':'utf8Range','start':1,'end':2})])
     with pytest.raises(ContextPackError): ContextPacker().compose(bad,snapshot)
+
+
+def test_empty_utf8_range_still_requires_codepoint_boundaries():
+    snapshot=collection(contents={'a':'žX'})
+    spec=ContextPackSpec('p','1',[ContextSlot('facts',representation={'kind':'utf8Range','start':1,'end':1})])
+    with pytest.raises(ContextPackError): ContextPacker().compose(spec,snapshot)
 
 
 def test_select_checks_original_index_and_envelope_digest_and_owns_outputs():

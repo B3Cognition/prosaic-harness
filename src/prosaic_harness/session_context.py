@@ -36,10 +36,10 @@ def binding_context(bindings):
         ('interpretation', 'interpretationContextPolicy', 'interpretationContextCounter'))}
 
 
-def validate_context_bindings(document):
+def validate_context_bindings(document,*,allow_empty=False):
     if type(document) is not dict or document.keys() != {'ordinary', 'interpretation'}:
         raise ValueError('context binding fields')
-    if not any(document.values()):
+    if not allow_empty and not any(document.values()):
         raise ValueError('context opt-in absent')
     for purpose in document.values():
         if purpose is None: continue
@@ -82,6 +82,9 @@ def validate_work_transition(before, after):
 
 
 def validate_attempt_context(state, attempt):
+    if state['version']==3 and state['contextPacks']['attempts'].get(attempt['invocationId']) is not None:
+        from .context_packs.records import validate_pack_attempt_context
+        return validate_pack_attempt_context(state,attempt)
     purpose = state['contextBindings'][attempt['purpose']]
     if purpose is None:
         if attempt['encodingVersion'] != 'conversation-turn-v1' or any(attempt[key] is not None for key in ATTEMPT_FIELDS):
@@ -139,17 +142,25 @@ def validate_final_report(initial, final, work):
 def checkpoint_context_work(document, invocation_id, work):
     from .session_contracts import verify_session, _consume_headroom
     state = verify_session(document)
-    if (state['version'] != 2 or state['pending'] is None or
+    if (state['version'] not in (2,3) or state['pending'] is None or
             state['pending']['invocationId'] != invocation_id):
         raise ConversationError('messageConflict')
     before_bytes, before_nodes = len(encode(state)), node_count(state)
     attempt = state['attempts'][invocation_id]
     validate_work_transition(ContextWorkState.from_dict(attempt['contextWork']), work)
     attempt['contextWork'] = work.to_dict()
+    if state['version']==3:
+        from .context_packs.records import ContextPackInvocation
+        value=state['contextPacks']['attempts'][invocation_id]
+        if value is not None:
+            state['contextPacks']['attempts'][invocation_id]=ContextPackInvocation.from_dict(value).checkpoint(work).to_dict()
     return verify_session(_consume_headroom(state, before_bytes, before_nodes))
 
 
 def validate_receipt_context(value):
+    if value['version']==3 and value['contextPack'] is not None:
+        from .context_packs.records import validate_pack_receipt_context
+        return validate_pack_receipt_context(value)
     if value['contextSelection'] is None:
         if value['encodingVersion'] != 'conversation-turn-v1' or any(value[key] is not None for key in RECEIPT_FIELDS):
             raise ValueError('legacy receipt context')
@@ -166,6 +177,8 @@ def validate_receipt_context(value):
 
 
 def match_context_receipt(state, attempt, value):
+    if state['version']==3 and state['contextPacks']['attempts'][attempt['invocationId']] is not None:
+        return  # The closed frozen-input matcher validates the profiled path.
     if state['version'] != value['version']: raise ValueError('receipt record version')
     for key in ('contextSelection', 'initialContextReport'):
         if value[key] != attempt[key]: raise ValueError('receipt selection changed')
