@@ -496,6 +496,15 @@ def validate_pack_session_transition(old,new):
             raise ContextPackError('contextBindingMismatch')
 
 
+def validate_pack_storage_admission(state):
+    """A transient preparation is never a durable pre-effect reservation."""
+    from ..run_store import StoreCorrupt
+    side=state['contextPacks']
+    for aid,frame in side['attempts'].items():
+        if frame is not None and side['reservations'].get(aid) is None:
+            raise StoreCorrupt('context pack capacity was not reserved')
+
+
 def upgrade_pack_workflow(*args,**kwargs):
     from .workflow_records import upgrade_pack_workflow as reducer
     return reducer(*args,**kwargs)

@@ -8,7 +8,7 @@ from .store import locked, read_bytes, write_json
 from .run_store import (RunSnapshot, RunBusy, RunNotFound, RunAlreadyExists, StoreBusy,
                         LeaseLost, ReceiptConflict, RevisionConflict, StoreCorrupt,
                         encode_document, decode_document, revision_token,
-                        validate_namespace, validate_id, validate_revision)
+                        validate_namespace, validate_id, validate_revision,StoreIncompatible)
 
 
 class _FileLease:
@@ -38,18 +38,51 @@ class FileRunStore:
         return store
 
     def _directory(self, run_id):
+        from .context_packs.file_namespace import inspect_namespace
+        packed,directory=inspect_namespace(self)
         if self._legacy:
             if run_id != 'legacy':
                 raise ValueError('legacy store requires its bound addressing key')
-            return self.root
-        return self.root / self.namespace / validate_id(run_id)
+            return directory
+        return directory / validate_id(run_id)
+
+    @property
+    def capabilities(self):
+        self.check_ready()
+        from .context_packs.file_namespace import inspect_namespace
+        return frozenset({'context_packs_v1'}) if inspect_namespace(self)[0] else frozenset()
 
     def check_ready(self):
         if self._pid != os.getpid() or self._closed:
             raise StoreBusy('store is closed or inherited; construct a new store')
+        from .context_packs.file_namespace import inspect_namespace
+        inspect_namespace(self)
 
-    def initialize(self):
+    def initialize(self,*,context_packs=False):
+        if type(context_packs) is not bool: raise ValueError('context_packs must be boolean')
         self.check_ready()
+        if context_packs:
+            from .context_packs.file_namespace import migrate_namespace
+            with self._mutex: migrate_namespace(self,fresh=True)
+
+    def migrate_context_pack_storage(self):
+        if self._pid!=os.getpid() or self._closed: raise StoreBusy()
+        from .context_packs.file_namespace import migrate_namespace
+        with self._mutex: migrate_namespace(self)
+
+    def _admit_document(self,value):
+        if value.get('version')==3 and value.get('recordType')=='workflow':
+            if 'context_packs_v1' not in self.capabilities: raise StoreIncompatible('migrate context pack storage explicitly')
+            from .context_packs.records import validate_pack_storage_admission
+            validate_pack_storage_admission(value)
+        if value.get('version')==2 and value.get('recordType')=='workflowReceipt':
+            if 'context_packs_v1' not in self.capabilities: raise StoreIncompatible('migrate context pack storage explicitly')
+
+    def _write_document(self,path,value):
+        self._admit_document(value)
+        canonical=(value.get('recordType')=='workflow' and value.get('version')==3 or
+            value.get('recordType')=='workflowReceipt' and value.get('version')==2)
+        write_json(path,value,canonical=canonical)
 
     @contextmanager
     def lease(self, run_id):
@@ -106,7 +139,7 @@ class FileRunStore:
             pass
         else:
             raise RunAlreadyExists('run already exists; use resume or a new identity')
-        write_json(self._directory(run_id) / 'run.json', state)
+        self._write_document(self._directory(run_id) / 'run.json', state)
         return self.load_run(run_id).revision
 
     def save_run(self, run_id, state, expected_revision, lease):
@@ -117,7 +150,7 @@ class FileRunStore:
         encode_document(state)
         if not self._legacy and state.get('run_id') != run_id:
             raise StoreCorrupt('checkpoint identity does not match its address')
-        write_json(self._directory(run_id) / 'run.json', state)
+        self._write_document(self._directory(run_id) / 'run.json', state)
         return self.load_run(run_id).revision
 
     def load_receipt(self, run_id, invocation_id):
@@ -142,7 +175,7 @@ class FileRunStore:
             if encode_document(existing) != content:
                 raise ReceiptConflict('immutable receipt differs from committed evidence')
             return
-        write_json(self._directory(run_id) / 'attempts' / (invocation_id + '.json'), receipt)
+        self._write_document(self._directory(run_id) / 'attempts' / (invocation_id + '.json'), receipt)
 
     def close(self):
         with self._mutex:
