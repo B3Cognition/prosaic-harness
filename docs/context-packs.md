@@ -236,4 +236,4 @@ The installed synthetic witness exercises 16 items, a 68,055-byte snapshot,
 27,646-byte model input, 65,536-byte private facts and two 24,572-byte reader
 outcomes. Its receipt is 460,488 bytes under the unchanged quota. These checks
 prove contracts and recovery; real-model quality, latency and cost need a separate
-explicitly enabled evaluation. See the release qualification report.
+explicitly enabled evaluation. See the [local qualification report](verification/2026-11-09-context-packs-qualification.md).

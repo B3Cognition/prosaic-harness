@@ -13,6 +13,7 @@ before enabling packs. Runtime roles do not perform DDL. Rollback disables new
 pack admission and keeps compatible readers available to settle v3 operations;
 never downgrade markers or send old writers into the upgraded namespace.
 
-The linked qualification manifest records exact local artifact hashes and tests.
+The [qualification report](verification/2026-11-09-context-packs-qualification.md)
+records exact local artifact hashes and tests.
 Hosted CI, including native Intel macOS, remains a separate required promotion
 gate. Synthetic correctness does not establish live-model quality or savings.
