@@ -43,3 +43,5 @@ from .context_packs import (ContextPackError, ContextScope, ContextSource, Conte
 __all__ += ['ContextPackError', 'ContextScope', 'ContextSource', 'ContextItem',
             'ContextSnapshot', 'ContextSlot', 'ContextPackSpec', 'ContextPackPolicy',
             'InputSource', 'EvidenceSource', 'ArtifactSource']
+from .context_packs import ContextPacker, ContextPackCandidates, PreparedContextPack
+__all__ += ['ContextPacker', 'ContextPackCandidates', 'PreparedContextPack']

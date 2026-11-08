@@ -5,3 +5,6 @@ from .types import (ContextScope, ContextSource, ContextItem, ContextSnapshot, C
 
 __all__ = ['ContextPackError', 'ContextScope', 'ContextSource', 'ContextItem', 'ContextSnapshot',
            'ContextSlot', 'ContextPackSpec', 'ContextPackPolicy', 'InputSource', 'EvidenceSource', 'ArtifactSource']
+
+from .selection import ContextPacker, ContextPackCandidates, PreparedContextPack
+__all__ += ['ContextPacker', 'ContextPackCandidates', 'PreparedContextPack']

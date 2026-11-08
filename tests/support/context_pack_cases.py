@@ -14,3 +14,15 @@ def snapshot_case():
 
 def spec_case():
     return ContextPackSpec('review', 'v1', [ContextSlot('task', required=True)], task_source='task')
+
+
+def two_source_case():
+    sources=[ContextSource(s, s+'-identity', 'v1', 'complete') for s in ('a','b')]
+    snapshot=ContextSnapshot.from_items([ContextItem('root',s,'v1','same') for s in ('a','b')], sources=sources,scope_binding=scope_case())
+    return ContextPackSpec('review','v1',[ContextSlot(s,required=True) for s in ('a','b')]),snapshot
+
+
+def required_optional_case():
+    sources=[ContextSource(s,s+'-identity','v1','complete') for s in ('task','facts')]
+    snapshot=ContextSnapshot.from_items([ContextItem('root',s,'v1',s+' content') for s in ('task','facts')],sources=sources,scope_binding=scope_case())
+    return ContextPackSpec('review','v1',[ContextSlot('task',required=True),ContextSlot('facts')],task_source='task'),snapshot
