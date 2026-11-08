@@ -1,5 +1,6 @@
 """A deterministic controller around one-agent invocations and validated results."""
 from prosaic_runtime.lifecycle import ExecutionLifecycle, tracked
+from .context_packs.workflow_execution import retained_workflow_view
 from dataclasses import asdict
 from copy import deepcopy
 from contextlib import contextmanager
@@ -346,6 +347,7 @@ class Harness:
             return True
         return bool(self._resource_reason(state))
 
+    @retained_workflow_view
     def status(self):
         self._admit()
         snapshot = self.store.load_run(self._storage_run_id)
@@ -411,12 +413,16 @@ class Harness:
             self.on_event(deepcopy(event) if self._admission else event)
 
     def _block(self, state, reason):
+        if state.get('version')==3 and reason=='gate_input_missing':
+            from .context_packs.feedback import safe_feedback
+            state['feedback']=safe_feedback('gateInputInvalid',None,1,{}).to_dict()
         state.update(status='blocked', reason=reason)
         self._event(state, 'blocked', reason=reason)
         self._save(state)
         return state
 
     @tracked
+    @retained_workflow_view
     def run(self, inputs):
         self._admit()
         self._check_custom_tools()
@@ -447,6 +453,7 @@ class Harness:
             return self._drive(state)
 
     @tracked
+    @retained_workflow_view
     def resume(self, *, choice=None, response=None, retry_interrupted=False, expected_revision=None, decision_id=None):
         if decision_id is not None:
             validate_id(decision_id)
@@ -519,7 +526,9 @@ class Harness:
                         error = self._checks(state, state['current'], {'choice': choice, 'response': response}, step.get('validators', []))
                     except StoreError:
                         raise
-                    except ValueError:
+                    except ValueError as fault:
+                        from .context_packs.codec import ContextPackError
+                        if isinstance(fault,ContextPackError): raise
                         raise HumanResponseError('response_validation_failed') from None
                     if error:
                         raise HumanResponseError('response_validation_failed')
@@ -547,7 +556,9 @@ class Harness:
                 elif (state.get('version')==3 and state['contextPacks']['attempts'][pending['id']] is not None
                         and state['contextPacks']['attempts'][pending['id']]['stage']=='prepared'):
                     from .context_packs.workflow_execution import resume_prepared
-                    resume_prepared(self,state)
+                    work=state['contextPacks']['attempts'][pending['id']]['contextWork']
+                    resume_prepared(self,state,fresh_attempt=bool(retry_interrupted and work and work['reservedActiveMicros']))
+                    if state['status']=='blocked': return state
                 elif not retry_interrupted or self.workflow.definition['steps'][pending['step']]['kind'] == 'tool':
                     return self._block(state, 'interrupted_call')
                 elif state.get('version')==3 and state['contextPacks']['attempts'][pending['id']] is not None:
@@ -629,6 +640,15 @@ class Harness:
                 if frame is not None:
                     context=FrozenCheckContext.from_dict(frame['projection']['controllerValidationContext']).to_check_context()
             frozen_context=FrozenCheckContext.from_context(context)
+            if names:
+                from .context_packs.projection import validation_exposures
+                from .context_packs.authorization import ContextUse,authorize_context_use
+                bindings=self.workflow._context_packs
+                exposures=validation_exposures(bindings,frozen_context.to_check_context())
+                operation=state['invocations'][-1]['id'] if state['invocations'] else state['run_id']
+                authorize_context_use(bindings,ContextUse('validation',scope=bindings.scope,operation_id=operation,
+                    run_id=state['run_id'],exposures=exposures,deadline=time.monotonic()+self.workflow.definition['limits']['timeout_s'],
+                    validation_input={'profile':'workflow-check-context-v1','digest':frozen_context.identity}))
         for validator in names:
             try:
                 owned_context = (CheckContext(context.step, deepcopy(context.request),
@@ -643,6 +663,8 @@ class Harness:
             except Exception as exc:
                 if packed:
                     self._private_check_diagnostics(state,[type(exc).__name__])
+                    from .context_packs.feedback import safe_feedback
+                    state['feedback']=safe_feedback('validatorFault',validator,1,self.workflow._feedback_catalog).to_dict()
                     raise ValueError('trusted validator fault') from None
                 raise ValueError(f'trusted validator {validator} failed ({type(exc).__name__})') from exc
             if result and first_failed is None: first_failed=validator
@@ -848,7 +870,10 @@ class Harness:
                                      terminal_completion=terminal_candidate)
             except StoreError:
                 raise
-            except ValueError:
+            except ValueError as fault:
+                from .context_packs.codec import ContextPackError
+                if isinstance(fault,ContextPackError):
+                    return self._block(state,fault.code)
                 return self._block(state, 'validator_error')
         self._check_ownership()
         if terminal_enabled:
@@ -921,7 +946,9 @@ class Harness:
                         error = self._checks(state, step['from'], state['outputs'][step['from']], step['validators'])
                     except StoreError:
                         raise
-                    except ValueError:
+                    except ValueError as fault:
+                        from .context_packs.codec import ContextPackError
+                        if isinstance(fault,ContextPackError): return self._block(state,fault.code)
                         return self._block(state, 'validator_error')
                     state['feedback'] = error
                     self._event(state, 'check_failed' if error else 'check_passed', artifact_id=state['bindings'][step['from']]['id'], message=error)

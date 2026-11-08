@@ -94,7 +94,8 @@ class HumanResponseError(ValueError):
         super().__init__(self.MESSAGES[code])
 
     def to_dict(self):
-        return {'code': self.code, 'issues': [dict(issue) for issue in self.issues]}
+        return {'code': self.code, 'issues': [dict(issue) for issue in self.issues],
+                **({'feedback': self.feedback} if hasattr(self,'feedback') else {})}
 
 
 def response_schema_issues(errors):

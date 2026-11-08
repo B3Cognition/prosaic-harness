@@ -34,6 +34,54 @@ class FrozenCheckContext(_Record):
         return CheckContext(value['step'],value['request'],value['artifacts'],value['evidence'],value['bindings'],value['humanResponses'],value['terminalCompletion'])
 
 
+def validation_exposures(bindings,context):
+    """Describe every declared origin in the wider private controller view.
+
+    This is metadata-only validation over already retained facts, independent
+    of the model pack's slot/source limits. It never reads a file or producer.
+    """
+    import hashlib
+    from .bindings import ContextPackBindings
+    from .types import EvidenceSource,ContextSource
+    from .authorization import ExposureBindings,_entry
+    from .selection import _content_bytes
+    if type(bindings) is not ContextPackBindings: raise ContextPackError()
+    bindings.readmit();value=FrozenCheckContext.from_context(context).to_dict()
+    entries=[]
+    for alias,source in bindings.sources.items():
+        revision=digest(source.to_dict());outcome='unavailable';content=None;origin={'kind':'whole'}
+        if type(source) is InputSource:
+            origin={'kind':'jsonPointer','pointer':source.pointer}
+            try: content=project(value['request'],origin)
+            except ContextPackError: pass
+            else: revision=digest(content);outcome='complete'
+        elif type(source) is EvidenceSource:
+            record=value['evidence'].get(source.path)
+            if record is not None:
+                if type(record) is not dict or type(record.get('text')) is not str: raise ContextPackError('contextBindingMismatch')
+                content=record['text'];revision=hashlib.sha256(content.encode('utf-8')).hexdigest()
+                if revision!=record.get('sha256'): raise ContextPackError('contextBindingMismatch')
+                outcome='complete'
+        elif type(source) is ArtifactSource:
+            present=source.step in value['artifacts'];bound=source.step in value['bindings']
+            if present!=bound: raise ContextPackError('contextBindingMismatch')
+            if present:
+                from ..workflow import digest as artifact_digest
+                binding=value['bindings'][source.step];content=value['artifacts'][source.step]
+                if binding.get('sha256')!=artifact_digest(content): raise ContextPackError('contextBindingMismatch')
+                revision=artifact_revision(binding);origin={'kind':'record','id':source.step};outcome='complete'
+        else: raise ContextPackError()
+        if outcome!='complete': continue
+        declaration=ContextSource(alias,source_identity(source),revision,outcome).to_dict()
+        entries.append(_entry(declaration,disclosure='validation'))
+        if outcome=='complete':
+            raw=_content_bytes(content)
+            entries.append(_entry(declaration,item={'itemId':'root','locator':origin},disclosure='validation',
+                representation={'kind':'whole'},content_sha256=hashlib.sha256(raw).hexdigest(),
+                content_bytes=len(raw),content_kind='text' if type(content) is str else 'json'))
+    return ExposureBindings(bindings.scope,entries)
+
+
 def _feedback(arguments):
     # Raw validator diagnostics can contain private facts. The safe-feedback
     # policy adds admitted static catalogue text separately; never copy raw text.

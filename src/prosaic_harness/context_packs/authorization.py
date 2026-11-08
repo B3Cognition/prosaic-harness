@@ -127,7 +127,7 @@ def _allows(grant,entry):
 
 class ContextUse(_Record):
     """A bounded logical use; deadline is in Runtime's monotonic-clock seconds."""
-    def __init__(self,purpose,*,scope,operation_id,exposures,deadline=None,session_id=None,run_id=None):
+    def __init__(self,purpose,*,scope,operation_id,exposures,deadline=None,session_id=None,run_id=None,validation_input=None):
         if type(purpose) is not str or purpose not in PURPOSES or type(scope) is not ContextScope or type(exposures) is not ExposureBindings:
             raise ContextPackError()
         reference(operation_id)
@@ -141,8 +141,14 @@ class ContextUse(_Record):
         private=any(e['disclosure']=='validation' for e in exposures.entries)
         if (private and purpose in {'invocation','deferredRead','historyReuse'}) or (purpose=='validation' and any(e['disclosure']!='validation' for e in exposures.entries)):
             raise ContextPackError('contextBindingMismatch')
-        self._own(dict(version=1,purpose=purpose,scopeBinding=scope.to_dict(),operationId=operation_id,
-            sessionId=session_id,runId=run_id,deadline=deadline,exposures=exposures.to_dict()),maximum=3145728)
+        document=dict(version=1,purpose=purpose,scopeBinding=scope.to_dict(),operationId=operation_id,
+            sessionId=session_id,runId=run_id,deadline=deadline,exposures=exposures.to_dict())
+        if validation_input is not None:
+            if purpose not in {'validation','retainedRead'}: raise ContextPackError('contextBindingMismatch')
+            closed(validation_input,{'profile','digest'})
+            reference(validation_input['profile']);_hash(validation_input['digest'])
+            document.update(version=2,validationInput=validation_input)
+        self._own(document,maximum=3145728)
 
     @property
     def scope(self): return ContextScope.from_dict(self.to_dict()['scopeBinding'])
@@ -163,10 +169,13 @@ class ContextUse(_Record):
 
     @classmethod
     def from_dict(cls,value):
-        closed(value,{'version','purpose','scopeBinding','operationId','sessionId','runId','deadline','exposures'})
-        if type(value['version']) is not int or value['version']!=1: raise ContextPackError()
+        if type(value) is not dict or type(value.get('version')) is not int or value['version'] not in (1,2): raise ContextPackError()
+        closed(value,{'version','purpose','scopeBinding','operationId','sessionId','runId','deadline','exposures',
+            *({'validationInput'} if value['version']==2 else ())})
+        if value['version']==2 and value['validationInput'] is None: raise ContextPackError()
         return cls(value['purpose'],scope=ContextScope.from_dict(value['scopeBinding']),operation_id=value['operationId'],
-            session_id=value['sessionId'],run_id=value['runId'],deadline=value['deadline'],exposures=ExposureBindings.from_dict(value['exposures']))
+            session_id=value['sessionId'],run_id=value['runId'],deadline=value['deadline'],exposures=ExposureBindings.from_dict(value['exposures']),
+            validation_input=value.get('validationInput'))
 
 
 def authorize_context_use(bindings,use):

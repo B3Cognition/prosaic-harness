@@ -27,6 +27,14 @@ def safe_feedback(kind,check_alias,count,catalog):
         message=admitted.get(check_alias) if check_alias is not None else None))
 
 
+def readmit_feedback(value,catalog):
+    if value is None: return
+    admitted,_=admit_options(catalog)
+    feedback=SafeFeedback.from_dict(value)
+    if feedback.message is not None and feedback.message not in admitted.values():
+        raise ContextPackError('contextBindingMismatch')
+
+
 def private_diagnostics(issues):
     if type(issues) not in (tuple,list): raise ContextPackError()
     result=[]

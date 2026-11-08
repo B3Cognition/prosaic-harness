@@ -11,8 +11,13 @@ from test_context_pack_authoring import factory,graph
 from test_context_pack_records import result_case
 
 
-def workflow_case():
-    workflow=factory().build(graph())
+def workflow_case(*,private_source=False):
+    from test_context_pack_authoring import pack_bindings
+    from prosaic_harness import InputSource
+    bindings=pack_bindings()
+    if private_source:
+        bindings=pack_bindings(sources={**bindings.sources,'private':InputSource('/private')})
+    workflow=factory(packs=bindings).build(graph())
     state=seal(dict(version=2,run_id='a'*32,fingerprint=workflow.fingerprint,validators={},
         inputs={'task':'Review the selected context','private':'private-517'},status='running',reason=None,
         current='build',calls=0,visits={'build':1},outputs={},bindings={},history=[],pending=None,
@@ -21,21 +26,25 @@ def workflow_case():
     bindings=workflow._context_packs
     spec=bindings.specs['work'];packer=ContextPacker()
     candidates=packer.compose(spec,capture_sources(spec,arguments,{},bindings))
-    projection=project_step('build',arguments,candidates,
-        controller_validation_context=CheckContext('build',state['inputs'],{},{},{},{}))
+    check_context=CheckContext('build',state['inputs'],{},{},{},{})
+    projection=project_step('build',arguments,candidates,controller_validation_context=check_context)
     pack=packer.select(candidates,0,digest(candidates.variants[0]))
     runtime=api.ProsaicRuntime(workflow.config)
     prepared=runtime.prepare_turn(workflow.artifacts['build'],message='Return JSON',
         input_data=projection.variants[0],input_profile=projection.profile,
         authoritative_input_data=projection.authoritative_input_data,authoritative_input_profile=projection.authoritative_input_profile,
-        policy=api.RunPolicy(max_provider_requests=2,max_tool_calls=0))
-    frame=ContextPackInvocation.from_prepared('b'*32,candidates,pack,prepared,projection=projection)
+        policy=api.RunPolicy(max_provider_requests=2,max_tool_calls=0),
+        limits=api.TurnLimits(max_metadata_bytes=16384,max_evidence_bytes=16384))
+    from prosaic_harness.context_packs.projection import validation_exposures
+    from prosaic_harness import ExposureBindings
+    frame=ContextPackInvocation.from_prepared('b'*32,candidates,pack,prepared,projection=projection,
+        validation_bindings=validation_exposures(bindings,check_context).union(ExposureBindings.from_snapshot(candidates.snapshot)))
     return workflow,state,arguments,frame
 
 
-def allocated():
+def allocated(*,private_source=False):
     from prosaic_harness.context_packs.records import upgrade_pack_workflow,reserve_workflow_pack_attempt
-    workflow,state,arguments,frame=workflow_case()
+    workflow,state,arguments,frame=workflow_case(private_source=private_source)
     state=upgrade_pack_workflow(state,workflow)
     state=reserve_workflow_pack_attempt(state,workflow,'build',arguments,frame)
     return workflow,state,arguments,frame
@@ -81,9 +90,33 @@ def test_workflow_receipt_cannot_claim_success_with_failed_evidence():
     with pytest.raises(ValueError): validate_receipt(seal(packet),state,state['pending'],workflow)
 
 
-def test_workflow_receipt_cannot_exceed_reserved_events_or_metadata_nodes():
+def test_workflow_receipt_cannot_exceed_materialized_metadata_reservations():
     from prosaic_harness.context_packs.records import make_workflow_pack_receipt
     workflow,state,arguments,frame=allocated()
     packet=make_workflow_pack_receipt(state,workflow,result_case(frame),events=[])
-    packet['result']['metadata']={'many':[None]*3000}
+    ceiling=state['contextPacks']['reservations'][frame.invocation_id]['metadataNodes']
+    packet['result']['metadata']={'many':[0]*(ceiling+1)}
     with pytest.raises(ValueError): validate_receipt(seal(packet),state,state['pending'],workflow)
+
+
+def test_saved_pack_attempt_cannot_drop_its_reservation():
+    workflow,state,arguments,frame=allocated()
+    state['contextPacks']['reservations'][frame.invocation_id]=None
+    with pytest.raises(ValueError): validate_state(seal(state),workflow)
+
+
+def test_restored_feedback_only_accepts_sealed_host_constants():
+    workflow,state,arguments,frame=allocated()
+    state['feedback']={'version':1,'policy':'safe-feedback-v1','code':'validationFailed',
+        'count':1,'message':'PRIVATE FORGED DIAGNOSTIC'}
+    with pytest.raises(ValueError): validate_state(seal(state),workflow)
+
+
+def test_saved_validation_origins_cannot_omit_private_facts_after_resealing():
+    from prosaic_harness import ExposureBindings
+    from prosaic_harness.context_packs.records import _frozen_identity
+    workflow,state,arguments,frame=allocated(private_source=True)
+    value=state['contextPacks']['attempts'][frame.invocation_id]
+    value['validationBindings']=ExposureBindings.from_snapshot(frame.candidates.snapshot).to_dict()
+    value['frozenIdentity']=_frozen_identity(value)
+    with pytest.raises(ValueError): validate_state(seal(state),workflow)
