@@ -138,7 +138,7 @@ class Harness:
         policy = storage_policy(self.workflow)
         if policy.max_json_nodes <= reserve_nodes:
             raise WorkflowAdmissionError('limit_exceeded')
-        if (value.get('recordType')=='workflow' and value.get('version')==3 or
+        if type(value) is dict and (value.get('recordType')=='workflow' and value.get('version')==3 or
                 value.get('recordType')=='workflowReceipt' and value.get('version')==2):
             from .session_codec import encode,decode
             try:
