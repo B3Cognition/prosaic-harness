@@ -9,8 +9,9 @@ recorder0.3.0/store0.4.1 bytes. Use published distributions, not sibling editabl
 ## Request metadata with Runtime 0.9.17
 
 Supply trusted `ExecutionContext(request_metadata={'run': 'benchmark-42', 'variant': 'baseline'})`.
-Runtime snapshots bounded strings and exposes exactly `context.request_metadata =
-{'version': 1, 'labels': {...}}` to prepare before dispatch. Harness uses public
+Runtime snapshots bounded strings in the immutable `context.request_metadata`
+label mapping. Before dispatch, prepare sees the serialized envelope at
+`intent['context']['request_metadata'] = {'version': 1, 'labels': {...}}`. Harness uses public
 Runtime context decoding/child APIs, so this needs no Harness engine release.
 The diagnostic run label is separate from actual run identity; explicit
 `ExecutionContext.run_id` must match the stored lowercase UUID hex. Omit it to let
