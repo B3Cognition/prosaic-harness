@@ -16,6 +16,14 @@ labels reach recorder prepare before dispatch and stay frozen across resume.
 They never replace actual workflow UUID identity or tenant/payer authority. See
 [accounting compatibility](docs/accounting.md#request-metadata-with-runtime-0917).
 
+Runtime0.9.18 adds bounded `reasoning_effort_v1` result observations: exact sent
+HTTP controls or launched native effort argv, with separate requested/default
+annotations. Published Harness0.9.12 retains these in private Result receipts
+across pause/reopen and no-call recovery; no store schema or input identity changes.
+Sent does not prove provider compliance. See the
+[Lab0.9.11 blueprint and complete-train proof](https://github.com/B3Cognition/prosaic-integration-lab/blob/v0.9.11/docs/sent-reasoning-effort.md).
+Harness's version and declared Runtime floor stay unchanged.
+
 Harness **0.9.7** lets native tools finish an admitted task with host-owned output and a durable
 inline artifact. See [terminal completion](docs/terminal-completion.md) for policy,
 validation, restart recovery and the consumer integration example.
