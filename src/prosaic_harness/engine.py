@@ -550,6 +550,9 @@ class Harness:
                     resume_prepared(self,state)
                 elif not retry_interrupted or self.workflow.definition['steps'][pending['step']]['kind'] == 'tool':
                     return self._block(state, 'interrupted_call')
+                elif state.get('version')==3 and state['contextPacks']['attempts'][pending['id']] is not None:
+                    from .context_packs.workflow_execution import resume_prepared
+                    resume_prepared(self,state,fresh_attempt=True)
                 else:
                     self._event(state, 'interrupted_retry', abandoned=pending['id'])
                     state['pending'] = None

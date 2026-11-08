@@ -84,14 +84,14 @@ def execute_step(controller,state,name,step,arguments):
     return execute_prepared(controller,state,prepared,frame,pack,reader,deadline)
 
 
-def resume_prepared(controller,state):
+def resume_prepared(controller,state,*,fresh_attempt=False):
     """Restore the selected bytes, with current host authority and saved work."""
     from dataclasses import replace
     from prosaic_runtime import TurnLimits
     controller._admit()
     workflow=controller.workflow;pending=state['pending'];name=pending['step'];step=workflow.definition['steps'][name]
     frame=ContextPackInvocation.from_dict(state['contextPacks']['attempts'][pending['id']])
-    if frame.stage!='prepared': raise ContextPackError('contextBindingMismatch')
+    if frame.stage!=('dispatched' if fresh_attempt else 'prepared'): raise ContextPackError('contextBindingMismatch')
     if state['contextPacks'].get('assemblyBindings')!=assembly_material(controller): raise ContextPackError('contextBindingMismatch')
     frozen=frame.frozen_input.to_dict();policy=controller._invocation_policy(state,name,step)
     saved_timeout=frozen['bindings']['policy']['timeout_s']
@@ -103,12 +103,33 @@ def resume_prepared(controller,state):
         max_metadata_bytes=caps.max_metadata_bytes,max_event_bytes=caps.max_event_bytes,
         max_evidence_bytes=caps.max_metadata_bytes,max_json_depth=caps.max_json_depth,max_json_nodes=caps.max_json_nodes)
     prepared=controller.runtime.restore_turn(workflow.artifacts[name],frozen_input=frame.frozen_input,policy=policy,limits=limits,
-        context_policy=controller.context_policy,token_counters=controller.token_counters,workspace=controller._cwd,context_work=frame.context_work)
+        context_policy=controller.context_policy,token_counters=controller.token_counters,workspace=controller._cwd,
+        context_work=None if fresh_attempt else frame.context_work,fresh_attempt=fresh_attempt)
     pack=frame.prepared_pack;reader=None
     if any(slot.availability=='discoverable' for slot in pack.spec.slots):
         from .reader import ContextPackReader,NAME
         tool=workflow.custom_tools.get(NAME);reader=getattr(getattr(tool,'handler',None),'__self__',None)
         if type(reader) is not ContextPackReader or NAME not in policy.allowed_tools: raise ContextPackError('contextCapabilityMissing')
+    if fresh_attempt:
+        from .projection import StepPackProjection
+        old=frame.to_dict();old['stage']='abandoned'
+        state['contextPacks']['attempts'][frame.invocation_id]=ContextPackInvocation.from_dict(old).to_dict()
+        state['invocations'][-1]['status']='abandoned'
+        state['pending']=None;state['attempt']-=1
+        state.update(status='running',reason=None)
+        controller._event(state,'interrupted_retry',abandoned=frame.invocation_id)
+        controller._save(state)
+        reason=controller._resource_reason(state,before_call=True)
+        if reason: return controller._block(state,reason)
+        if state['calls']>=workflow.definition['limits']['max_calls']: return controller._block(state,'call_limit')
+        tool_bytes=state['contextPacks']['reservations'][frame.invocation_id]['toolResultBytes']
+        frame=ContextPackInvocation.from_prepared(uuid.uuid4().hex,frame.candidates,pack,prepared,
+            projection=StepPackProjection.from_dict(frame.projection),runtime_input_mapping=frame.runtime_input_mapping)
+        updated=reserve_workflow_pack_attempt(state,workflow,name,pending['arguments'],frame,tool_result_bytes=tool_bytes)
+        state.clear();state.update(updated)
+        controller._event(state,'invocation',attempt_id=frame.invocation_id,call=state['calls'])
+        controller._save(state)
+        if state['status']=='blocked': return state
     return execute_prepared(controller,state,prepared,frame,pack,reader,time.monotonic()+policy.timeout_s)
 
 
