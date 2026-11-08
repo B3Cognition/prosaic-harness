@@ -49,6 +49,17 @@ exists or the corresponding release tests have passed.
 
 ## Deliberate tradeoffs retained
 
+The maintainer subsequently clarified that per-agent/per-node declarations, with
+Markdown-only use, are the primary requirement. The design now includes trusted
+YAML named packs, agent defaults, explicit node selection, a required task source,
+and source bindings for existing file evidence, admitted inputs and accepted step
+outputs. Opted-in nodes receive only declared business evidence; undeclared bodies
+do not accompany the pack. File-backed and record-backed sources share this
+declaration model, with no database required. A separate fresh feasibility review
+found no consequential blockers in this clarification. Its requested qualification
+detail is explicit: empty selection cannot vacuously satisfy a required dependency;
+the task is a required nonempty admitted input, never a generated replacement.
+
 - Initial composition/fitting is bounded pure work, but pre-persistence CPU work
   is not crash-durable. Same-attempt recovery preserves spent work; an explicitly
   acknowledged new retry has separate admitted execution allowance.

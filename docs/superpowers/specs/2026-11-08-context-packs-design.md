@@ -14,6 +14,13 @@ establish design clarity, not implementation or model-quality validation.
 
 ## Decision and intent
 
+The maintainer's clarified priority is declarative context for **each workflow
+agent/node**: specify which information an invocation receives, as Echelon did
+with Markdown files. This is the primary authoring feature. Bounded packing,
+provenance, guard views and recovery implement that contract; they are not a
+substitute for a usable declaration. A Markdown-only workflow is a first-class
+acceptance case and needs no database, vector store, or retrieval service.
+
 Add an optional evidence-composition API to Harness. A context pack is an
 immutable, bounded, source-linked selection of evidence for one agent invocation.
 It can contain exact excerpts, structured records, and a small index of additional
@@ -235,6 +242,17 @@ Inspecting retained evidence requires current read authorization without recaptu
   slot `item_ids` order, otherwise captured source ranking, otherwise stable item ID;
 - a representation: `whole`, explicit UTF-8 range, or explicit JSON Pointer;
 - availability: `inline` or `discoverable`. Required slots must be inline.
+
+For a workflow specification, `task_source` identifies one source represented by
+exactly one required inline whole slot. It captures the original task/user request
+or host-admitted structured assignment for that node. It is always included and
+cannot be evicted by ranking. The host chooses where its task lives in the input;
+Harness does not guess from field names. The task is unprivileged input, not new
+agent instructions. A conversation already has its explicit current message and
+does not require this workflow-only field.
+The task slot has `min_items=1,max_items=1` and must resolve to a nonempty value.
+In v1 its source binds to admitted run input, including any explicit host assignment
+supplied there; a generated artifact cannot silently replace the original task.
 
 An optional match over `max_items` fails with `selectionLimit`; the host must narrow
 the source/selector. This avoids claiming complete results after an arbitrary cut.
@@ -663,6 +681,105 @@ surface. An agent step may reference a named spec via a new optional `contextPac
 field in the opted-in workflow schema. Static YAML receives an equivalent optional
 declaration; no existing required keys or source syntax change.
 
+### Declare each node's context
+
+V1 supports both named reusable specs and per-node selection of those specs. A
+trusted workflow may declare `contextPacks` and `agentContextPacks` at its root.
+`agentContextPacks` maps an agent alias to a default named pack; an agent node's
+`contextPack` chooses a different admitted pack for that occurrence. No inline
+merging or expression language is needed. Two nodes using the same agent can
+therefore receive different evidence.
+
+Resolution is deterministic: explicit node pack, then agent default, then the
+legacy pack-free path. An explicitly present `contextPack` must name a pack;
+`null` is rejected rather than unexpectedly restoring the broader legacy input.
+Use an explicit task-only pack to give a particular node less context than its
+agent default. Host-required context cannot be disabled: trusted
+`ContextPackBindings.required_packs` may pin an exact pack alias for an agent or
+node, and conflicting overrides fail admission. If agent and node pins both
+apply, they must agree. Inert agent Markdown may document needed facts, but it
+cannot register source access or change this precedence.
+
+Workflow YAML authoring is a trusted configuration surface. Model-proposed JSON
+workflows only select `contextPack` aliases from the host catalogue; they cannot
+introduce `contextPacks`, `agentContextPacks`, source bindings or required pins.
+Factory/graph admission validates the new optional fields without changing the
+meaning of existing dependency or tool declarations.
+
+The following is a **proposed trusted YAML excerpt**, with existing runtime,
+limits, schema and transition declarations omitted:
+
+```yaml
+evidence:
+  - specs/requirements.md
+  - specs/constraints.md
+
+contextPacks:
+  implementation:
+    version: "1"
+    taskSource: task
+    slots:
+      - {source: task, required: true}
+      - {source: requirements, required: true}
+      - {source: constraints, required: true}
+  code-review:
+    version: "1"
+    taskSource: task
+    slots:
+      - {source: task, required: true}
+      - {source: requirements, required: true}
+      - {source: candidate, required: true}
+
+agentContextPacks:
+  implementer: implementation
+
+steps:
+  build:
+    kind: agent
+    agent: implementer
+    # Resolves the implementer's default pack.
+  review:
+    kind: agent
+    agent: reviewer
+    inputs: [build]
+    contextPack: code-review
+```
+
+Trusted source bindings for this excerpt are inert declarations supplied through
+the host's `ContextPackBindings.sources` (shown in YAML notation for clarity):
+
+```yaml
+task:         {kind: input, pointer: /task}
+requirements: {kind: evidence, path: specs/requirements.md}
+constraints:  {kind: evidence, path: specs/constraints.md}
+candidate:    {kind: artifact, step: build}
+```
+
+The bindings are host configuration, not additional model-proposed workflow keys.
+`input` means a strict pointer into admitted run input, `evidence` means an already
+captured entry from the explicitly declared file evidence, and `artifact` means
+an accepted fresh output of a declared input/optional-input step. No URL, SQL,
+database connection, Python import, or executable template is a source kind in
+this initial declarative surface. Unknown/missing aliases fail before effects.
+
+For Markdown-only use, reuse the existing explicit workflow-evidence capture at
+run initialization; it reads only declared confined files under existing capture
+limits and records their bytes/hashes. The packer then consumes that frozen ledger
+without I/O. File changes follow existing workflow freshness checks; they never
+silently replace captured bytes during packing/recovery. Do not require consumers
+to write a custom retriever or database just to use these file bindings. A separate
+explicitly bounded host capture can supply larger file snapshots when needed;
+this feature does not silently raise legacy file-evidence limits or crawl folders.
+
+For Cerebro, an explicit lookup step may produce structured records. Bind the same
+source aliases to its accepted outputs instead of file evidence. For example,
+`requirements` could be a source-linked document record and `candidate` a service
+impact result. The downstream node declaration is unchanged. Retrieval/database
+queries run in that explicit tool/agent/host preparation step, with their normal
+permissions and receipts, never as a hidden callback inside a slot selector.
+Source adapters normalize owned text/JSON plus provenance; they do not make the
+pack format a database schema or force database persistence on a local workflow.
+
 Model-proposed workflows may choose only host-advertised spec aliases. They cannot
 define source roots, callbacks, permissions, revision policies, or executable
 selectors. Factory admission closes and bounds the new fields, seals declarations
@@ -685,7 +802,7 @@ There are two explicit projection profiles:
 | Step | Model-visible facts | Private authoritative guard facts |
 | --- | --- | --- |
 | Existing shared-input guarded step, pack-free | Exact existing `rule_facts(step, original_arguments)` under `workflow`. | No additional channel; existing behavior and proofs remain unchanged. |
-| Pack-enabled step, guarded or unguarded | Request, safe controller feedback, human responses, step/version, dependency bindings, undeclared-source arguments, and selected pack evidence. | For guarded steps, complete unchanged `rule_facts(step, original_arguments)`, available only to explicitly registered guards that need it. |
+| Pack-enabled step, guarded or unguarded | Explicit task source, safe controller feedback, authenticated human responses needed by the step, step/version, admitted dependency descriptors, and declared pack evidence. Undeclared business bodies do not fall through. | For guarded steps, complete unchanged `rule_facts(step, original_arguments)`, available only to explicitly registered guards that need it. |
 
 **Design choice: include separated guard inputs in the first complete release.**
 Keeping all validation facts in the prompt would prevent packs from reducing
@@ -695,18 +812,31 @@ The fact that a value is available to validation does not mean the model saw it,
 is permitted to fetch it, or may cite it.
 
 For all pack-enabled steps, use the new `workflow-pack-input-v1` model projection.
-Host bindings explicitly map a source alias to an accepted artifact ID or declared
-run-evidence entry. V1 does not project arbitrary request/controller fields. A
-mapped body is replaced at its original `workflow.artifacts`/`workflow.sources`
-entry by a closed `contextSource` descriptor containing alias, source revision,
-and digest. Actual chosen content appears once in `contextPack`; unmapped entries
-remain unchanged. The descriptor is present even when optional body content is
-omitted. Every required input mapped this way must have a required inline pack
-slot; factory admission rejects bindings that lack that coverage. The selected
-representation can be an explicit excerpt, not an assertion that the whole body
-was provided. Agents opting into this profile must understand that references are
-not inline content. This is a new opted-in agent contract, not a rewrite of old
-argument semantics.
+Business evidence is selected through declared sources only. `workflow.request`
+is a reference to the mandatory task-source representation; the original full run
+input remains controller/guard data. `workflow.artifacts` and `workflow.sources`
+contain descriptors only for sources selected by the node's pack: alias, source
+revision and digest, with actual content appearing once in `contextPack`.
+Unselected input fields, evidence files and artifact bodies are not appended by
+default. Required dependency bindings still remain in the controller header and
+private original arguments, preserving freshness and routing checks; dependency
+membership alone does not cause the entire output body to be disclosed.
+Every required step input must be represented by a required inline slot from its
+bound artifact source; factory admission rejects missing coverage. That can be an
+explicit excerpt, not an assertion that the whole body was supplied. Optional
+input bodies can be omitted under the declared policy. A task or required fact
+that cannot fit fails explicitly rather than falling through an unbounded request.
+Coverage requires an actually selected representation. A syntactically required
+slot resolving to no items (including a `min_items=0` slot filtered to nothing)
+does not satisfy a required artifact dependency. A complete empty artifact value
+can be represented as an explicitly included empty JSON value, preserving the
+distinction between evidence of emptiness and no supplied evidence.
+
+Agents opting into this profile must consume the declared task/context envelope;
+this is a new opted-in contract. Pack-free agent arguments and existing workflow
+behavior remain unchanged. V1 does not offer an implicit additive mode that sends
+all old business bodies alongside the pack. Extra context must be another declared
+source/slot, making each node's data exposure reviewable from its definition.
 
 Pending state and receipts retain `originalArguments` and its existing digest,
 the frozen controller validation context described below, and the model
@@ -1198,9 +1328,22 @@ Contract tests must demonstrate:
     final readmission headroom, and public frozen restoration have explicit tests.
 19. Conversation v3 receipts match v3 sessions, opted-in workflow receipt v2 is
     distinct, and legacy v1/v2 namespaces/records reject incompatible writers.
+20. Per-node declarations are the complete business-evidence projection: a private
+    sentinel in an unselected run-input field, evidence file or artifact body is
+    absent from model/counter payloads, even while original facts remain available
+    to the controller and authorized guards. The mandatory task always survives.
+21. Two nodes using the same agent receive different admitted named packs; node
+    choice overrides agent defaults, task-only packs narrow context, required pins
+    cannot be bypassed, and null/unregistered overrides fail admission.
+    A generated/empty task source and vacuous required-dependency coverage are
+    rejected; an explicitly selected complete empty artifact remains distinguishable.
+22. A Markdown-only workflow declares context from confined explicit file evidence
+    without a database/custom retriever. A structured-record producer supplies
+    equivalent aliases through accepted step outputs without changing downstream
+    pack selection syntax or weakening dependency/freshness checks.
 
 Integration Lab adds an installed-package lane with two different domains: service
-impact analysis and a document-review specialist. Use public exports only, not
+impact analysis and a Markdown-file document-review workflow. Use public exports only, not
 private imports or sibling source paths. A source revision changing after capture
 must not change the old invocation; an explicit refreshed invocation must expose
 the new revision. Include a tool-free inline-only path and a reader-enabled path.
