@@ -188,7 +188,10 @@ def release_tool():
 
 
 @pytest.fixture
-def curated_candidates(release_tool, tmp_path):
+def curated_candidates(release_tool, tmp_path, monkeypatch):
+    # These cases deliberately exercise hosted evidence, independently of the
+    # branch-build channel inherited by ordinary PostgreSQL CI.
+    monkeypatch.delenv('HARNESS_TEST_BRANCH_UPSTREAM_RECEIPT',raising=False)
     assert RUNTIME_VERSION in RUNTIME_REQUIREMENT.specifier
     directory, wheelhouse = tmp_path / 'artifacts', tmp_path / 'wheels'
     directory.mkdir(); wheelhouse.mkdir()
