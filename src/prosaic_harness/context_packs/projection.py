@@ -37,7 +37,12 @@ class FrozenCheckContext(_Record):
 def _feedback(arguments):
     # Raw validator diagnostics can contain private facts. The safe-feedback
     # policy adds admitted static catalogue text separately; never copy raw text.
-    return {'version':1,'codes':['validationFailed']} if arguments.get('validation_feedback') else None
+    value=arguments.get('validation_feedback')
+    if not value: return None
+    from .feedback import SafeFeedback,safe_feedback
+    if type(value) is SafeFeedback: return value.to_dict()
+    if type(value) is dict: return SafeFeedback.from_dict(value).to_dict()
+    return safe_feedback('validationFailed',None,1,{}).to_dict()
 
 
 def _choices(arguments):
