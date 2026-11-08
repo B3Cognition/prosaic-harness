@@ -36,3 +36,10 @@ from .conversation import Conversation, ConversationReply
 __all__ += ['Conversation','ConversationReply']
 from .file_session_store import FileSessionStore
 __all__ += ['FileSessionStore']
+
+from .context_packs import (ContextPackError, ContextScope, ContextSource, ContextItem,
+    ContextSnapshot, ContextSlot, ContextPackSpec, ContextPackPolicy,
+    InputSource, EvidenceSource, ArtifactSource)
+__all__ += ['ContextPackError', 'ContextScope', 'ContextSource', 'ContextItem',
+            'ContextSnapshot', 'ContextSlot', 'ContextPackSpec', 'ContextPackPolicy',
+            'InputSource', 'EvidenceSource', 'ArtifactSource']
