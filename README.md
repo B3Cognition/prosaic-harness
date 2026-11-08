@@ -10,6 +10,12 @@ It supports Prosaic **0.5.0** and qualifies against Runtime **0.9.16**.
 Canonical inspection and existing workflow identities, permissions and recovery
 contracts stay unchanged when Core renders native tool layouts.
 
+The [Lab0.9.10 accounting blueprint](https://github.com/B3Cognition/prosaic-integration-lab/blob/v0.9.10/docs/accounting-request-metadata.md)
+also qualifies this unchanged Harness0.9.12 with Runtime0.9.17. Trusted run/variant
+labels reach recorder prepare before dispatch and stay frozen across resume.
+They never replace actual workflow UUID identity or tenant/payer authority. See
+[accounting compatibility](docs/accounting.md#request-metadata-with-runtime-0917).
+
 Harness **0.9.7** lets native tools finish an admitted task with host-owned output and a durable
 inline artifact. See [terminal completion](docs/terminal-completion.md) for policy,
 validation, restart recovery and the consumer integration example.
