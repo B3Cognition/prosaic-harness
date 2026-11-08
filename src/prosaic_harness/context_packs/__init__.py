@@ -16,3 +16,5 @@ __all__ += ['capture_sources','resolve_pack','StepPackProjection','FrozenCheckCo
 from .authorization import ContextUse,ExposureBindings,authorize_context_use
 from .feedback import SafeFeedback,safe_feedback
 __all__ += ['ContextUse','ExposureBindings','authorize_context_use','SafeFeedback','safe_feedback']
+from .reader import ContextPackReader
+__all__ += ['ContextPackReader']

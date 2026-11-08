@@ -48,4 +48,6 @@ __all__ += ['ContextPacker', 'ContextPackCandidates', 'PreparedContextPack']
 from .context_packs import ContextPackBindings, ContextAuthorizer
 __all__ += ['ContextPackBindings', 'ContextAuthorizer']
 from .context_packs import ContextUse,ExposureBindings,authorize_context_use,SafeFeedback,safe_feedback
+from .context_packs import ContextPackReader
+__all__ += ['ContextPackReader']
 __all__ += ['ContextUse','ExposureBindings','authorize_context_use','SafeFeedback','safe_feedback']
