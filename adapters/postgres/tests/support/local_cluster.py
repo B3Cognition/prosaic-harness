@@ -57,10 +57,13 @@ def candidate_wheels(root):
 
 
 class LocalCluster:
-    def __init__(self, engine, version='16'):
+    def __init__(self, engine, version='16',*,platform=None):
         if engine not in {'podman', 'docker'} or version not in {'16', '18'}:
             raise ValueError('supported fixture engine/version required')
         self.engine, self.version = engine, version
+        platform=platform or os.environ.get('HARNESS_TEST_CONTAINER_PLATFORM')
+        if platform not in (None,'linux/amd64','linux/arm64'): raise ValueError('unsupported fixture platform')
+        self.platform=platform
         self.token = uuid.uuid4().hex
         self.directory = Path(tempfile.mkdtemp(prefix='prosaic-harness-pgtest-')).resolve()
         self.manifest = self.directory / 'ownership.json'
@@ -78,6 +81,7 @@ class LocalCluster:
 
     def _write_manifest(self):
         self.manifest.write_text(json.dumps({'engine': self.engine, 'version': self.version,
+            'platform':self.platform,
             'token': self.token, 'directory': str(self.directory), 'network': self.network,
             'network_created': self.network_created, 'containers': self.containers}, indent=2))
 
@@ -89,7 +93,8 @@ class LocalCluster:
 
     def _container(self, suffix, *extra):
         name = self.network + '-' + suffix
-        container_id = self._run('run', '-d', '--name', name, '--network', self.network,
+        platform_flags=['--platform',self.platform] if self.platform else []
+        container_id = self._run('run', '-d',*platform_flags, '--name', name, '--network', self.network,
             '--label', 'prosaic-harness-test-owner=' + self.token,
             '-p', '127.0.0.1::5432', '-e', 'POSTGRES_HOST_AUTH_METHOD=trust',
             '-e', 'PGDATA=/var/lib/postgresql/test-data',
@@ -205,7 +210,8 @@ python -m venv /tmp/both
             for environment in ('core', 'both'):
                 prefix = '/tmp/' + environment + '/bin/python -m pip install '
                 command = command.replace(prefix, prefix + selected)
-        container_id = self._run('create', '--name', name, '--network', self.network,
+        platform_flags=['--platform',self.platform] if self.platform else []
+        container_id = self._run('create',*platform_flags, '--name', name, '--network', self.network,
             '--label', 'prosaic-harness-test-owner=' + self.token,
             '-e', 'HARNESS_SMOKE_DSN=postgresql://postgres@' + self.primary['name'] + '/postgres',
             '-v', str(root / 'dist') + ':/core-wheels:ro',
@@ -249,6 +255,8 @@ python -m venv /tmp/both
         cluster = cls.__new__(cls)
         for key in ('engine', 'version', 'token', 'network', 'network_created', 'containers'):
             setattr(cluster, key, data[key])
+        cluster.platform=data.get('platform')
+        if cluster.platform not in (None,'linux/amd64','linux/arm64'): raise ValueError('invalid fixture platform')
         if cluster.engine not in {'podman', 'docker'}:
             raise ValueError('invalid fixture engine')
         cluster.directory, cluster.manifest = path.parent, path
@@ -264,11 +272,12 @@ def main():
     start = commands.add_parser('start')
     start.add_argument('--engine', choices=['podman', 'docker'], required=True)
     start.add_argument('--version', choices=['16', '18'], default='16')
+    start.add_argument('--platform',choices=['linux/amd64','linux/arm64'])
     for command in ('test', 'stop'):
         commands.add_parser(command).add_argument('--manifest', required=True)
     args = parser.parse_args()
     if args.command == 'start':
-        cluster = LocalCluster(args.engine, args.version)
+        cluster = LocalCluster(args.engine, args.version,platform=args.platform)
         try:
             cluster.start()
             print(cluster.manifest)
@@ -283,6 +292,7 @@ def main():
             env = os.environ | {'HARNESS_TEST_DATABASE_URL': cluster.dsn,
                 'HARNESS_TEST_CONTAINER_ENGINE': cluster.engine, 'HARNESS_TEST_POSTGRES_VERSION': cluster.version,
                 'PROSAIC_LIFECYCLE_TEST_DSN': cluster.dsn}
+            if cluster.platform: env['HARNESS_TEST_CONTAINER_PLATFORM']=cluster.platform
             root = Path(__file__).resolve().parents[4]
             report = (['--junitxml=' + env['HARNESS_TEST_JUNIT_XML']]
                       if env.get('HARNESS_TEST_JUNIT_XML') else [])

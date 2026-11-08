@@ -231,6 +231,7 @@ def test_owned_container_uses_only_verified_opt_in_wheelhouse(
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     cluster = object.__new__(module.LocalCluster)
+    cluster.platform=None
     cluster.primary = {'id': 'owned', 'name': 'owned'}
     cluster.network, cluster.token, cluster.containers = 'owned-network', 'token', []
     monkeypatch.setattr(cluster, '_validate_container', lambda entry: None)
@@ -253,6 +254,7 @@ def test_container_mounts_verified_dependency_bytes_read_only(
     monkeypatch.setenv('HARNESS_TEST_WHEELHOUSE', str(wheelhouse))
     monkeypatch.setenv('HARNESS_TEST_RELEASE_DIRECTORY', str(directory))
     cluster = object.__new__(module.LocalCluster)
+    cluster.platform=None
     cluster.primary = {'id': 'owned', 'name': 'owned'}
     cluster.network, cluster.token, cluster.containers = 'owned-network', 'token', []
     monkeypatch.setattr(cluster, '_validate_container', lambda entry: None)

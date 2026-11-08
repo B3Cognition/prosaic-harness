@@ -344,3 +344,31 @@ cannot update schema metadata. Old workers reject the upgraded storage contract.
 Keep migration-owner credentials separate from runtime credentials. Enable host
 context policies only after Runtime, Harness and store advertise the capability.
 No production token counter is bundled or certified by this storage adapter.
+
+## Context pack storage contracts
+
+Context packs require workflow storage contract 2 or conversation storage
+contract 3. A fresh installation can explicitly use
+`store.initialize(context_packs=True)`. On an existing installation this call
+refuses to upgrade: drain **all writers to the affected shared schema**, then
+run the owner-only migration:
+
+```sh
+prosaic-harness-postgres migrate-context-packs --store workflows --dsn-env HARNESS_MIGRATION_DSN
+prosaic-harness-postgres migrate-context-packs --store conversations --dsn-env HARNESS_MIGRATION_DSN
+```
+
+`store.migrate_context_pack_storage()` is the equivalent API for either store.
+ALWAYS use migration-owner credentials and drain writers across namespaces.
+NEVER migrate from a worker, readiness check, or model invocation. An active
+lease in any namespace refuses migration. The schema-wide advisory lock and
+transaction preserve existing record bytes, revisions and grants. Repeating a
+completed migration is safe; older binaries reject the new schema version.
+New workers continue reading legacy records. Runtime credentials cannot migrate.
+
+The `context_packs_v1` capability appears only after explicit opt-in. Pack-aware
+workflow documents use canonical UTF-8 JSON; existing workflow document bytes
+and the conversation codec remain unchanged. Private snapshots and validation
+facts remain inside the bounded checkpoint/receipt, subject to host scope and
+retained-read authorization. No new database, blob table or automatic retention
+policy is introduced.

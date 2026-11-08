@@ -102,3 +102,11 @@ def test_workflow_migration_unknown_ack_is_resumed_only_explicitly(tmp_path,monk
     monkeypatch.setattr(migration,'_install_marker',actual)
     restarted.migrate_context_pack_storage()
     assert 'context_packs_v1' in restarted.capabilities
+
+
+def test_packed_workflow_codec_matches_the_reserved_canonical_encoding():
+    from test_context_pack_workflow_records import allocated
+    from prosaic_harness.run_store import encode_document
+    from prosaic_harness.context_packs.codec import encode
+    workflow,state,arguments,frame=allocated()
+    assert encode_document(state)==encode(state)

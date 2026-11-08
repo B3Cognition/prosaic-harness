@@ -57,7 +57,7 @@ CONSTRAINTS = {
 }
 
 
-async def ready_on_connection(conn):
+async def ready_on_connection(conn,*,expected_versions=None):
     exists = await (await conn.execute("SELECT pg_catalog.to_regclass('prosaic_harness.schema_version')")).fetchone()
     if not exists or exists[0] is None:
         raise StoreUninitialized('run init with migration credentials before accepting work')
@@ -95,7 +95,8 @@ async def ready_on_connection(conn):
     if actual_constraints != CONSTRAINTS:
         raise StoreIncompatible('adapter schema constraints are incompatible')
     version = await (await conn.execute('SELECT schema_version, storage_contract_version FROM prosaic_harness.schema_version')).fetchall()
-    if version != [(SCHEMA_VERSION, STORAGE_CONTRACT_VERSION)]:
+    allowed=[expected_versions] if expected_versions is not None else [(1,1),(2,2)]
+    if len(version)!=1 or version[0] not in allowed:
         raise StoreIncompatible('deploy a compatible adapter/schema; no automatic downgrade')
     for table in COLUMNS:
         privileges = ['SELECT']
@@ -108,13 +109,15 @@ async def ready_on_connection(conn):
                                                 ('prosaic_harness.' + table, privilege))).fetchone()
             if not allowed or not allowed[0]:
                 raise StoreIncompatible('grant required runtime table privileges before accepting work')
+    return version[0]
 
 
 def check_ready(transport):
-    transport.call(ready_on_connection)
+    return transport.call(ready_on_connection)
 
 
-def initialize(transport):
+def initialize(transport,*,context_packs=False):
+    if type(context_packs) is not bool: raise ValueError('context_packs must be boolean')
     async def migrate(conn):
         await conn.execute("SELECT pg_catalog.set_config('lock_timeout','25000ms',true), "
                            "pg_catalog.set_config('statement_timeout','28000ms',true)")
@@ -128,8 +131,17 @@ def initialize(transport):
             count = await (await conn.execute('SELECT count(*) FROM pg_catalog.pg_class WHERE relnamespace=%s',
                                               (namespace[0],))).fetchone()
             if count[0]:
-                await ready_on_connection(conn)
+                actual=await ready_on_connection(conn)
+                if context_packs and actual!=(2,2): raise StoreIncompatible('migrate context pack storage explicitly')
                 return
         await conn.execute(DDL)
+        if context_packs:
+            await conn.execute('UPDATE prosaic_harness.schema_version SET schema_version=2,storage_contract_version=2')
         await ready_on_connection(conn)
     transport.call(migrate, timeout_s=30)
+
+
+def migrate_context_pack_storage(transport):
+    from .pack_schema import migrate
+    return migrate(transport,schema='prosaic_harness',target=2,versions={(1,1),(2,2)},
+        lock=MIGRATION_LOCK,ready=ready_on_connection)

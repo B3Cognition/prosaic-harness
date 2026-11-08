@@ -48,8 +48,15 @@ class PostgresRunStore:
             lock_timeout_s=lock_timeout_s, statement_timeout_s=statement_timeout_s,
             pool_size=pool_size, max_active_leases=max_active_leases, durability_profile=durability_profile)
 
-    def initialize(self):
-        schema.initialize(self._transport)
+    def initialize(self,*,context_packs=False):
+        schema.initialize(self._transport,context_packs=context_packs)
+
+    @property
+    def capabilities(self):
+        return frozenset({'context_packs_v1'}) if schema.check_ready(self._transport)==(2,2) else frozenset()
+
+    def migrate_context_pack_storage(self):
+        schema.migrate_context_pack_storage(self._transport)
 
     def check_ready(self):
         schema.check_ready(self._transport)
@@ -177,6 +184,11 @@ class PostgresRunStore:
         return self._transport.call(read)
 
     def _document(self, run_id, state):
+        if state.get('version')==3 and state.get('recordType')=='workflow':
+            from prosaic_harness import StoreIncompatible
+            from prosaic_harness.context_packs.records import validate_pack_storage_admission
+            if 'context_packs_v1' not in self.capabilities: raise StoreIncompatible('migrate context pack storage explicitly')
+            validate_pack_storage_admission(state)
         content = encode_document(state)
         if state.get('run_id') != run_id:
             raise StoreCorrupt('checkpoint identity does not match its address')
@@ -244,6 +256,9 @@ class PostgresRunStore:
         self._local(run_id, lease)
         validate_id(invocation_id)
         content = encode_document(receipt)
+        if receipt.get('version')==2 and receipt.get('recordType')=='workflowReceipt':
+            from prosaic_harness import StoreIncompatible
+            if 'context_packs_v1' not in self.capabilities: raise StoreIncompatible('migrate context pack storage explicitly')
         if receipt.get('id') != invocation_id or receipt.get('run_id') != run_id:
             raise StoreCorrupt('receipt identity does not match its address')
         async def save(conn):
