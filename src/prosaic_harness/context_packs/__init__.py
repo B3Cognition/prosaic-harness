@@ -8,3 +8,5 @@ __all__ = ['ContextPackError', 'ContextScope', 'ContextSource', 'ContextItem', '
 
 from .selection import ContextPacker, ContextPackCandidates, PreparedContextPack
 __all__ += ['ContextPacker', 'ContextPackCandidates', 'PreparedContextPack']
+from .bindings import ContextPackBindings, ContextAuthorizer
+__all__ += ['ContextPackBindings', 'ContextAuthorizer']

@@ -109,8 +109,9 @@ class Workflow:
         return json.loads(getattr(self, '_registered_descriptors_json', '{}'))
 
     def current_fingerprint(self):
+        from .context_packs.bindings import material as context_material
         return digest({'workflow': self.definition, 'runtime': runtime_identity(self.config),
-                       **rule_material(self), 'schemas': self.schemas, 'prose': {name: a.digest for name, a in self.artifacts.items()},
+                       **rule_material(self), **context_material(self), 'schemas': self.schemas, 'prose': {name: a.digest for name, a in self.artifacts.items()},
                        **({'acquisitions': {name: a.digest for name, a in self.acquisitions.items()}} if self.acquisitions else {}),
                        **({'custom_tools': self.tool_descriptors} if self._tool_descriptors else {}),
                        **({'allowed_direct_tools': sorted(self.allowed_direct_tools)} if self.allowed_direct_tools else {})})
@@ -125,9 +126,11 @@ class Workflow:
         return evidence
 
     @classmethod
-    def load(cls, path, *, executable='prosaic', custom_tools=None, allowed_direct_tools=frozenset(), guards=()):
+    def load(cls, path, *, executable='prosaic', custom_tools=None, allowed_direct_tools=frozenset(), guards=(),
+             context_packs=None,feedback_catalog=None,repeatable_validators=None):
         try:
-            return cls._load(path, executable=executable, custom_tools=custom_tools, allowed_direct_tools=allowed_direct_tools, guards=guards)
+            return cls._load(path, executable=executable, custom_tools=custom_tools, allowed_direct_tools=allowed_direct_tools, guards=guards,
+                context_packs=context_packs,feedback_catalog=feedback_catalog,repeatable_validators=repeatable_validators)
         except WorkflowAdmissionError as exc:
             if exc.code == 'invalid_schema':
                 raise ValueError('invalid workflow definition: schema must be valid and support internal references only') from None
@@ -136,12 +139,13 @@ class Workflow:
             raise ValueError(f'invalid workflow definition: {type(exc).__name__}') from exc
 
     @classmethod
-    def _load(cls, path, *, executable, custom_tools, allowed_direct_tools, guards):
+    def _load(cls, path, *, executable, custom_tools, allowed_direct_tools, guards,
+              context_packs=None,feedback_catalog=None,repeatable_validators=None):
         path = Path(path).resolve()
         if path.suffix not in {'.yml', '.yaml'}:
             raise ValueError('workflow must use YAML/YML')
         raw = yaml.load(path.read_text(), Loader=UniqueLoader)
-        if not isinstance(raw, dict) or set(raw) - {'version', 'name', 'source', 'runtime', 'start', 'limits', 'steps', 'evidence'}:
+        if not isinstance(raw, dict) or set(raw) - {'version', 'name', 'source', 'runtime', 'start', 'limits', 'steps', 'evidence', 'contextPacks', 'agentContextPacks'}:
             raise ValueError('invalid workflow keys')
         if type(raw.get('version')) is not int or raw['version'] != 1:
             raise ValueError('workflow version must be 1')
@@ -189,7 +193,7 @@ class Workflow:
                 raise ValueError(f'invalid step: {name}')
             kind = step.get('kind')
             allowed = {
-                'agent': {'kind', 'agent', 'acquisition', 'schema', 'inputs', 'optional_inputs', 'next', 'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators', 'initial_tool'},
+                'agent': {'kind', 'agent', 'acquisition', 'schema', 'inputs', 'optional_inputs', 'next', 'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators', 'initial_tool', 'contextPack'},
                 'tool': {'kind', 'tool', 'arguments', 'schema', 'next', 'inputs', 'optional_inputs', 'validators', 'max_visits'},
                 'gate': {'kind', 'from', 'field', 'equals', 'pass', 'fail', 'max_visits'},
                 'check': {'kind', 'from', 'validators', 'pass', 'fail', 'max_visits'},
@@ -300,10 +304,12 @@ class Workflow:
         workflow = cls(path, raw, config, artifacts, schemas, '', acquisitions,
                        MappingProxyType(registry), {}, allowed_direct_tools)
         workflow._rule_bindings = RuleBindings.create(guards, root, 'workflow-directory-v1')
+        from .context_packs.bindings import attach,material as context_material
+        attach(workflow,context_packs,feedback_catalog=feedback_catalog,repeatable_validators=repeatable_validators)
         workflow._registered_descriptors_json = json.dumps(registered, sort_keys=True, allow_nan=False)
         descriptors = validate_resolved_workflow(workflow, descriptors=registered,
                                                  profile=None, native=False)
-        fingerprint = digest({**rule_material(workflow), 'workflow': raw, 'runtime': runtime_identity(config),
+        fingerprint = digest({**rule_material(workflow), **context_material(workflow), 'workflow': raw, 'runtime': runtime_identity(config),
                               'schemas': schemas, 'prose': {name: a.digest for name, a in artifacts.items()},
                               **({'acquisitions': {name: a.digest for name, a in acquisitions.items()}} if acquisitions else {}),
                               **({'custom_tools': descriptors} if descriptors else {}),
@@ -312,3 +318,7 @@ class Workflow:
         workflow._tool_descriptors = deepcopy(descriptors)
         workflow.snapshot()
         return workflow
+
+    def context_pack_for(self,node):
+        from .context_packs.bindings import validate_workflow
+        return validate_workflow(self).get(node)

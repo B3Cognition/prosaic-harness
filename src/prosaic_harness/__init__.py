@@ -45,3 +45,5 @@ __all__ += ['ContextPackError', 'ContextScope', 'ContextSource', 'ContextItem',
             'InputSource', 'EvidenceSource', 'ArtifactSource']
 from .context_packs import ContextPacker, ContextPackCandidates, PreparedContextPack
 __all__ += ['ContextPacker', 'ContextPackCandidates', 'PreparedContextPack']
+from .context_packs import ContextPackBindings, ContextAuthorizer
+__all__ += ['ContextPackBindings', 'ContextAuthorizer']
