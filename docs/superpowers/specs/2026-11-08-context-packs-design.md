@@ -5,10 +5,12 @@ Date: 2026-11-08. Status: proposed for maintainer review; no implementation.
 Initial builder feasibility review completed on 2026-11-08. A subsequent maintainer
 request removed the proposed requirement to send all guard facts to the model.
 The revised design separates authoritative validation facts from model-visible
-evidence, with explicit per-guard access and a versioned proof. A fresh independent
-review checked this revision against released Runtime/Harness source and found no
-important planning questions left. Reviews establish design clarity, not
-implementation or model-quality validation.
+evidence, with explicit per-guard access and a versioned proof. A subsequent
+adversarial review found historical authorization and validator-feedback disclosure
+gaps; the contracts below address them along with recovery, identity, and fitting
+edge cases. Final independent re-review found no consequential design blockers.
+Review evidence is recorded in the [companion review document](2026-11-08-context-packs-review.md). Reviews
+establish design clarity, not implementation or model-quality validation.
 
 ## Decision and intent
 
@@ -182,6 +184,9 @@ from Harness's public package.
   revision. Aliases are bounded labels, not URLs to fetch.
 - `content`: UTF-8 text or bounded plain JSON; `content_sha256` is computed by the
   SDK from owned content, never accepted as proof from a model.
+- `label`: optional bounded host-supplied discovery label (128 UTF-8 bytes);
+  content kind is SDK-derived as `text` or `json`. An absent label displays only
+  the opaque citation ID, never an invented summary or leaked source path.
 - `locator`: `whole`, a UTF-8 byte range `[start,end)`, a JSON Pointer, or a
   host-defined opaque record ID. Byte locators refer to a captured source digest;
   no implicit Unicode or newline normalization.
@@ -190,7 +195,13 @@ from Harness's public package.
   A derived summary is identified as derived; it is not equivalent to the original.
 
 `ContextSnapshot` contains a bounded collection of owned items, source descriptors,
-and a private binding to the admitted host scope. Core v1 construction takes
+optional per-source ranked item-ID lists, and a private binding to the admitted
+host scope. Item IDs are unique within each source alias; selectors always address
+the pair `(source_alias, item_id)`. Each source descriptor includes capture outcome
+(`complete`, `partial`, or `unavailable`) and revision, so a completed empty lookup
+can be distinguished from missing evidence. Ranking lists contain distinct IDs
+present in their source; unranked items follow in stable ID order. These lists
+are per-invocation host data and participate in snapshot identity. V1 construction takes
 already captured values, performs no I/O, and executes no resolver/ranker/model
 callbacks. A source helper may turn accepted workflow outputs into items, retaining
 their existing IDs, hashes, dependencies, and freshness checks.
@@ -200,11 +211,16 @@ captures explicitly permitted bytes before construction and supplies the digest,
 revision, and locator; later adapters must bound reads/enumeration before allocation.
 Cerebro can supply API/database records without manufacturing a filesystem.
 
-There is no universal freshness TTL. Host use-authorization is mandatory before a
-new dispatch and deferred read; it receives the captured source revisions and may
-reject them. It cannot replace bytes or return a refreshed snapshot. A new source
-revision requires explicit recapture and a new operation. Recovery can inspect
-retained evidence under current read authorization without replaying source access.
+There is no universal freshness TTL. Host use-authorization admits a bounded
+logical invocation before dispatch and is checked again for each deferred read.
+It receives the applicable captured revisions and may reject them; it cannot
+replace bytes or return a refreshed snapshot. A new source revision requires
+explicit recapture and a new operation. Invocation authorization covers its provider
+continuations until its admitted deadline, subject to host cancellation; this is
+not a promise of instantaneous revocation during an in-flight request. A new
+invocation, including an explicit retry, requires new authorization. Reusing old
+evidence in history also requires current use authorization, as specified below.
+Inspecting retained evidence requires current read authorization without recapture.
 
 ### Pack declarations and bindings
 
@@ -216,17 +232,31 @@ retained evidence under current read authorization without replaying source acce
 - `required` and finite `min_items`/`max_items`; no silent disappearance of a
   required selector or silent clipping when its upper cardinality is exceeded;
 - integer priority, with deterministic ties by slot order, then explicit
-  `item_ids` order when supplied, otherwise stable item ID;
+  slot `item_ids` order, otherwise captured source ranking, otherwise stable item ID;
 - a representation: `whole`, explicit UTF-8 range, or explicit JSON Pointer;
 - availability: `inline` or `discoverable`. Required slots must be inline.
 
 An optional match over `max_items` fails with `selectionLimit`; the host must narrow
 the source/selector. This avoids claiming complete results after an arbitrary cut.
 Ranking is not a callback in the builder. A host can supply a pre-ranked list of
-item IDs from its own search/reranker; that order is captured in the specification.
-An explicit ID list is ordered, unique, and authoritative within that slot. A
-label-only selector has no supplied ranking and sorts matches by item ID. Higher
+item IDs from its own search/reranker; that order is captured in the snapshot.
+An explicit ID list is ordered, unique, and authoritative within that slot. Higher
 integer priority is kept first; optional removals reverse that resolved order.
+Registered specifications remain immutable across turns: query-specific IDs and
+retrieval rankings belong in the source snapshot, not in a mutated registered spec.
+A host can capture just the requested service in a `service` source and reuse the
+same spec for a different service on the next turn. Explicit slot IDs are for
+stable host declarations, not a required mechanism for per-question routing.
+
+Single-item slots default to `min_items=1,max_items=1` when required and
+`min_items=0,max_items=1` otherwise. A collection slot requires an explicit maximum;
+`0 <= min_items <= max_items <= max_captured_items` and `max_items >= 1`.
+Optional slots must use `min_items=0`; a positive minimum requires `required=True`.
+For a required slot, `min_items=0` permits a completed empty result but still
+requires a `complete` source descriptor. A nonempty `partial` source can be selected
+only by an explicit `allow_partial=True` declaration; the coverage report and model
+envelope must retain that status. `unavailable` never satisfies a required slot.
+Invalid representation selectors or cardinality contradictions fail admission.
 
 `ContextPackBindings` registers admitted specs and source aliases, a scope-binding
 identity, and a versioned `authorize_use` host callback. Construction and pure
@@ -243,6 +273,14 @@ Standalone callers must supply an equivalent explicit scope binding.
 duplicate Runtime's token policy or tool grants.
 
 ### Frozen results
+
+`ContextPackCandidates`, returned by `ContextPacker.compose()`, owns the immutable
+snapshot/spec, ordered candidate evidence envelopes, and selection reports. It has
+a `candidateIdentity` over that complete deterministic plan. `Conversation.send()`
+accepts this type; it does not accept an arbitrary final envelope. Runtime chooses
+an admitted index. `ContextPacker.select(candidates, index, envelope_digest)` checks
+that choice against owned candidate bytes and returns a `PreparedContextPack`;
+this helper has no callbacks and does not itself authorize execution.
 
 `PreparedContextPack` owns:
 
@@ -276,10 +314,21 @@ the final envelope digest. Source-level digests are host capture provenance;
 the SDK separately computes hashes over every retained item/representation. An
 excerpt hash alone does not verify the uncaptured remainder of a source document.
 
-Deduplicate only identical source revision + locator + representation + content
-digest within the same admitted scope. A duplicate retains all slot/citation aliases
+Deduplicate only identical source alias/identity + source revision + item ID +
+source locator + representation locator + content digest within the same admitted
+scope. Equal revision strings from different sources never establish identity.
+A duplicate retains all slot/citation aliases
 and the strictest required status. Never merge evidence solely because text looks
 similar; conflicting revisions and independent sources remain distinguishable.
+
+Citation IDs are SDK-derived opaque IDs over this complete evidence identity;
+host record IDs alone are not globally unique citations. Source locators identify
+the captured unit's provenance; representation locators select within that owned
+unit. UTF-8 ranges use byte offsets with strict code-point boundaries and
+`0 <= start <= end <= byte_length`. JSON Pointers use RFC 6901 escapes, must resolve
+within the owned JSON value, and never execute expressions. A reader may narrow a
+permitted representation but cannot widen it to the parent source. Exact JSON
+values and UTF-8 bytes are retained without implicit normalization.
 
 ## Composition and fitting
 
@@ -291,10 +340,17 @@ similar; conflicting revisions and independent sources remain distinguishable.
 4. Deduplicate exact identities while retaining coverage and attribution.
 5. Form the mandatory base: required evidence plus a bounded discovery index and
    coverage header. If this cannot meet the pack byte cap, fail before dispatch.
-6. Order optional inline units by priority and construct at most eight variants,
-   from richest to mandatory-only. Remove whole lowest-priority units in stable
-   groups; group size is `ceil(optional_count / (max_variants - 1))` when needed.
-   Zero optional items produces one variant. No implicit semantic compression.
+6. Order optional inline units by priority. Starting with the mandatory base, add
+   whole units in that order when the resulting encoded evidence envelope fits
+   its byte cap. Skip an optional unit that does not fit, report `byteLimit`, and
+   consider the next unit; an oversized optional unit does not fail the pack.
+   This produces the richest byte-admitted variant. Produce successively smaller
+   variants by removing whole lowest-priority units in stable groups, ending at
+   the mandatory base. With two to eight allowed variants, group size is
+   `ceil(included_optional_count / (max_variants - 1))` when needed; deduplicate
+   equal variants. With `max_variants=1`, use the mandatory base only and report
+   optional units as omitted by the variant budget. Zero optional units produces
+   one variant. No implicit semantic compression or cut inside a unit.
 7. Count every encoded variant against total preparation byte/work limits. Reports
    include omitted/deferred unit counts. An index that exceeds its own cap fails;
    it never bypasses a bound to preserve a complete directory listing.
@@ -307,6 +363,11 @@ body is included in a nominally small prompt.
 
 The selection heuristic is deliberately simple and inspectable; it does not solve
 global relevance optimization. Better ordering is a host/evaluation decision.
+Only byte-admitted candidate envelopes reach Runtime. Complete `input_data`
+wrappers, fixed workflow facts, tools and provider framing are checked separately
+against actual Runtime input limits; the pack's 48 KiB cap is not a whole-request
+budget. Host-reduced aggregate variant-work limits can still fail preparation;
+they do not authorize an over-budget fallback.
 
 ### One Runtime fitting transaction
 
@@ -334,6 +395,10 @@ user message, tools, endpoint, and policies. Only bounded input data varies.
 Runtime owns all native encoding/counting and charges all candidates to **one**
 existing `ContextWorkState`, including construction, encoding, callbacks, baseline
 history checks, and final verification. Caps cannot reset between variants.
+An admitted counter must be deterministic for fixed native bytes and its sealed
+descriptor, including when it supplies a conservative upper bound; readmission
+cannot reproduce a random or time-varying estimate. Qualification tests enforce
+this on repeated payloads without claiming a universal production tokenizer.
 
 **Design choice: history first.** Fit the mandatory-only variant with the existing
 history policy first, establishing a retained whole-turn suffix. Then try richer
@@ -341,7 +406,15 @@ variants in order against that fixed suffix. Optional evidence cannot evict any
 additional history. Return the first fitting variant, or the base if no richer
 candidate fits. This requires evaluating actual payloads; never assume token counts
 are additive or monotonic. A mandatory base that cannot fit fails `contextLimit`.
-If the shared work budget expires, fail; do not return an unverified candidate.
+Before starting an optional trial, retain the existing required headroom for one
+execution readmission. If another trial cannot be funded without consuming that
+headroom, select the already verified base and report `selectionWorkLimited`.
+If a running trial exceeds a work/deadline limit, fail; never return an unverified
+candidate or reset the budget. Do not reserve a separate execution readmission
+for each trial. Refactor the existing assembler's finalization so the baseline
+and rejected variants share one transaction, with one final selection/report and
+one final readmission reservation. Calling the current finalizing assembler once
+per variant is specifically not a conforming implementation.
 
 The resulting `PreparedTurn` binds the complete source-history digest, retained
 suffix, chosen input-variant index/digest, counter descriptor, and final payload.
@@ -349,8 +422,9 @@ When private authoritative facts are supplied, it also binds those facts and the
 per-guard input-access declarations described below. Those facts are identical for
 all variants and never enter the native payload or its token count.
 The exact final report describes the selected variant, not the earlier baseline.
-Use a new encoding identity (`conversation-turn-v3`) only for opted-in variant
-preparation or separated guard inputs; existing v1/v2 identities and APIs remain
+Use a new encoding identity (`conversation-turn-v3`) for explicitly profiled pack
+inputs, opted-in variant preparation, or separated guard inputs; existing v1/v2
+identities and APIs remain
 byte-compatible. These changes belong to one proposed encoding profile, rather
 than a separate version number for every new option.
 Execution readmits the frozen chosen variant/suffix; it never reruns optimization.
@@ -358,6 +432,68 @@ Retain cumulative reservations through interruption after the selected pending
 attempt is durably saved, as existing context execution does. Runtime must expose
 the selected index and owned report publicly so Harness does not inspect private
 prepared material.
+
+### Public frozen restoration contract
+
+Define an immutable Runtime `InputVariantSelection` record with version, bounded
+ordered candidate digests, selected index/digest, mandatory-base digest, source
+history digest, and the final report identity. Its digest algorithm is named in
+the record. It is separate from the existing closed version-1 history
+`ContextSelection`; do not add fields silently to that record. `PreparedTurn`
+exposes `input_variant_selection` and owned `selected_input_data` publicly to the
+trusted host. For a single byte-bounded variant, the same selection structure is
+used without a token report; history selection remains legacy/full-history.
+
+Add `PreparedTurn.export_frozen_input()` and a generic Runtime restoration seam:
+
+```python
+# Proposed host-only APIs. The exported record contains private input data.
+frozen = prepared.export_frozen_input()
+restored = runtime.restore_turn(
+    approved_agent, history=original_portable_history,
+    frozen_input=frozen, policy=run_policy, limits=turn_limits,
+    context_policy=context_policy, token_counters=qualified_counters,
+    workspace=host_workspace,  # None for tools without filesystem/CLI requirements
+)
+```
+
+The frozen record contains the exact owned current user message and its digest,
+selected input-data bytes, optional authoritative facts, input/profile/variant
+identities, selected history range, initial/final reports as
+applicable, work state, initial native-payload digest/size, and admitted endpoint,
+tool, guard, policy and counter descriptors. It refers to source history by digest;
+the controller supplies its complete retained portable history separately. It does
+not serialize callbacks, credentials, authority, or a live `PreparedTurn` object.
+All copies count against storage/JSON limits.
+The current message is not part of that earlier portable history and cannot be
+recovered from `input_data`; preserve it explicitly without normalization. A host
+workspace is supplied separately when needed and readmitted against the original
+tool/path policy. The frozen record cannot grant a workspace or filesystem roots.
+
+`restore_turn()` bounds/owns the document, verifies current host bindings, original
+agent/history identities and internal cross-bindings, and reconstructs only the
+saved selection. It does not call counters, recompute candidates, fetch sources,
+discover tools, or run guards. Runtime's normal execution readmission then reserves
+work durably before construction/counting and compares the actual reconstructed
+native request against the saved digest/report before dispatch. A standalone host
+uses the existing checkpoint callback; a durable Harness controller persists every
+reservation under its lease. A malformed frozen document or mismatched descriptor
+fails before callbacks/effects. Restoring a record is never an authorization grant.
+
+Harness additionally matches the variant record against its saved candidate plan
+and selected `PreparedContextPack`. The candidate digests let it validate the saved
+selection without rerunning ranking or depending on a renderer's current defaults.
+Pack-envelope digests and full Runtime input-data digests are different fields:
+Harness assembles each complete `input_data` root from fixed controller/user
+facts plus the corresponding `contextPack` envelope, preserving candidate order.
+It saves that index mapping and the full-root digests. After Runtime selection,
+`ContextPacker.select()` verifies the extracted pack-envelope digest, while the
+controller separately verifies the complete selected root and its fixed fields.
+A complete-input digest must never be compared as though it were the nested
+pack-envelope digest or used to omit a controller field.
+The receipt is self-consistent with the same frozen input. This public seam is
+required release work; private inspection of Runtime's prepared material is not
+an acceptable recovery implementation.
 
 **Design choice: initial fitting is ephemeral.** Before a durable selected attempt
 exists, composition and fitting run under one per-call finite work budget, with no
@@ -371,10 +507,20 @@ cannot restart the optimization budget. This distinction is part of the contract
 not an implementation shortcut.
 
 Without a qualified counter, pure byte-bounded packs still work: use one chosen
-variant and ordinary `prepare_turn()` with existing byte admission. Reports state
+variant and ordinary `prepare_turn()` with existing byte admission. Select the
+mandatory base by default; a host may explicitly choose another byte-admitted
+variant before calling Runtime, and that choice is part of request identity.
+Pack reports state
 `countingKind: notCounted`; there is no claim of token fit, no estimated-token
 guarantee, and no automatic byte-to-token conversion. Automatic token-based variant
 selection requires the new capability and an admitted counter.
+`notCounted` is a pack-report status, not a new value in Runtime's existing closed
+`ContextAssemblyReport.countingKind`. Byte-bounded pack preparation still exports
+the new frozen-input envelope for durable restoration; it does not fabricate a
+token report or an admitted counter.
+Harness passes the explicit host `input_profile='context-pack-input-v1'` (or the
+workflow projection profile) even for one byte-bounded variant, so the new frozen
+input/selection contract is available without changing any pack-free call.
 
 Once execution starts, the chosen pack is fixed. Runtime rechecks every tool
 continuation against its existing limits, including reader outcomes. It never
@@ -396,8 +542,8 @@ snapshot = ContextSnapshot.from_items(captured_items, scope_binding=scope_identi
 spec = ContextPackSpec(
     identity="impact-analysis", version="1",
     slots=(
-        ContextSlot(source="service", item_ids=("csb-frontend",), required=True),
-        ContextSlot(source="dependencies", required=True),
+        ContextSlot(source="service", required=True),
+        ContextSlot(source="dependencies", required=True, min_items=0, max_items=64),
         ContextSlot(source="release-notes", required=False, priority=10,
                     availability="discoverable"),
     ),
@@ -409,8 +555,8 @@ candidates = packer.compose(spec, snapshot)  # no I/O, callbacks, or inference
 # selected pack/reference before calling runtime.turn(prepared).
 ```
 
-Examples omit finite slot cardinality values for readability; actual constructors
-use documented defaults and require an explicit maximum for collection slots.
+Here the host captured the requested service as the single `service` item; the
+spec stays registered unchanged when the next question names another service.
 An empty dependency result is valid only if the slot's minimum is zero and the
 captured source explicitly records a completed empty lookup. Missing lookup and
 zero dependents are distinct states. Captured evidence may also state incomplete
@@ -424,7 +570,7 @@ Add optional pack bindings to `ConversationBindings` and a host-only argument:
 # Proposed API. The HTTP client does not submit a prepared pack or source scope.
 reply = chat.send(
     session_id, message_id=message_id, message=user_text,
-    expected_revision=revision, context_pack=prepared_candidates,
+    expected_revision=revision, context_pack=candidates,
 )
 ```
 
@@ -441,6 +587,16 @@ different evidence is a conflict, even when the text matches. Exact replay retur
 the original receipt without recapture, composition, inference, or reader calls.
 It still requires current access to view the retained answer/evidence.
 
+For conversation packs, the model envelope uses `context-pack-input-v1`. If guards
+are present, bindings explicitly opt into the separated-input capability and
+audited guard registrations. The authoritative view is
+`context-pack-snapshot-v1`: an owned envelope of the complete supplied snapshot's
+source descriptors and items. It excludes credentials and executable bindings.
+The user message remains the existing separate guard fact. Custom guards can
+therefore validate against the full capture without the host inventing workflow
+arguments; guard-free conversations need no private-facts copy. The private-facts
+cap still applies independently, so a large snapshot can fail this admission.
+
 Interpretation/confirmation is a separate purpose. Ordinary evidence does not
 flow into its agent automatically. V1 rejects `context_pack` on an attached
 workflow interaction and does not expose interpretation pack bindings. Existing
@@ -455,6 +611,51 @@ assistant and tool exchanges under existing rules. If a later turn depends on ol
 evidence, the host must deliberately attach it again or expose a permitted captured
 read. Document this behavior prominently to avoid implying automatic memory.
 
+### Authorization of retained and derived history
+
+Persist a bounded `exposureBindings` sidecar per committed turn. It identifies all
+pack source aliases/identities, revisions, scope bindings and exact representations
+made available to that invocation, plus captured reader disclosures. Conservatively
+associate the resulting assistant answer and tool history with that union, including
+the exposure bindings of history supplied to the invocation; an answer may derive
+information from those inputs. Full private guard facts receive separate validation
+use bindings and are not mislabeled as evidence shown to the model. No source text
+is duplicated into an exposure record.
+
+Before fitting or dispatching any subsequent turn, authorize reuse of the retained
+history exposure union in addition to the new pack and any private validation use.
+The same gate applies when `send()` has no `context_pack`, on explicit retries, and
+on a new attempt reconstructed from a frozen selection. Otherwise an old reader
+result could bypass revocation by reentering the provider request through history.
+V1 conservatively checks the whole retained history union before fitting, even
+when Runtime may later omit old turns; it does not optimize authorization by
+silently discarding denied context. A denied source fails `contextUseDenied` before
+provider spend. Stored history is unchanged. Starting a separately admitted new
+session is the supported way to continue with a clean history; a future explicit
+redaction/migration API would need its own transcript and derivation semantics.
+
+`authorize_use` receives a closed, bounded `ContextUse` descriptor: purpose
+(`invocation`, `deferredRead`, `historyReuse`, `validation`, or `retainedRead`), host scope,
+operation/session/run identity, admitted deadline, and the applicable source/revision
+and representation references. It returns a boolean; exceptions/invalid results
+deny use. Its identity/version is sealed. Invocation/validation/history permissions
+are acquired once for that logical invocation; deferred reads are rechecked per
+call. Authorization callbacks perform no source refresh or model execution. A
+host that needs faster revocation also cancels in-flight work; already sent bytes
+cannot be withdrawn. Historical outputs of unrelated domain tools remain subject
+to their existing host policy; adapters may add their provenance to this sidecar,
+but packs cannot claim to infer source rights from arbitrary tool text.
+
+Retained-history viewing and exact reply replay require current read access too.
+Use the separate `retainedRead` purpose for returned history, saved replies/status,
+and private evidence projections. It can be granted without permitting another
+inference invocation, and can be denied without preventing internal settlement.
+Internal receipt verification/adoption may settle an already completed operation
+under controller ownership without acquiring new inference/use permission; its
+public reply is withheld if current read access is denied. A denied retry does not
+erase uncertain effects or unresolved receipts. There is no authorization-driven
+source recapture, automatic retry, or silent transcript mutation.
+
 ## Workflow integration
 
 Add `context_packs` and pack bindings to the trusted `WorkflowFactory`/bindings
@@ -467,6 +668,10 @@ define source roots, callbacks, permissions, revision policies, or executable
 selectors. Factory admission closes and bounds the new fields, seals declarations
 and effective bindings in the workflow identity, and rejects unavailable
 capabilities before reserving a run.
+`describe()` and `proposal_schema()` advertise only explicitly public pack aliases
+and bounded host descriptions. They do not expose source snapshots, selectors,
+private revisions, scope bindings, feedback diagnostics, or callbacks. Factory
+bundle/frozen copies must preserve all pack, guard-access and feedback bindings.
 
 At a step boundary, snapshots come from already frozen run inputs/evidence and
 accepted fresh prior outputs. Existing required/optional dependency and binding
@@ -503,8 +708,9 @@ was provided. Agents opting into this profile must understand that references ar
 not inline content. This is a new opted-in agent contract, not a rewrite of old
 argument semantics.
 
-Pending state and receipts retain `originalArguments` and its existing digest for
-controller validation, plus the model projection/profile/digest and selected pack
+Pending state and receipts retain `originalArguments` and its existing digest,
+the frozen controller validation context described below, and the model
+projection/profile/digest and selected pack
 reference. Original accepted outputs remain retained separately. Controller
 validators receive original arguments; no validator or dependency check is
 silently switched to the smaller view. Pack-free records are unchanged. Guarded
@@ -514,9 +720,20 @@ model input is never recorded as the complete original guard facts.
 Every pack-enabled agent step uses `prepare_turn()`/`turn()` (or the variants seam),
 including unguarded steps. Preserve complete authoritative rule facts and terminal
 completion precedence. Pack-free steps retain their existing execution paths,
-proofs, and fingerprints. Native/UnifiedRuntime adapters must advertise the required
-turn, context, and guard-input-view capabilities; unsupported profiles/adapters or
-acquisition combinations fail explicitly. No fallback to prompt concatenation.
+proofs, and fingerprints. Capability checks are conditional, not a blanket
+requirement that a tool-free byte-bounded pack enable every new feature:
+
+| Requested behavior | Required Runtime capabilities |
+| --- | --- |
+| Profiled pack input and public frozen restoration | `conversation_turn_v1`, proposed `frozen_turn_inputs_v1` |
+| Token-aware variant fitting | Also `context_assembly_v1`, `context_input_variants_v1`, and a qualified counter |
+| Separated guarded inputs | Also `rule_admission_v1`, `guard_input_views_v1`, and audited guard access declarations |
+| Captured-evidence reader | Also `tool_context_v1`, the explicitly granted registered reader and existing tool budgets |
+
+The selected adapter/profile must implement the requested semantics, not merely
+expose a suggestive name. Unsupported profiles/adapters or acquisition combinations
+fail explicitly. No fallback to prompt concatenation, byte-only admission, a
+different backend, or weaker validation when the host requested a missing feature.
 V1 excludes pack-enabled steps with acquisition agents; use explicit prior
 retrieval/tool steps instead. Tool-only and human/gate steps do not get packs.
 Admission also rejects `{{args}}` interpolation in pack-enabled agent bodies or
@@ -608,12 +825,10 @@ retain existing bounded fix/retry behavior. This prevents ordinary guard repair
 or tool-stage retry feedback from becoming an accidental private-data channel;
 it does not sandbox arbitrary trusted Python callbacks.
 
-The same projection boundary applies to later workflow feedback. Persist complete
-private validator evidence as needed, but send only model-safe feedback selected
-by host policy. A failure outcome and its safe corrective requirement remain
-mandatory; raw omitted facts are not copied into `validation_feedback` by default.
-Existing controller/human facts are not silently discarded to make a pack fit.
-Authorization and confirmation remain independent of guard success.
+The same projection boundary applies to controller feedback through the concrete
+safe-feedback contract below. Existing controller/human facts are not silently
+discarded to make a pack fit. Authorization and confirmation remain independent
+of guard success.
 
 Private facts can validate a draft without being sent to the model; they cannot
 make an underinformed task solvable. If generating the required answer needs a
@@ -661,8 +876,10 @@ The complete original facts remain available to authoritative validators and
 guards, while model-only checks evaluate actual observed input. No v1 rule proof
 is accepted as a replacement for a required v2 pack proof.
 
-Persist both complete input values and their binding in the pending attempt and
-receipt before dispatch, within their existing opt-in record versions. On restart,
+Persist both complete input values and their binding in the pending attempt
+before dispatch, within its opt-in record version. After execution, the completed
+receipt binds the same values; no completed receipt is invented before execution.
+On restart,
 restore those exact bytes and access declarations; do not reconstruct private facts
 from a newly queried database or the smaller pack. Changed bindings, missing facts,
 or a mixed-view proof fail closed. Receipt adoption does not rerun guards.
@@ -673,6 +890,72 @@ increase checkpoint/receipt limits; every retained copy counts. Shared source
 storage can be optimized internally only when exact bytes and both identities
 remain reconstructable. A large private fact set can fail a storage/work limit,
 even when the model's pack fits its token window.
+
+### Safe controller feedback and repeatable validation
+
+The released controller joins arbitrary validator issue strings, stores them in
+`feedback`, emits `validation_failed.message`, and forwards them on the next
+attempt. That legacy behavior would disclose facts omitted from a pack, even when
+Runtime's private guards are fail-only. Pack-enabled workflows therefore use a
+new sealed **`safe-feedback-v1`** policy for the whole run, including pack-free
+steps within that opted-in run.
+
+By default, issue strings and exception details never enter model input, public
+events, public interaction errors, or retry instructions. Reducer-owned closed
+codes identify `validationFailed`, `schemaViolation`, `humanResponseInvalid`,
+`gateInputInvalid`, or `validatorFault`, with bounded aggregate issue counts.
+`validation_feedback` retains the outcome/code instead of losing the failure.
+An ordinary failed-check event uses the SDK's generic constant message and code.
+Validator-provided text is not trusted as an error code or a safe message.
+
+Add optional host `WorkflowBindings.feedback_catalog`: a bounded mapping from
+registered validator/check aliases to static remediation text. Values are at most
+512 UTF-8 bytes each, 64 entries and 32 KiB total; aliases must name admitted
+bindings. The map is copied and sealed in workflow identity. Text is host-authored,
+source-independent configuration, with no interpolation, exception text, template
+evaluation, issue-string classification, callbacks, or runtime record values.
+A failed bound check may include its admitted constant remediation text. Without
+an entry, the generic code/message is the complete feedback; absence never enables
+raw issue strings. Dynamic declassification is outside v1.
+
+Apply this at the point results leave a check, not merely in the pack renderer:
+agent/check-step validators, schema diagnostics, human-response validation, gate
+errors, `validation_failed` events, observer projections, public status/replies and
+subsequent attempts all use it. Private diagnostics may retain bounded raw issues
+in private controller evidence under reserved state capacity; default behavior may
+discard them. They are never stored in the model-facing feedback field. A
+private-source sentinel returned by any validator must not escape through public
+events before the next pack is composed. Existing public replies can still reveal
+the intentionally disclosed success/failure outcome; this is not a zero-information
+secrecy claim or a sandbox for trusted Python code.
+
+Keep the released controller's recovery boundary: the Runtime receipt is durable
+before Harness schema/controller validators run. Adopting a saved receipt may run
+those validators again. It never reruns Runtime guard hooks, inference, or tools.
+V1 does not add a second durable validation-result journal or promise exactly-once
+validator execution. For opted-in runs, add sealed host
+`WorkflowBindings.repeatable_validators`, an explicit set of all used validator
+aliases attested as deterministic, read-only, and repeatable against supplied
+snapshots. Admission rejects missing attestations. This does not statically prove
+Python purity: hosts must move live retrieval, inference, writes, or time-sensitive
+checks into explicit steps with their own receipts. Revalidation uses the saved
+complete original facts, never refreshed external state. Both new binding fields
+are preserved by frozen factory/bundle copies and absent from pack-free identities
+when not enabled.
+
+For each invocation, freeze the existing `CheckContext` shape separately as
+`controllerValidationContext`: step, request, the complete accepted artifacts and
+bindings visible to that check, declared evidence, and authenticated human responses.
+It is not merely `rule_facts(originalArguments)`, which can contain a narrower
+artifact subset. Save it or exact reconstructable references to retained immutable
+values in the pending record before dispatch, and bind them in the completed
+receipt after execution. Validators still receive
+their existing `check(output, CheckContext)` API, reconstructed from those frozen
+values; they are not handed a new argument shape or live mutable run state.
+Terminal-enabled pack-free steps retain their separately admitted terminal context.
+Every encoded occurrence/reference and resolved value is bounded, identity-bound,
+and included in capacity admission. A missing referenced value fails recovery;
+it never prompts a live lookup or a smaller substitute context.
 
 ## Progressive disclosure
 
@@ -705,7 +988,13 @@ Concurrent invocations must not see each other's snapshot bindings.
 Every call verifies the operation scope, current host authorization, selected pack
 identity, and allowlist membership. Normal tool argument/result limits, call
 budgets, events, evidence and cancellation apply. Defaults cap each returned body
-at 16 KiB; the host can reduce that within the admitted tool contract. A reader
+at 16 KiB and the complete encoded result at 24 KiB. The stable tool registration
+declares that encoded result bound; reserve full framework/tool-message overhead
+as well. JSON escaping and provenance metadata count. Text paging narrows the
+returned UTF-8 range until both limits fit, with an exact next offset; a JSON value
+that cannot fit is refused with a safe `contextReadLimit` and requires a narrower
+admitted pointer, never prefix-truncated JSON. The host can reduce these limits
+within the admitted tool contract. A reader
 never expands a tool grant and cannot load another tenant's pack by knowing its
 hash. Previously recorded tool results are history, not permission to read again.
 
@@ -731,9 +1020,25 @@ hashes. Capacity admission may reject a pack even if its prompt fits. An externa
 content-addressed store can be a later optional adapter with explicit retention and
 transaction semantics; it is not necessary to use packs.
 
-Use an explicit new opt-in session record version 3, workflow checkpoint version 3,
-and pack-enabled receipt version 2, subject to confirming the release branch's
-latest allocated versions before implementation. New fields never get silently
+Use explicit new versions for the separate record families:
+
+| Family | Released baseline | Pack-enabled contract |
+| --- | --- | --- |
+| Conversation session and conversation receipt | Matching versions 1 or 2 | Both version 3; do not combine session v3 with receipt v2. |
+| Workflow checkpoint and workflow invocation receipt | Checkpoint v2 and receipt v1 | Checkpoint v3 and invocation receipt v2. |
+| Prepared Runtime turn encoding | `conversation-turn-v1` / `conversation-turn-v2` | `conversation-turn-v3` for profiled/variant/separated inputs. |
+| Workflow rule proof metadata | `workflow_rules_v1` | `workflow_rules_v2` only for guarded pack calls. |
+
+Verify these unallocated new numbers again against the eventual implementation
+base before release. Conversation receipt v2 already exists in v0.9.12 and
+requires equality with its session version; it cannot stand for this new feature.
+In an opted-in session, every receipt uses the session's v3 wrapper, including
+ordinary turns without a pack and interpretation turns; the inner turn encoding
+may remain v1/v2 for those purposes, with absent pack fields explicitly null.
+Opted-in workflow runs use the v2 receipt wrapper for all their invocations;
+pack-free steps retain their existing payload/execution and rule-proof semantics.
+Entirely pack-free sessions/workflows retain their old record families unchanged.
+New fields never get silently
 added to closed legacy documents. Memory/file/PostgreSQL backends advertise
 `context_packs_v1` only after their validators and initialization support it.
 Existing namespaces need an explicit drained-writer capability/storage migration;
@@ -753,10 +1058,26 @@ Recovery rules:
 | Missing/corrupt snapshot or changed renderer/bindings | Explicit bounded failure; never fall back to current files, a different pack, or a fresh search. |
 | Source revision revoked or new use denied | No new dispatch/read. Viewing retained private evidence follows current host access policy. |
 
+Runtime guard evaluation has already settled in a Runtime receipt. Harness's
+deterministic controller validation/adoption is a separate phase and can repeat
+on crash recovery under `repeatable_validators`; it consumes saved original facts
+and always applies `safe-feedback-v1`. No receipt-adoption promise implies that
+arbitrary host validators run exactly once.
+
 Retries use the saved snapshot and selection. Explicit refresh requires a new
 message/operation ID after uncertainty has been resolved; it cannot reuse an old
 idempotency identity with different evidence. No automatic deletion of unresolved
 pack evidence for capacity admission.
+Distinguish recovery of the same attempt from an acknowledged new retry attempt:
+recovery never replenishes fitting/execution work. An explicit retry may allocate
+fresh execution/readmission allowance as the released controller already does,
+retaining the saved initial preparation charges/report and exact selection. It
+uses a new attempt ID, current authorization and the existing per-turn/run aggregate
+attempt/provider/tool quotas. Old spent/uncertain resources remain in the old
+attempt's ledger. No new candidate optimization occurs. Frozen input has immutable
+selection material and a separately checkpointed work state; restoring it uses the
+saved current work for recovery, or the explicitly admitted new-attempt work for
+retry, never an unvalidated reset supplied by a client.
 
 Recommended initial limits, all host-reducible, are **design choices**, not measured
 optima:
@@ -772,6 +1093,7 @@ optima:
 | Labels per item / JSON depth / aggregate JSON nodes | 16 / 32 / 16,384 |
 | Pure composition active time | 250 ms cooperative deadline |
 | Deferred reader returned body | 16 KiB per tool call |
+| Complete encoded reader result | 24 KiB per tool call, plus reserved framework overhead |
 
 Runtime's existing request bytes, token capacity, shared candidate-work/time limits,
 output reservation, and tool/provider-call caps apply in addition. Pack budgets
@@ -780,6 +1102,23 @@ ordinary Runtime admission. Existing session/run/receipt quotas are authoritativ
 the defaults above do not guarantee a pack fits every configured store. Enforce
 limits before large copies, sorts, projections, or nested encodings; trusted Python
 callback deadlines are cooperative, not a sandbox or hard preemption guarantee.
+
+Admission computes actual aggregate record bytes/nodes for the selected snapshot,
+original arguments, private guard facts, frozen input, model projection and reports,
+including each duplicate occurrence. It then reserves controller metadata growth,
+safe feedback, output and failure evidence, and the maximum allowed tool-outcome
+envelopes using the sealed tool/provider limits. A per-item cap is not a reservation
+for all maxima at once. Reject `contextSnapshotLimit` before dispatch when that
+record cannot fit the existing state/receipt/aggregate quotas; never discover the
+shortfall only after an effect. Do not raise existing store limits implicitly.
+
+Qualification must include a useful pack-enabled guarded workflow under unchanged
+default workflow receipt/state limits (1 MiB / 4 MiB): at least 16 captured items,
+32 KiB encoded snapshot, 64 KiB private facts, 16 KiB model evidence and two
+reader calls admitted with their full declared result bounds, plus ordinary result
+and failure headroom. Check those sizes against built artifacts rather than merely
+adding raw content lengths. Test maximum-cap rejection separately; large configured
+ceiling values are not a claim that every default store admits them simultaneously.
 
 ## Reports, errors, and evidence quality
 
@@ -842,7 +1181,23 @@ Contract tests must demonstrate:
 14. Changing only an omitted authoritative value changes the invocation/v2 proof
     binding even when the provider payload stays identical. Swapped view digests,
     private-facts omission, changed access descriptors, and v1 proof substitution
-    fail before result adoption. Exact receipt recovery does not rerun validation.
+    fail before result adoption. Exact receipt recovery does not rerun Runtime
+    guards; repeatable Harness controller validators may run again on saved facts.
+15. Revoking a source after a committed reader turn blocks the next provider
+    invocation even with no new pack, including retries. No history is silently
+    pruned; denied viewing and effect reconciliation stay separate.
+16. Validators returning private sentinels, exceptions, human-response errors,
+    schema failures and gate errors produce only safe codes/static catalog text
+    in public events and later model input. Private diagnostics stay private even
+    when recovery repeats controller validation.
+17. Independent sources with equal revision/content remain distinct; ranked input
+    changes do not require mutating a registered spec; completed empty and partial
+    sources preserve their declared coverage semantics.
+18. Oversized optional evidence is omitted rather than failing a fitting base;
+    `max_variants=1`, exact JSON/UTF-8 boundaries, encoded reader expansion, shared
+    final readmission headroom, and public frozen restoration have explicit tests.
+19. Conversation v3 receipts match v3 sessions, opted-in workflow receipt v2 is
+    distinct, and legacy v1/v2 namespaces/records reject incompatible writers.
 
 Integration Lab adds an installed-package lane with two different domains: service
 impact analysis and a document-review specialist. Use public exports only, not
