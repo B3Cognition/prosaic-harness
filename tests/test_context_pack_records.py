@@ -19,7 +19,8 @@ def invocation_case(*,counted=False,validation_bindings=None):
         options=dict(context_policy=policy,token_counters=counters)
     prepared=runtime.prepare_turn(api.ProsaicArtifact('approved','subagent',{},'ALWAYS use supplied evidence. NEVER invent facts.'),message='Exact current message',
         input_data={'contextPack':pack.envelope},input_profile='context-pack-input-v1',
-        policy=api.RunPolicy(max_provider_requests=1,max_tool_calls=0),**options)
+        policy=api.RunPolicy(max_provider_requests=1,max_tool_calls=0),
+        limits=api.TurnLimits(max_metadata_bytes=8192,max_evidence_bytes=8192),**options)
     return ContextPackInvocation.from_prepared('b'*32,candidates,pack,prepared,runtime_input_mapping=[index],validation_bindings=validation_bindings)
 
 

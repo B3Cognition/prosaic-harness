@@ -259,12 +259,13 @@ class ConversationBindings:
     _token_counters: object
     _guards: object
     _rule_project: object
+    _context_packs: object
     def __init__(self, agent, *, version, config, policy, run_policy, turn_limits=None,
                  custom_tools=None, operation_namespace=None, tool_journal=None,
                  workspace=None, workspace_identity=None, interpreter=None,
                  interpretation_policy=None, interpretation_schema=None, workflows=None,
                  context_policy=None, interpretation_context_policy=None, token_counters=None,
-                 guards=(), rule_project=None, rule_project_identity=None):
+                 guards=(), rule_project=None, rule_project_identity=None,context_packs=None):
         try:
             reference(version)
             if type(policy) is not ConversationPolicy:
@@ -290,6 +291,12 @@ class ConversationBindings:
                 raise ConversationError('bindingMismatch')
             tools = validate_custom_tools(custom_tools)
             registered_guards = registrations(guards)
+            if context_packs is not None:
+                from .context_packs.bindings import ContextPackBindings
+                if type(context_packs) is not ContextPackBindings: raise ConversationError('invalidContextPack')
+                if not {'frozen_turn_inputs_v1','guard_input_views_v1','context_input_variants_v1'}<=ProsaicRuntime.capabilities:
+                    raise ConversationError('contextCapabilityMissing')
+                context_packs=context_packs.frozen_copy()
             if rule_project is not None:
                 if not isinstance(rule_project, (str, Path)) or not Path(rule_project).is_absolute():
                     raise ConversationError('bindingMismatch')
@@ -311,6 +318,9 @@ class ConversationBindings:
             # record framing. Reserve structural capacity before any effects.
             shared['max_json_depth'] = policy.max_json_depth - 8
             shared['max_json_nodes'] = (policy.max_json_nodes - 8192) // 2
+            if context_packs is not None:
+                shared['max_metadata_bytes']=8192
+                shared['max_event_bytes']=16384
             evidence_room=policy.max_receipt_bytes-policy.max_turn_bytes-encoded_answer_bound(
                 policy.max_assistant_bytes,policy.max_turn_bytes)-8192
             evidence_room -= rule_room
@@ -323,6 +333,11 @@ class ConversationBindings:
                 evidence_room -= receipt_context_bounds()[0]
                 if evidence_room < 1024:
                     raise ConversationError('sessionLimit', 'maxReceiptBytes')
+            if context_packs is not None:
+                from .context_packs.capacity import TOOL_ENVELOPE_BYTES
+                result_bound=max([custom_descriptors(tools)[name]['max_result_bytes'] if name in tools
+                    else policy.max_input_bytes for name in run_policy.allowed_tools] or [0])
+                evidence_room=min(evidence_room,8192+run_policy.max_tool_calls*(result_bound+TOOL_ENVELOPE_BYTES))
             limits = TurnLimits(**shared,max_evidence_bytes=min(TurnLimits().max_evidence_bytes,evidence_room)) if turn_limits is None else turn_limits
             if type(limits) is not TurnLimits:
                 raise ConversationError('bindingMismatch')
@@ -331,7 +346,7 @@ class ConversationBindings:
                 raise ConversationError('bindingMismatch')
             if limits.max_evidence_bytes>evidence_room: raise ConversationError('bindingMismatch')
             invocation = _policy(run_policy)
-            runtime.prepare_turn(approved, message='a', policy=run_policy, limits=limits, workspace=workspace)
+            runtime.prepare_turn(approved, message='a', policy=run_policy, limits=limits, workspace=workspace,**_pack_probe(context_packs))
             interpreting = None
             if interpreter is not None:
                 if policy.max_assistant_bytes<64: raise ConversationError('bindingMismatch')
@@ -372,11 +387,12 @@ class ConversationBindings:
                 ProsaicArtifact.from_inspection(interpreting['artifact']) if interpreting else None,
                 context_policy, interpretation_context_policy, token_counters)
             data.update(context_data)
+            if context_packs is not None: data['contextPacks']=context_packs.to_dict()
             for key, value in {'_encoded': encode(data), '_config': encode(config_data),
                 '_tools': MappingProxyType(tools), '_journal': tool_journal, '_workspace': workspace,
                 '_workflows': MappingProxyType(registered), '_admitted': _ADMITTED,
                 '_token_counters': owned_counters, '_guards': registered_guards,
-                '_rule_project': rule_project}.items():
+                '_rule_project': rule_project,'_context_packs':context_packs}.items():
                 object.__setattr__(self, key, value)
         except ConversationError:
             raise
@@ -430,6 +446,8 @@ class ConversationBindings:
         data = decode(self._encoded)
         return 'contextPolicy' in data or 'interpretationContextPolicy' in data
     @property
+    def context_packs(self): return self._context_packs
+    @property
     def context_policy(self):
         document = decode(self._encoded).get('contextPolicy')
         if document is None: return None
@@ -453,6 +471,10 @@ class ConversationBindings:
             if self._guards and 'rule_admission_v1' not in ProsaicRuntime.capabilities:
                 raise ConversationError('capabilityMissing')
             data = decode(self._encoded)
+            if self._context_packs is not None:
+                if not {'frozen_turn_inputs_v1','guard_input_views_v1','context_input_variants_v1'}<=ProsaicRuntime.capabilities:
+                    raise ConversationError('contextCapabilityMissing')
+                if data.get('contextPacks')!=self._context_packs.readmit(): raise ValueError('context binding drift')
             if (data['toolJournal'] != (tool_journal_descriptor(self._journal) or None)
                     or data['tools'] != custom_descriptors(validate_custom_tools(self._tools))
                     or data.get('guards', []) != descriptors(self._guards)
@@ -468,7 +490,7 @@ class ConversationBindings:
                 'contextPolicy', 'contextCounter', 'interpretationContextPolicy', 'interpretationContextCounter'}}
             if context_data != expected: raise ValueError('context descriptor drift')
             runtime.prepare_turn(self.agent, message='a', policy=self.run_policy,
-                                 limits=self.turn_limits, workspace=self._workspace)
+                                 limits=self.turn_limits, workspace=self._workspace,**_pack_probe(self._context_packs))
             if data['interpreter']:
                 runtime.prepare_turn(ProsaicArtifact.from_inspection(data['interpreter']['artifact']),
                     message='a', policy=self.interpretation_policy, limits=self.turn_limits)
@@ -480,6 +502,11 @@ class ConversationBindings:
         return ProsaicRuntime(self.config, custom_tools=self._tools, lifecycle=lifecycle,
             **({'guards': self._guards} if self._guards else {}),
             **source_options(self._rule_project))
+
+
+def _pack_probe(packs):
+    return (dict(input_profile='context-pack-input-v1',authoritative_input_data={},
+        authoritative_input_profile='context-pack-snapshot-v1') if packs is not None else {})
 
 
 def _context_material(config, agent, interpreter, ordinary, interpreting, registry):

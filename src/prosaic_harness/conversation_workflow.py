@@ -8,6 +8,7 @@ from .session_contracts import (seal, verify_session, freeze_workflow_command,
     finish_host_turn, public_node_limit, reserve_host_command)
 from .schema_validation import evaluate_schema, SchemaEvaluationError
 from .conversation_bindings import encoded_answer_bound
+from .conversation_packs import pack_errors
 
 
 class ConversationWorkflow:
@@ -52,6 +53,7 @@ class ConversationWorkflow:
                      depth=p['maxJsonDepth']-8,nodes=public_node_limit(p)-128)
 
     @tracked
+    @pack_errors
     def attach_workflow(self,session_id,*,registration,run_id,expected_revision):
         reference(registration)
         validate_id(run_id)
@@ -148,6 +150,7 @@ class ConversationWorkflow:
         return self._finish_workflow_command(snapshot,lease,on_event)
 
     @tracked
+    @pack_errors
     def detach_workflow(self,session_id,*,expected_revision):
         """Release only a terminal owned workflow; unresolved evidence stays attached."""
         with self.store.lease(session_id,scope=self.scope) as lease:
@@ -162,6 +165,7 @@ class ConversationWorkflow:
             return self._reply(self._save(snapshot,seal(snapshot.state|{'workflow':None}),lease))
 
     @tracked
+    @pack_errors
     def choose(self,session_id,*,message_id,message,choice,interaction_ref,expected_revision,
                response=None,on_event=None):
         """Commit an authenticated structured choice without model interpretation."""
@@ -249,6 +253,7 @@ class ConversationWorkflow:
         return self._reply(snapshot if state==snapshot.state else self._save(snapshot,state,lease))
 
     @tracked
+    @pack_errors
     def retry_workflow_command(self,session_id,*,expected_revision,acknowledge_effect_risk,on_event=None):
         """Explicitly retry only the frozen command against its original workflow revision."""
         if acknowledge_effect_risk is not True: raise ConversationError('confirmationRequired')

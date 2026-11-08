@@ -28,6 +28,15 @@ def test_v3_session_and_receipt_pair_preserve_exact_frozen_input(session_documen
     assert validate_session_transition(state,final)==final
 
 
+def test_saved_pack_reservation_must_cover_frozen_declared_limits(session_document):
+    state,frame=allocated(session_document)
+    reservation=state['contextPacks']['reservations'][frame.invocation_id]
+    for field in ('metadataBytes','headroomBytes','stateBytes','receiptBytes'): reservation[field]-=1
+    from prosaic_harness.context_packs.capacity import PackReservation
+    PackReservation.from_dict(reservation)
+    with pytest.raises(StoreCorrupt): verify_session(seal(state))
+
+
 def test_v3_receipts_cannot_be_downgraded_or_rebound(session_document):
     state,frame=allocated(session_document)
     packet=make_receipt(state,frame.invocation_id,result_case(frame))

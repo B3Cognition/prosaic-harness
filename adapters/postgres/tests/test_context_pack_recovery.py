@@ -78,3 +78,35 @@ def test_two_workers_cannot_advance_v3_revision_twice(db_admin_dsn):
         results=[first.result(allow_error=True),second.result(allow_error=True)]
     assert sum(result.get('status')=='pending' for result in results)==1
     assert any(result.get('error') in {'session_busy','revision_conflict'} for result in results)
+
+
+def test_public_pack_conversation_reopens_and_replays_without_dispatch(db_admin_dsn,model_server,monkeypatch):
+    from prosaic_runtime import RuntimeConfig,EndpointConfig,ProsaicArtifact,RunPolicy
+    from prosaic_harness import (Conversation,ConversationBindings,ConversationPolicy,ContextScope,
+        ContextPackBindings,ContextAuthorizer,ContextPackSpec,ContextSlot,InputSource,ContextPacker)
+    from prosaic_harness.context_packs import capture_sources
+    from prosaic_harness import StoreUnavailable
+    scope=ConversationScope('pack-controller','sandbox','chat','tenant','actor')
+    spec=ContextPackSpec('chat','1',[ContextSlot('task',required=True)],task_source='task')
+    packs=ContextPackBindings(specs={'chat':spec},sources={'task':InputSource('/task')},
+        scope=ContextScope.from_conversation(scope),authorizer=ContextAuthorizer('access','1',lambda use:True))
+    config=RuntimeConfig({'local':EndpointConfig(model_server.url,'synthetic',features={'streaming':False})},{},'local',frozenset())
+    binding=ConversationBindings(ProsaicArtifact('chat','subagent',{'name':'chat','description':'Captured chat'},
+        'ALWAYS use supplied evidence. NEVER invent facts.'),version='pack-chat-1',config=config,
+        policy=ConversationPolicy(),run_policy=RunPolicy(max_provider_requests=2,max_tool_calls=0),context_packs=packs)
+    candidates=ContextPacker().compose(spec,capture_sources(spec,{'request':{'task':'Review retained facts'}},{},packs))
+    with PostgresSessionStore(db_admin_dsn,namespace=scope.namespace) as store:
+        store.initialize(context_packs=True)
+        chat=Conversation(binding,store=store,scope=scope);session=chat.create()
+        monkeypatch.setattr(chat,'_adopt',lambda *a,**k:(_ for _ in ()).throw(OSError('after receipt')))
+        with pytest.raises((OSError,StoreUnavailable)):
+            chat.send(session.session_id,message_id='first',message='Exact question',expected_revision=session.revision,context_pack=candidates)
+    monkeypatch.setattr(ContextPacker,'compose',lambda *a,**k:pytest.fail('SQL recovery recomposed'))
+    with PostgresSessionStore(db_admin_dsn,namespace=scope.namespace) as store:
+        chat=Conversation(binding,store=store,scope=scope)
+        reply=chat.recover(session.session_id)
+        assert reply.document['status']=='completed' and model_server.request_count==1
+        assert chat.send(session.session_id,message_id='first',message='Exact question',expected_revision=session.revision,
+            context_pack=candidates).document==reply.document
+        saved=store.load_session(session.session_id,scope=scope).state
+        assert saved['version']==3 and saved['pending'] is None and len(chat.history(session.session_id))==2

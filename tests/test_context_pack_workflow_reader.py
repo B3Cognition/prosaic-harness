@@ -34,5 +34,6 @@ def test_workflow_activates_reader_only_for_the_durable_selected_pack(rule_endpo
     assert 'DISCOVERED-719' not in json.dumps(requests[0]) and 'DISCOVERED-719' in json.dumps(requests[1])
     receipt=harness.store.load_receipt(state['run_id'],state['invocations'][0]['id'])
     assert receipt['contextPackResult']['evidence']['toolAttempts']==1
+    assert any(e['disclosure']=='read' for e in receipt['contextPack']['exposureBindings']['entries'])
     reserved=state['contextPacks']['reservations'][receipt['id']]
     assert reserved['toolResultBytes']==[24576,24576]

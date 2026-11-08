@@ -22,6 +22,39 @@ def _frozen_identity(value):
         executionEpoch=value['executionEpoch']))
 
 
+def reader_exposures(frame,evidence):
+    """Derive actual captured reads from owned Runtime evidence, without I/O."""
+    from .reader import NAME
+    from .selection import project,_content_bytes
+    import hashlib
+    initial=ExposureBindings.from_dict(frame.to_dict()['initialExposureBindings'])
+    pack=frame.prepared_pack;grants=ExposureBindings.from_pack(pack)
+    items={(item['sourceAlias'],item['itemId']):item for item in pack.snapshot.to_dict()['items']}
+    reads=[]
+    for outcome in evidence['toolOutcomes']:
+        value=outcome.get('outcome',{})
+        if outcome.get('name')!=NAME or value.get('status')!='ok': continue
+        body=value.get('result')
+        if type(body) is not dict or body.get('snapshotDigest')!=pack.snapshot.identity or body.get('packReference')!=pack.reference:
+            raise ContextPackError('contextBindingMismatch')
+        grant=next((entry for entry in grants.entries if entry['disclosure']=='discoverable'
+            and entry['citationId']==body.get('citationId')),None)
+        if grant is None: raise ContextPackError('contextBindingMismatch')
+        if any(body.get(key)!=grant[key] for key in ('sourceAlias','sourceIdentity','sourceRevision','sourceLocator','itemId')):
+            raise ContextPackError('contextBindingMismatch')
+        content=project(items[(grant['sourceAlias'],grant['itemId'])]['content'],body['representation'])
+        raw=_content_bytes(content)
+        if (encode(content)!=encode(body.get('content')) or hashlib.sha256(raw).hexdigest()!=body.get('contentSha256')
+                or body.get('contentKind')!=('text' if type(content) is str else 'json')):
+            raise ContextPackError('contextBindingMismatch')
+        entry={**grant,'disclosure':'read','representation':body['representation'],
+            'contentSha256':body['contentSha256'],'contentBytes':len(raw),'contentKind':body['contentKind']}
+        requested=ExposureBindings(initial.scope,[entry])
+        if not grants.contains(requested): raise ContextPackError('contextBindingMismatch')
+        reads.append(entry)
+    return initial.union(ExposureBindings(initial.scope,reads))
+
+
 class ContextPackInvocation(_Record):
     @classmethod
     def from_prepared(cls,invocation_id,candidates,selected_pack,prepared,*,projection=None,
@@ -216,6 +249,8 @@ class ContextPackInvocation(_Record):
                 if result.result.exit_code==0 and (rules['faulted'] or {b['id'] for b in declared['bindings'] if b['stage'] in {'before_answer','final'}}-set(rules['evaluated'])):
                     raise ContextPackError('contextBindingMismatch')
             value=self.to_dict()
+            actual=reader_exposures(self,evidence)
+            value['exposureBindings']=actual.to_dict()
             if value['contextWork'] is None:
                 if result.context_work is not None or result.context_report is not None:
                     raise ContextPackError('contextBindingMismatch')
@@ -237,6 +272,8 @@ class ContextPackInvocation(_Record):
                 value['contextWork']=after
             if exposure_bindings is not None:
                 if type(exposure_bindings) is not ExposureBindings: raise ContextPackError()
+                if not {encode(e) for e in actual.entries}<={encode(e) for e in exposure_bindings.entries}:
+                    raise ContextPackError('contextBindingMismatch')
                 value['exposureBindings']=exposure_bindings.to_dict()
             value.update(stage='completed',resultEvidenceDigest=digest(evidence),
                 ruleReceiptDigest=digest(rules) if rules is not None else None,
@@ -283,6 +320,26 @@ def attach_pack_attempt(state,frame,invocation_id):
     side['reservations'][invocation_id]=None
     sequence=str(state['attempts'][invocation_id]['turnSequence'])
     side['turnExposures'].setdefault(sequence,None)
+    if frame is not None:
+        prior=side['turnExposures'][sequence]
+        side['turnExposures'][sequence]=(ExposureBindings.from_dict(prior).union(
+            ExposureBindings.from_dict(frame.exposure_bindings)).to_dict() if prior is not None else frame.exposure_bindings)
+
+
+def conversation_metadata_bounds(frame,tool_result_bytes):
+    from .capacity import _nodes,TOOL_ENVELOPE_BYTES,TOOL_ENVELOPE_NODES
+    frozen=frame.frozen_input.to_dict();limits=frozen['bindings']['limits']
+    declared=frozen['bindings'].get('rules',{})
+    maximum_rules=None
+    if declared.get('bindings'):
+        ids=[binding['id'] for binding in declared['bindings']]
+        maximum_rules=dict(version=1,fingerprint=declared['fingerprint'],
+            **{key:ids for key in ('evaluated','violated','fixed','faulted')})
+    tool_room=sum(amount+TOOL_ENVELOPE_BYTES for amount in tool_result_bytes)
+    tool_nodes=sum((amount+1)//2+1+TOOL_ENVELOPE_NODES for amount in tool_result_bytes)
+    metadata_bytes=max(0,limits['max_evidence_bytes']-tool_room)+len(encode(maximum_rules))+2*len(encode(frozen['contextReport']))+12288+2*tool_room
+    metadata_nodes=max(0,min(limits['max_json_nodes'],(limits['max_evidence_bytes']+1)//2+1)-tool_nodes)+_nodes(maximum_rules)+2*_nodes(frozen['contextReport'])+512+128*len(tool_result_bytes)
+    return metadata_bytes,metadata_nodes
 
 
 def reserve_pack_attempt(document,frame,*,message_id,input_data=None,interaction_ref=None,
@@ -313,11 +370,22 @@ def reserve_pack_attempt(document,frame,*,message_id,input_data=None,interaction
     # consume the fixed failure/metadata headroom as well.
     packet={'version':3,'recordType':'receipt','contextPack':frame.to_dict(),
         'exposureBindings':frame.exposure_bindings,'completedTurn':None,'evidence':None,'result':None}
-    reservation=reserve_pack_capacity(state,packet,max_state_bytes=p['maxStateBytes']-state['reservedStateBytes'],
-        max_receipt_bytes=p['maxReceiptBytes'],max_json_nodes=p['maxJsonNodes']-state['reservedStateNodes'],
+    turn=state['turns'][-1]
+    # The old turn reservation already covers portable history and the answer.
+    # Retain the larger bound; adding both would charge those same copies twice.
+    other_bytes=state['reservedStateBytes']-turn['stateReservation']
+    other_nodes=state['reservedStateNodes']-turn['stateNodeReservation']
+    metadata_bytes,metadata_nodes=conversation_metadata_bounds(frame,tool_result_bytes)
+    reservation=reserve_pack_capacity(state,packet,max_state_bytes=p['maxStateBytes']-other_bytes,
+        max_receipt_bytes=p['maxReceiptBytes'],max_json_nodes=p['maxJsonNodes']-other_nodes,
         family='conversation',output_bytes=p['maxAssistantBytes'],tool_result_bytes=tool_result_bytes,
-        user_message=frozen['message'],provider_allowance=policy['max_provider_requests'])
+        user_message=frozen['message'],provider_allowance=policy['max_provider_requests'],
+        metadata_bytes=metadata_bytes,metadata_nodes=metadata_nodes,event_bytes=0,event_nodes=0)
     state['contextPacks']['reservations'][frame.invocation_id]=reservation.to_dict()
+    turn['stateReservation']=max(turn['stateReservation'],reservation.headroom_bytes)
+    turn['stateNodeReservation']=max(turn['stateNodeReservation'],reservation.headroom_nodes)
+    from ..session_contracts import _with_counters
+    state=_with_counters(state)
     state=verify_session(seal(state));_bounds(state,admission=True)
     return state
 
@@ -370,7 +438,23 @@ def validate_pack_session(state):
             continue
         frame=ContextPackInvocation.from_dict(value)
         if reservation is None and frame.stage!='prepared': raise ContextPackError('contextSnapshotLimit')
+        if reservation is not None:
+            bound=PackReservation.from_dict(reservation)
+            frozen=frame.frozen_input.to_dict();policy=frozen['bindings']['policy'];limits=frozen['bindings']['limits']
+            largest=max([frozen['bindings']['tools'][name]['max_result_bytes'] if name in frozen['bindings']['tools']
+                else limits['max_input_bytes'] for name in policy['allowed_tools']] or [0])
+            expected_tools=[largest]*policy['max_tool_calls'] if largest else []
+            minimum_bytes,minimum_nodes=conversation_metadata_bounds(frame,expected_tools)
+            if (bound.family!='conversation' or bound.max_state_bytes!=state['policy']['maxStateBytes']
+                    or bound.max_receipt_bytes!=state['policy']['maxReceiptBytes'] or bound.max_json_nodes!=state['policy']['maxJsonNodes']
+                    or bound.tool_result_bytes!=expected_tools or bound.metadata_bytes<minimum_bytes or bound.metadata_nodes<minimum_nodes
+                    or bound.output_bytes<state['policy']['maxAssistantBytes'] or bound.provider_allowance!=policy['max_provider_requests']):
+                raise ContextPackError('contextBindingMismatch')
         if frame.candidates.snapshot.scope_binding.to_dict()!=scope.to_dict(): raise ContextPackError('contextScopeMismatch')
+        turn=state['turns'][attempt['turnSequence']-1]
+        if turn['requestIdentity']!=digest({'message':turn['message'],'interactionRef':turn['interactionRef'],
+                'workflow':None,'contextPackCandidateIdentity':frame.candidate_identity}):
+            raise ContextPackError('contextBindingMismatch')
         if (attempt['receiptAdopted']!=(frame.stage=='adopted')
                 or attempt['receiptIdentity']!=frame.receipt_identity
                 or (not attempt['receiptAdopted'] and frame.stage!=('dispatched' if attempt['dispatchMarker'] else 'prepared'))):
@@ -382,12 +466,16 @@ def validate_pack_session(state):
         for aid in state['turns'][int(sequence)-1]['attempts']:
             frame=side['attempts'][aid]
             if frame is not None and state['attempts'][aid]['receiptAdopted']:
-                if value is None or not exposure.contains(ExposureBindings.from_dict(frame['exposureBindings'])):
+                if value is None or not {encode(e) for e in frame['exposureBindings']['entries']}<={encode(e) for e in exposure.entries}:
                     raise ContextPackError('contextBindingMismatch')
 
 
 def validate_pack_receipt_context(value):
     frame=ContextPackInvocation.from_dict(value['contextPack']);frozen=frame.frozen_input.to_dict()
+    from .capacity import _nodes
+    limits=frozen['bindings']['limits']
+    if len(encode(value['evidence']))>limits['max_evidence_bytes'] or _nodes(value['evidence'])>limits['max_json_nodes']:
+        raise ContextPackError('contextSnapshotLimit')
     if (value['contextSelection']!=frozen['contextSelection'] or value['initialContextReport']!=frozen['contextReport']
             or value['contextWork']!=frame.to_dict()['contextWork']
             or value['contextCounter']!=frozen['bindings'].get('counterDescriptor')):
@@ -420,6 +508,9 @@ def validate_pack_receipt(value):
 def validate_completed_pack_evidence(frame,evidence,rules,success,report):
     """Check retained proof coverage without rerunning any guard or counter."""
     frozen=frame.frozen_input.to_dict();declared=frozen['bindings'].get('rules',{})
+    actual=reader_exposures(frame,evidence)
+    if not {encode(e) for e in actual.entries}<={encode(e) for e in ExposureBindings.from_dict(frame.exposure_bindings).entries}:
+        raise ContextPackError('contextBindingMismatch')
     if (success!=(evidence['failureCode'] is None) or evidence.get('inputViews')!=frozen['inputViews']
             or (rules['fingerprint'] if rules is not None else None)!=declared.get('fingerprint')):
         raise ContextPackError('contextBindingMismatch')
@@ -456,6 +547,10 @@ def match_pack_receipt(state,value):
             raise ContextPackError('contextBindingMismatch')
         return value
     frame=ContextPackInvocation.from_dict(before);completed=ContextPackInvocation.from_dict(after)
+    from .capacity import PackReservation,_nodes
+    bound=PackReservation.from_dict(state['contextPacks']['reservations'][aid])
+    if len(encode(value))>bound.receipt_bytes or _nodes(value)>bound.receipt_nodes:
+        raise ContextPackError('contextSnapshotLimit')
     if frame.frozen_identity!=completed.frozen_identity: raise ContextPackError('contextBindingMismatch')
     if frame.stage=='adopted':
         if frame.receipt_identity!=value['sha256']: raise ContextPackError('contextBindingMismatch')

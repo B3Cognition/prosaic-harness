@@ -49,8 +49,8 @@ def metadata_bounds(frame,tool_bytes):
     # Work is a <=4KiB closed record; final report changes only bounded integer
     # counts. Include their framing and final evidence/rule hashes as well.
     byte_bound=(limits['max_metadata_bytes']+base_evidence+proof_bytes+rule_bytes+
-        len(encode(report))+4096+1024)
-    node_bound=meta_nodes+max(0,evidence_nodes-tool_nodes)+_nodes(maximum_proof)+_nodes(maximum_rules)+_nodes(report)+128
+        len(encode(report))+4096+1024+tool_room)
+    node_bound=meta_nodes+max(0,evidence_nodes-tool_nodes)+_nodes(maximum_proof)+_nodes(maximum_rules)+_nodes(report)+128+64*len(tool_bytes)
     return byte_bound,node_bound,limits['max_metadata_bytes']+proof_bytes
 
 
@@ -258,7 +258,7 @@ def validate_workflow_pack_receipt(packet,state,pending,workflow):
                 or _nodes(metadata)>bound.metadata_nodes+tool_nodes
                 or len(encode(packet['events']))>bound.event_bytes
                 or _nodes(packet['events'])>bound.event_nodes
-                or len(encode(packet))>bound.max_receipt_bytes):
+                or len(encode(packet))>bound.receipt_bytes or _nodes(packet)>bound.receipt_nodes):
             raise ContextPackError('contextSnapshotLimit')
     from ..workflow_rules import compiled
     if workflow is not None and pending['step'] in compiled(workflow):

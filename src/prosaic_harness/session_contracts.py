@@ -453,7 +453,8 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
         if state['pending'] is not None: raise ConversationError('messageConflict')
         if any(t['messageId']==message_id for t in state['turns']): raise ConversationError('messageConflict')
         turn={'sequence':len(state['turns'])+1,'messageId':message_id,'message':message,
-            'requestIdentity':digest({'message':message,'interactionRef':interaction_ref,'workflow':state['workflow']}),
+            'requestIdentity':digest({'message':message,'interactionRef':interaction_ref,'workflow':state['workflow'],
+                **({'contextPackCandidateIdentity':pack_invocation.candidate_identity} if pack_invocation is not None else {})}),
             'interactionRef':interaction_ref,'status':'pending','answer':None,'failureCode':None,
             'history':[],'attempts':[],'inputData':owned(input_data),
             'historyIdentity':digest(history_of(state)),'historyReservation':p['maxTurnBytes'],
@@ -749,6 +750,7 @@ def reserve_host_command(document, *, message_id, message, interaction_ref, inpu
         'stateNodeReservation':(p['maxJsonNodes']-8192)//2+2*public_node_limit(p)+8192,
         'pendingInteraction':None,'recoveryStatus':'workflowCommand'}
     state['turns'].append(turn)
+    if state['version']==3: state['contextPacks']['turnExposures'][str(turn['sequence'])]=None
     state['pending']={'phase':'workflowCommand','turnSequence':turn['sequence'],'invocationId':None,'command':command}
     state=_with_counters(state)
     _bounds(state,admission=True)

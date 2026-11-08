@@ -33,6 +33,7 @@ class _Active:
     bindings: ContextPackBindings
     deadline: float
     cancelled: object
+    session_id: str | None
 
 
 class ContextPackReader:
@@ -57,14 +58,17 @@ class ContextPackReader:
         with self._lock: return len(self._active)
 
     @contextmanager
-    def activate(self,scope,pack,bindings,*,deadline,cancelled=lambda:False):
+    def activate(self,scope,pack,bindings,*,deadline,cancelled=lambda:False,session_id=None):
         key=_key(scope)
         if type(pack) is not PreparedContextPack or type(bindings) is not ContextPackBindings or not callable(cancelled):
             raise ContextPackError()
         if type(deadline) not in (int,float) or not math.isfinite(deadline) or deadline<=0: raise ContextPackError()
         bindings.readmit()
         if pack.snapshot.scope_binding.to_dict()!=bindings.scope.to_dict(): raise ContextPackError('contextScopeMismatch')
-        active=_Active(pack,bindings.frozen_copy(),deadline,cancelled)
+        if session_id is not None:
+            from .codec import reference
+            reference(session_id)
+        active=_Active(pack,bindings.frozen_copy(),deadline,cancelled,session_id)
         with self._lock:
             if key in self._active: raise ContextPackError('contextBindingMismatch')
             self._active[key]=active
@@ -114,7 +118,7 @@ class ContextPackReader:
                     contentSha256=result['contentSha256'],contentBytes=len(_content_bytes(body)),contentKind=result['contentKind'])
             requested=ExposureBindings(active.bindings.scope,[entry])
             use=ContextUse.for_pack('deferredRead',pack,operation_id=context.scope.invocation_id,
-                run_id=context.scope.run_id,deadline=min(context.deadline,active.deadline),requested=requested)
+                run_id=context.scope.run_id,session_id=active.session_id,deadline=min(context.deadline,active.deadline),requested=requested)
             authorize_context_use(active.bindings,use)
             if not self._current(key,active,context): return {'error':'contextSnapshotUnavailable'}
             return result if result is not None else {'error':'contextReadLimit'}
