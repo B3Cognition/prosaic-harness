@@ -2,12 +2,13 @@
 
 Date: 2026-11-08. Status: proposed for maintainer review; no implementation.
 
-Builder feasibility review completed on 2026-11-08. The independent reviewer
-checked the released APIs and raised three planning questions: guarded workflow
-facts, interruption during initial fitting, and pre-ranked selector ordering. The
-decisions below resolve them; the follow-up review found no important planning
-questions left. This review establishes design clarity, not implementation or
-model-quality validation.
+Initial builder feasibility review completed on 2026-11-08. A subsequent maintainer
+request removed the proposed requirement to send all guard facts to the model.
+The revised design separates authoritative validation facts from model-visible
+evidence, with explicit per-guard access and a versioned proof. A fresh independent
+review checked this revision against released Runtime/Harness source and found no
+important planning questions left. Reviews establish design clarity, not
+implementation or model-quality validation.
 
 ## Decision and intent
 
@@ -111,9 +112,10 @@ not silently execute inside the pack builder. No new framework dependency.
 ## Scope and alternatives
 
 The first complete release includes pure composition, Runtime fitting integration,
-durable conversation and workflow integration, optional snapshot reads, reporting,
-and installed-package qualification. Internal milestones can land separately, but
-do not advertise the feature as complete after the pure builder alone.
+separate authoritative guard facts, durable conversation and workflow integration,
+optional snapshot reads, reporting, and installed-package qualification. Internal
+milestones can land separately, but do not advertise the feature as complete after
+the pure builder alone.
 
 | Approach | Assessment |
 | --- | --- |
@@ -154,7 +156,7 @@ consumer retrieval / explicit file capture / accepted workflow outputs
 | --- | --- |
 | Core | Existing prose inspection/resources. No context execution, new artifact kind, or dependency on Harness. |
 | Harness | Pack contracts, composition, source bindings, per-step/turn selection, snapshot persistence, recovery, and optional reader construction. |
-| Runtime | Exact native payloads, qualified token counters, shared fitting budgets, continuations, tool grants and execution. No imports of Harness pack types. |
+| Runtime | Exact native payloads, qualified token counters, shared fitting budgets, separated guard input views, continuations, tool grants and execution. No imports of Harness pack types. |
 | Host | Authenticate and authorize source capture/use; supply candidates and revisions; choose pack specifications and domain ranking. |
 | Integration Lab | Exercise installed public APIs, source freshness, failure/restart cases, and separate real-model evaluations. |
 
@@ -253,7 +255,9 @@ duplicate Runtime's token policy or tool grants.
 
 Separate identities have separate meanings. `snapshotIdentity` identifies retained
 captured inputs, `packIdentity` identifies a chosen evidence projection, and
-Runtime's existing `contextIdentity` identifies the actual admitted request.
+Runtime's existing `contextIdentity` identifies the admitted invocation. In the
+new separated-input mode it binds both the model projection and private guard
+facts; the model input digest remains separately identifiable.
 None identifies truth or establishes permission. A source change, different
 selection, or renderer version changes the appropriate identity.
 
@@ -341,9 +345,14 @@ If the shared work budget expires, fail; do not return an unverified candidate.
 
 The resulting `PreparedTurn` binds the complete source-history digest, retained
 suffix, chosen input-variant index/digest, counter descriptor, and final payload.
+When private authoritative facts are supplied, it also binds those facts and the
+per-guard input-access declarations described below. Those facts are identical for
+all variants and never enter the native payload or its token count.
 The exact final report describes the selected variant, not the earlier baseline.
 Use a new encoding identity (`conversation-turn-v3`) only for opted-in variant
-preparation; existing v1/v2 identities and APIs remain byte-compatible.
+preparation or separated guard inputs; existing v1/v2 identities and APIs remain
+byte-compatible. These changes belong to one proposed encoding profile, rather
+than a separate version number for every new option.
 Execution readmits the frozen chosen variant/suffix; it never reruns optimization.
 Retain cumulative reservations through interruption after the selected pending
 attempt is durably saved, as existing context execution does. Runtime must expose
@@ -462,27 +471,25 @@ capabilities before reserving a run.
 At a step boundary, snapshots come from already frozen run inputs/evidence and
 accepted fresh prior outputs. Existing required/optional dependency and binding
 checks run first. Selection cannot bypass stale-output checks, remove required
-dependencies, hide validation feedback, or rewrite controller/confirmation facts.
+dependencies, lose validation outcomes, or rewrite controller/confirmation facts.
 For v1, native steps map existing controller-required facts into a mandatory
 `input_data.workflow` envelope; the pack occupies a separate `contextPack` member.
 
 There are two explicit projection profiles:
 
-| Step | Mandatory model-visible facts | Replaceable evidence |
+| Step | Model-visible facts | Private authoritative guard facts |
 | --- | --- | --- |
-| Guarded | Exact existing `rule_facts(step, original_arguments)` under `workflow`, unchanged. | None of the existing guard facts; the pack can add separately selected evidence. |
-| Unguarded, opted in | Request, validation feedback, human responses, step/version, full dependency bindings, and all undeclared-source arguments. | Only bodies explicitly mapped to pack sources by trusted host bindings. |
+| Existing shared-input guarded step, pack-free | Exact existing `rule_facts(step, original_arguments)` under `workflow`. | No additional channel; existing behavior and proofs remain unchanged. |
+| Pack-enabled step, guarded or unguarded | Request, safe controller feedback, human responses, step/version, dependency bindings, undeclared-source arguments, and selected pack evidence. | For guarded steps, complete unchanged `rule_facts(step, original_arguments)`, available only to explicitly registered guards that need it. |
 
-**Design choice: no private guard-facts channel in v1.** Guarded pack steps preserve
-the existing `workflow-guard-input-v1` profile and proof hash over complete original
-arguments; the model and guards continue seeing the same facts. Do not project
-those bodies away, change what a guard observes, or hash a projection as though it
-were the original. Duplicate inline pack evidence still counts against capacity;
-hosts should avoid selecting bodies already present in mandatory guard facts.
-Consequently v1 packs may not shrink a guarded step's existing payload. If those
-facts do not fit, reject; a future versioned guard-facts channel is separate work.
+**Design choice: include separated guard inputs in the first complete release.**
+Keeping all validation facts in the prompt would prevent packs from reducing
+large guarded inputs. Instead, preserve authoritative source data privately while
+giving the model the same bounded pack projection used by unguarded specialists.
+The fact that a value is available to validation does not mean the model saw it,
+is permitted to fetch it, or may cite it.
 
-For unguarded pack steps, use the new `workflow-pack-input-v1` projection profile.
+For all pack-enabled steps, use the new `workflow-pack-input-v1` model projection.
 Host bindings explicitly map a source alias to an accepted artifact ID or declared
 run-evidence entry. V1 does not project arbitrary request/controller fields. A
 mapped body is replaced at its original `workflow.artifacts`/`workflow.sources`
@@ -501,14 +508,14 @@ controller validation, plus the model projection/profile/digest and selected pac
 reference. Original accepted outputs remain retained separately. Controller
 validators receive original arguments; no validator or dependency check is
 silently switched to the smaller view. Pack-free records are unchanged. Guarded
-proof construction continues using the original facts digest and additionally
-binds the pack through the new Runtime context identity/outer pack receipt.
+pack steps use the separated-input guard contract and new proof below; a projected
+model input is never recorded as the complete original guard facts.
 
 Every pack-enabled agent step uses `prepare_turn()`/`turn()` (or the variants seam),
-including unguarded steps. Preserve existing guarded rule facts/proofs and terminal
-completion precedence. Pack-free steps retain their current `run()` behavior and
-fingerprints. Native/UnifiedRuntime adapters must advertise the required turn and
-context capabilities; unsupported native coding profiles, custom adapters, or
+including unguarded steps. Preserve complete authoritative rule facts and terminal
+completion precedence. Pack-free steps retain their existing execution paths,
+proofs, and fingerprints. Native/UnifiedRuntime adapters must advertise the required
+turn, context, and guard-input-view capabilities; unsupported profiles/adapters or
 acquisition combinations fail explicitly. No fallback to prompt concatenation.
 V1 excludes pack-enabled steps with acquisition agents; use explicit prior
 retrieval/tool steps instead. Tool-only and human/gate steps do not get packs.
@@ -525,6 +532,147 @@ identity and captured source-revision set. If an accepted upstream dependency is
 invalidated, the pack is stale under the same dependency rules as the output.
 Refreshing sources/replanning creates a new invocation; uncertain effects retain
 the existing explicit-retry contract.
+
+## Separate guard facts from model evidence
+
+The released implementation supplies one `input_data` value to both the model and
+`GuardContext`. Workflow proof v1 hashes that same complete `rule_facts()` value.
+This is an implementation coupling, not a requirement that all validation facts
+consume prompt tokens. The new mode separates these views without changing the
+meaning of the old one.
+[Guard context](https://github.com/B3Cognition/prosaic-runtime/blob/v0.9.17/src/prosaic_runtime/rule_types.py),
+[rule hooks](https://github.com/B3Cognition/prosaic-runtime/blob/v0.9.17/src/prosaic_runtime/rule_hooks.py),
+[workflow proofs](https://github.com/B3Cognition/prosaic-harness/blob/v0.9.12/src/prosaic_harness/workflow_rules.py).
+
+### Runtime seam and access declarations
+
+Add the generic optional Runtime preparation argument `authoritative_input_data`
+to both `prepare_turn()` and the proposed `prepare_turn_variants()`. Harness owns
+its construction from unchanged accepted workflow arguments. It is bounded owned
+plain JSON, never a callback, path, model proposal, user-supplied HTTP field, or
+extra tool grant. Standalone Runtime hosts may use the same generic seam without
+importing Harness. The capability is `guard_input_views_v1`.
+
+`input_data` remains exactly the initial data sent to the model, and
+`GuardContext.input_data` keeps that meaning. Add a separate lazy, per-check owned
+`GuardContext.authoritative_input_data` property. Do not repurpose `input_data` to
+return private facts: doing so would silently weaken guards that check what the
+model has actually seen. `user_message`, proposed tool arguments, current tool
+results, and answer draft retain their existing observed-execution semantics.
+
+Add a host-only `input_access` declaration to `Guard` registrations:
+
+| Access | Behavior |
+| --- | --- |
+| `shared` (legacy default) | Existing shared-input execution only. Cannot run in separated-input mode until explicitly re-registered for an audited access mode. |
+| `model` | Can read `input_data` and existing observed turn facts; private authoritative property access faults the guard. |
+| `authoritativeAndModel` | Can read both input views; intended for validation against complete captured facts or explicit comparisons of the two views. |
+
+Admission validates every active guard, including host-required guards, before
+effects. A `shared` guard in separated mode fails admission; it is never skipped
+or automatically assigned to the private channel. Re-registering a custom guard
+requires auditing its assumptions and bumping its version where its behavior
+changes. Nondefault access declarations participate in both Runtime and Harness
+guard descriptors, rule fingerprints, binding snapshots, and readmission. Default
+registrations omit new fields from their legacy identity material, preserving old
+identities and receipts. Harness's registration-copy helper must preserve the new
+declaration instead of silently dropping it.
+
+Qualify opt-in `model` registrations for the shipped generic guards:
+
+- `args_reference_seen_ids` continues using only the actual model input, current
+  user message, and observed tool results. A guessed ID present only in private
+  facts must still be refused. An ID actually disclosed through a granted reader
+  outcome can subsequently count under the existing tool-result rules.
+- `value_in_tool_output` still checks actual observed tool outputs. Private source
+  records are not injected into its evidence set and inline pack data does not
+  magically become a tool output.
+- `strict_json` and `no_wrapped_links` keep their existing draft checks/repairs;
+  neither needs private facts.
+
+No Core tag syntax is added: the host selects these access modes in Python. An
+agent, pack item, or model-proposed workflow cannot expand them.
+
+### Private-fact validation does not disclose private facts
+
+V1 registrations with `authoritativeAndModel` access are **fail-only**: admit them
+only with `action=fail`, `fixes=False`, and `echo_values=False`. Their verdict's
+raw reason, refused values, and any fixed value never enter provider messages,
+tool outputs, public errors, or public event metadata. A failure emits only an
+SDK-produced safe code and an admitted rule reference. Invalid repair/retry
+bindings fail admission rather than degrading at execution time.
+
+This restriction applies to any guard granted private-fact access, even if a
+particular callback happens not to read the private property. Model-only guards
+retain existing bounded fix/retry behavior. This prevents ordinary guard repair
+or tool-stage retry feedback from becoming an accidental private-data channel;
+it does not sandbox arbitrary trusted Python callbacks.
+
+The same projection boundary applies to later workflow feedback. Persist complete
+private validator evidence as needed, but send only model-safe feedback selected
+by host policy. A failure outcome and its safe corrective requirement remain
+mandatory; raw omitted facts are not copied into `validation_feedback` by default.
+Existing controller/human facts are not silently discarded to make a pack fit.
+Authorization and confirmation remain independent of guard success.
+
+Private facts can validate a draft without being sent to the model; they cannot
+make an underinformed task solvable. If generating the required answer needs a
+fact, the host must select it as required evidence, provide an explicitly derived
+source-linked value, or grant an authorized read. Missing model-needed evidence
+may fail coverage or fail a guard; there is no automatic retry with a larger or
+more revealing pack. A separately authorized new invocation can attach more
+evidence after the prior outcome is resolved.
+
+### Bind both views, preserve full validation
+
+All variants share one immutable authoritative-facts value. Runtime bounds and
+owns it once before candidate processing and retains it privately in prepared
+material. Provider encoders, token counters, history projection, tool handlers,
+reader allowlists, and model-visible reports receive no extra access to it. A
+guard can see only its declared views. Private data is excluded from token counts
+because it is not sent, but its storage, encoding, decoding, guard computation,
+and wall-time costs remain bounded.
+
+Runtime's optional host profile labels `authoritative_input_profile` and
+`input_profile` are bounded inert version identifiers sealed in preparation, with
+no behavior selected by interpreting their text. Harness supplies
+`authoritativeInputProfile: workflow-guard-input-v1` for the unchanged complete
+facts and `modelInputProfile: workflow-pack-input-v1` for the selected projection.
+Runtime computes separate canonical `authoritativeInputDigest` and
+`modelInputDigest`, and binds them with the effective access declarations in
+`inputViewsIdentity`. Harness retains its existing original-facts digest as well;
+the existing workflow hash and new canonical Runtime hash are distinct named
+algorithms, not interchangeable hashes of the same bytes.
+
+The v3 `PreparedTurn.contextIdentity` seals the model context, private facts, and
+guard bindings together. Changing only omitted private facts may leave the native
+provider payload unchanged, but must change the prepared invocation identity and
+force readmission. There is no public deserializer that grants authority from
+these digests. Existing v1/v2 shared-input identities stay unchanged.
+
+Guarded pack steps add closed **`workflow_rules_v2`** proof metadata, rather than
+relabeling a projected call as proof v1. It binds the original full facts digest,
+both input profiles/digests, `inputViewsIdentity`, pack identity, Runtime context
+identity, and the evaluated rule receipt. Runtime supplies computed input-view
+bindings in private turn evidence; Harness recomputes the expected original and
+selected views from the saved controller state/pack before accepting the result.
+An envelope containing caller-supplied hashes alone cannot satisfy that check.
+The complete original facts remain available to authoritative validators and
+guards, while model-only checks evaluate actual observed input. No v1 rule proof
+is accepted as a replacement for a required v2 pack proof.
+
+Persist both complete input values and their binding in the pending attempt and
+receipt before dispatch, within their existing opt-in record versions. On restart,
+restore those exact bytes and access declarations; do not reconstruct private facts
+from a newly queried database or the smaller pack. Changed bindings, missing facts,
+or a mixed-view proof fail closed. Receipt adoption does not rerun guards.
+
+The proposed private-facts limit is 2 MiB encoded, depth 32, and 65,536 JSON nodes,
+host-reducible and independently admitted from provider input bytes. It does not
+increase checkpoint/receipt limits; every retained copy counts. Shared source
+storage can be optimized internally only when exact bytes and both identities
+remain reconstructable. A large private fact set can fail a storage/work limit,
+even when the model's pack fits its token window.
 
 ## Progressive disclosure
 
@@ -681,6 +829,20 @@ Contract tests must demonstrate:
    and never repeats completed work automatically.
 10. Snapshot/receipt/state quota exhaustion, legacy migration, old-writer exclusion,
     source mutation after capture, and renderer drift all have bounded outcomes.
+11. A full authoritative source larger than the configured model-input budget can
+    validate a smaller selected pack: valid drafts pass and invalid drafts fail
+    against the complete retained facts. A private sentinel must be absent from
+    every provider request, counter input, tool argument, and public event.
+12. `args_reference_seen_ids` rejects an ID present only in private facts; it can
+    accept an appropriately shaped ID after actual authorized disclosure. Private
+    facts never widen tool permissions, reader allowlists, or answer evidence.
+13. Legacy/default `shared` guards reject separated-input admission; audited
+    `model` guards cannot access private facts; authoritative guards cannot bind
+    repair/retry actions or disclose refused/fixed values through normal outputs.
+14. Changing only an omitted authoritative value changes the invocation/v2 proof
+    binding even when the provider payload stays identical. Swapped view digests,
+    private-facts omission, changed access descriptors, and v1 proof substitution
+    fail before result adoption. Exact receipt recovery does not rerun validation.
 
 Integration Lab adds an installed-package lane with two different domains: service
 impact analysis and a document-review specialist. Use public exports only, not
@@ -714,8 +876,12 @@ to implement or publish this design:
 
 1. Harness immutable contracts, bounded pure packer, exact selectors and reports.
 2. Runtime generic input-variant preparation and shared work/recovery semantics.
+   Include `guard_input_views_v1`, access-aware guard descriptors, bounded private
+   facts, safe fail-only authoritative checks, and computed input-view evidence.
 3. Conversation bindings, host pack argument, opt-in durable records and stores.
 4. Workflow admission and turn-path integration, preserving guards/dependencies.
+   Include the v2 guarded-pack proof and complete original-facts validation with
+   the smaller common model projection; this is not deferred follow-up work.
 5. Invocation-scoped reader and complete installed-package qualification.
 6. Opt-in consumer evaluation and user documentation before general release.
 
