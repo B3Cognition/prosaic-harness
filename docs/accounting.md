@@ -2,7 +2,38 @@
 
 Accounting is off by default. Existing Harness callers, checkpoints and invocation receipts keep their existing shape and recovery behavior. No database is required while accounting is off.
 
-Harness 0.6.0 pins the immutable Runtime 0.6.0 release commit `b13a62eac955b19b13fe2c9dc646a188069f72f2`, which provides `accounting_v1`. Normal installation resolves this dependency without a sibling checkout.
+Harness0.9.12 requires Runtime `>=0.9.16,<0.10` and Core `>=0.5.0,<0.6`.
+Lab0.9.10 qualifies Runtime0.9.17 with unchanged published Harness0.9.12 and
+recorder0.3.0/store0.4.1 bytes. Use published distributions, not sibling editables.
+
+## Request metadata with Runtime 0.9.17
+
+Supply trusted `ExecutionContext(request_metadata={'run': 'benchmark-42', 'variant': 'baseline'})`.
+Runtime snapshots bounded strings and exposes exactly `context.request_metadata =
+{'version': 1, 'labels': {...}}` to prepare before dispatch. Harness uses public
+Runtime context decoding/child APIs, so this needs no Harness engine release.
+The diagnostic run label is separate from actual run identity; explicit
+`ExecutionContext.run_id` must match the stored lowercase UUID hex. Omit it to let
+Harness bind its generated ID. Labels/defaults supplied on resume never relabel
+original saved context; use a new run for a new variant. Existing explicit
+tenant/payer/actor/scope rebind refusal and no-call receipt recovery remain intact.
+
+None/empty labels preserve legacy accounting bytes/hashes. Present labels
+intentionally change accounting payload hashes and private sealed contexts/
+receipts, without changing artifact/rule, prepared-turn or workflow/bundle identity
+fields. Identical replay is idempotent; same-call label changes conflict. Labels
+never enter provider prompts/body/headers or select authority, rates, storage scope,
+billing eligibility or retry consent. Raw operator views can contain labels;
+hosts must filter public output and keep secrets out of arbitrary labels.
+
+Published recorder0.3.0 uses Runtime's decoder/existing JSONB schema, without DDL,
+privilege expansion, republish or old-row rewrite. Labeled contexts need >=0.9.17
+readers; old unlabeled rows stay readable. See [Runtime bounds/migration](https://github.com/B3Cognition/prosaic-runtime/blob/v0.9.17/docs/accounting.md#request-metadata-v1)
+and the [Lab host](https://github.com/B3Cognition/prosaic-integration-lab/blob/v0.9.10/docs/accounting-request-metadata.md).
+Complete-train/PG qualification is separate from version-range compatibility;
+no live-provider or financial certification is added.
+
+## Existing accounting opt-in
 
 To opt in, supply trusted host context and an explicitly configured Runtime recorder:
 
