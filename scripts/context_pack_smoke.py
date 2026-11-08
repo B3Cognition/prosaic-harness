@@ -21,6 +21,7 @@ import prosaic_runtime as runtime
 from prosaic_harness import (Workflow,Harness,FileRunStore,Validator,ContextPackBindings,ContextAuthorizer,
     ContextScope,InputSource,EvidenceSource,ArtifactSource,ContextPackSpec,ContextSlot,ContextPacker,
     ContextPackReader,Conversation,ConversationBindings,ConversationPolicy,ConversationScope,MemorySessionStore,FileSessionStore)
+from prosaic_harness import WorkflowFactory,WorkflowCatalog,WorkflowBindings,WorkflowPolicy
 from prosaic_harness.context_packs import capture_sources
 
 fixture=runpy.run_path(str(Path(__file__).with_name('conversation_smoke.py')))
@@ -86,6 +87,45 @@ def documentation_example(root,url,requests,replies):
     assert all('REQUIREMENTS-214' in value for value in payloads[:2]) and 'REQUIREMENTS-214' not in payloads[2]
     assert 'sourceAlias' in payloads[1] and 'candidate' in payloads[1]
     return {'nodes':3,'providerRequests':3,'undeclaredDisclosures':0}
+
+
+def reviewed_native_workflow(root,url,requests,replies):
+    """Installed witness for independent private budgets and later human facts."""
+    spec=ContextPackSpec('task','1',[ContextSlot('task',required=True)],task_source='task')
+    packs=ContextPackBindings(specs={'task':spec},sources={'task':InputSource('/task')},
+        scope=ContextScope('test','sandbox','pack-smoke','tenant','actor'),agent_defaults={'worker':'task'},
+        authorizer=ContextAuthorizer('access','1',lambda use:True))
+    guards=[];checks=[]
+    def check(stage,context):
+        assert len(context.authoritative_input_data['workflow']['request']['private'])==8192
+        assert 'p'*100 not in json.dumps(context.input_data)
+        guards.append(stage);return runtime.Verdict(True)
+    def approve(output,context):
+        assert context.step=='approve' and context.artifacts=={'build':{'ok':True}}
+        checks.append(context.step);return []
+    validators={'approval':Validator('1',approve)}
+    artifact=runtime.ProsaicArtifact('worker','subagent',{'name':'worker','description':'Private facts fixture'},
+        'ALWAYS check facts. <!-- enforce: facts(stage=final, on_violation=fail) -->\nNEVER invent facts.')
+    workflow=WorkflowFactory(catalog=WorkflowCatalog(agents={'worker':artifact},schemas={'result':{'type':'object'}}),
+        bindings=WorkflowBindings(config=config(url),context_packs=packs,validators=validators,repeatable_validators=['approval'],
+            guards=[runtime.Guard('facts','1',('final',),check,input_access='authoritativeAndModel')]),
+        policy=WorkflowPolicy(allowed_agents={'worker'},allowed_schemas={'result'},allowed_validators={'approval'},
+            allowed_guards={'facts'},max_provider_requests_per_invocation=1,max_tool_calls_per_invocation=0,
+            max_invocation_bytes=4096)).build({'version':1,'start':'build','steps':{
+            'build':{'kind':'agent','agent':'worker','schema':'result','next':'approve'},
+            'approve':{'kind':'pause','question':'Approve?','choices':{'yes':'done'},'response_schema':'result','validators':['approval']},
+            'done':{'kind':'finish'}}})
+    store=FileRunStore(root/'state',namespace='test');store.initialize(context_packs=True)
+    before=len(requests);run_id=uuid.uuid4().hex
+    controller=Harness(workflow,store=store,run_id=run_id,validators=validators)
+    replies.append(fixture['answer']('{"ok":true}'))
+    state=controller.run({'task':'Review','private':'p'*8192})
+    assert state['status']=='waiting' and checks==[],state['reason']
+    state=Harness(workflow,store=store,run_id=run_id,validators=validators).resume(
+        choice='yes',response={},expected_revision=controller.status().revision)
+    assert state['status']=='completed' and checks==['approve'] and guards==['final']
+    assert len(requests)==before+1 and 'p'*100 not in json.dumps(requests[before:])
+    return {'privateBytes':8192,'modelByteLimit':4096,'validationNode':'approve','providerRequests':1}
 
 
 def markdown_workflow(root,url,requests,replies):
@@ -275,6 +315,7 @@ def main():
         root=Path(directory).resolve();files=root/'files';files.mkdir()
         result={'markdown':markdown_workflow(files,url,requests,replies)}
         example=root/'example';example.mkdir();result['example']=documentation_example(example,url,requests,replies)
+        native=root/'native';native.mkdir();result['reviewedNative']=reviewed_native_workflow(native,url,requests,replies)
         memory=MemorySessionStore(namespace='test');memory.initialize(context_packs=True)
         result['memory']=conversations(memory,url,requests,replies)
         file_store=FileSessionStore(root/'sessions',namespace='test');file_store.initialize(context_packs=True)
