@@ -12,6 +12,43 @@ FRAME_FIELDS={'version','invocationId','candidatePlan','candidateIdentity','sele
     'ruleReceiptDigest','finalContextReportDigest','frozenIdentity'}
 
 
+def _store_projection(projection,frozen):
+    """Reference only owned bytes in this same closed invocation record."""
+    value=projection.to_dict();original=value.pop('originalArguments')
+    authoritative=value.pop('authoritativeInputData')
+    if encode(authoritative)!=encode(frozen['authoritativeInputData']): raise ContextPackError('contextBindingMismatch')
+    value.update(version=2,originalArgumentsReference=dict(version=1,
+        path='/frozenInput/authoritativeInputData/workflow',digest=digest(original)),
+        originalArgumentOverrides={key:original[key] for key in ('version','step') if key in original},
+        authoritativeInputReference=dict(version=1,path='/frozenInput/authoritativeInputData',digest=digest(authoritative)))
+    return value
+
+
+def _restore_projection(value,frozen):
+    if type(value) is not dict: raise ContextPackError()
+    if value.get('version')==1: return StepPackProjection.from_dict(value).to_dict()
+    if type(value.get('version')) is not int or value['version']!=2: raise ContextPackError()
+    closed(value,{'version','profile','step','originalArgumentsDigest','authoritativeInputProfile',
+        'controllerValidationContext','variants','packIndexMapping','candidateIdentity','requiredDependencies','spec',
+        'originalArgumentsReference','originalArgumentOverrides','authoritativeInputReference'})
+    data=decode(encode(value))
+    original_ref=data.pop('originalArgumentsReference');private_ref=data.pop('authoritativeInputReference')
+    for ref,path in ((original_ref,'/frozenInput/authoritativeInputData/workflow'),(private_ref,'/frozenInput/authoritativeInputData')):
+        closed(ref,{'version','path','digest'})
+        if type(ref['version']) is not int or ref['version']!=1 or ref['path']!=path: raise ContextPackError('contextBindingMismatch')
+        _hash(ref['digest'])
+    authoritative=frozen['authoritativeInputData']
+    if type(authoritative) is not dict or type(authoritative.get('workflow')) is not dict: raise ContextPackError('contextBindingMismatch')
+    overrides=data.pop('originalArgumentOverrides')
+    if type(overrides) is not dict or overrides.keys()-{'version','step'}: raise ContextPackError()
+    original={key:item for key,item in authoritative['workflow'].items() if key not in ('version','step')}
+    original.update(overrides)
+    if digest(original)!=original_ref['digest'] or digest(authoritative)!=private_ref['digest']:
+        raise ContextPackError('contextBindingMismatch')
+    data.update(version=1,originalArguments=original,authoritativeInputData=authoritative)
+    return StepPackProjection.from_dict(data).to_dict()
+
+
 def _frozen_identity(value):
     frozen=dict(value['frozenInput'])
     for field in ('contextWork','initialContextWork','executionAttempt'): frozen.pop(field,None)
@@ -80,7 +117,7 @@ class ContextPackInvocation(_Record):
         document=dict(version=1,invocationId=invocation_id,candidatePlan=candidates.to_dict(),
             candidateIdentity=candidates.candidate_identity,selectedPackReference=selected_pack.reference,
             frozenInput=frozen,runtimeInputMapping=list(runtime_input_mapping),
-            projection=projection.to_dict() if type(projection) is StepPackProjection else None,
+            projection=_store_projection(projection,frozen) if type(projection) is StepPackProjection else None,
             initialExposureBindings=initial.to_dict(),exposureBindings=initial.to_dict(),
             validationBindings=validation_bindings.to_dict() if type(validation_bindings) is ExposureBindings else None,
             contextWork=prepared.context_work.to_dict() if prepared.context_work is not None else None,
@@ -120,7 +157,7 @@ class ContextPackInvocation(_Record):
                 if authoritative is not None and (frozen['authoritativeInputProfile']!='context-pack-snapshot-v1' or encode(authoritative)!=encode(candidates.snapshot.to_dict())):
                     raise ContextPackError('contextBindingMismatch')
             else:
-                projection=StepPackProjection.from_dict(data['projection'])
+                projection=StepPackProjection.from_dict(_restore_projection(data['projection'],frozen))
                 if (projection.candidate_identity!=candidates.candidate_identity or encode(projection.spec)!=encode(candidates.spec.to_dict())
                         or projection.profile!=MODEL_PROFILE or frozen['inputProfile']!=MODEL_PROFILE):
                     raise ContextPackError('contextBindingMismatch')
@@ -190,6 +227,11 @@ class ContextPackInvocation(_Record):
 
     @property
     def candidates(self): return ContextPackCandidates.from_dict(self.to_dict()['candidatePlan'])
+
+    @property
+    def projection(self):
+        value=self.to_dict()
+        return _restore_projection(value['projection'],value['frozenInput']) if value['projection'] is not None else None
 
     @property
     def prepared_pack(self):

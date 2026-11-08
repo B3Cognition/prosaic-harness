@@ -11,7 +11,7 @@ from test_context_pack_authoring import factory,graph
 from test_context_pack_records import result_case
 
 
-def workflow_case(*,private_source=False):
+def workflow_case(*,private_source=False,extra_arguments=None):
     from test_context_pack_authoring import pack_bindings
     from prosaic_harness import InputSource
     bindings=pack_bindings()
@@ -23,6 +23,7 @@ def workflow_case(*,private_source=False):
         current='build',calls=0,visits={'build':1},outputs={},bindings={},history=[],pending=None,
         entered=True,attempt=0,feedback=None,invocations=[],evidence={},started_at=0,deadline=None))
     arguments=dict(request=state['inputs'],artifacts={},artifact_bindings={},sources={},validation_feedback=None)
+    arguments.update(extra_arguments or {})
     bindings=workflow._context_packs
     spec=bindings.specs['work'];packer=ContextPacker()
     candidates=packer.compose(spec,capture_sources(spec,arguments,{},bindings))
@@ -40,6 +41,29 @@ def workflow_case(*,private_source=False):
     frame=ContextPackInvocation.from_prepared('b'*32,candidates,pack,prepared,projection=projection,
         validation_bindings=validation_exposures(bindings,check_context).union(ExposureBindings.from_snapshot(candidates.snapshot)))
     return workflow,state,arguments,frame
+
+
+def test_saved_projection_references_private_bytes_retained_in_the_same_frame():
+    from prosaic_harness.context_packs.records import ContextPackInvocation
+    workflow,state,arguments,frame=workflow_case(extra_arguments={'version':{'private':'original version'},'step':['original step']})
+    saved=frame.to_dict()['projection']
+    assert saved['version']==2 and 'authoritativeInputData' not in saved and 'originalArguments' not in saved
+    restored=ContextPackInvocation.from_dict(frame.to_dict())
+    assert restored.projection['originalArguments']==arguments
+    assert restored.projection['authoritativeInputData']==restored.frozen_input.to_dict()['authoritativeInputData']
+
+
+def test_local_projection_references_are_closed_and_old_inline_form_remains_readable():
+    from prosaic_harness.context_packs.records import ContextPackInvocation,_frozen_identity
+    workflow,state,arguments,frame=workflow_case()
+    value=frame.to_dict()
+    assert value['projection']['version']==2
+    old=frame.to_dict();old['projection']=frame.projection;old['frozenIdentity']=_frozen_identity(old)
+    assert ContextPackInvocation.from_dict(old).to_dict()==old
+    for field,changed in (('path','/foreign/private'),('digest','0'*64)):
+        forged=frame.to_dict();forged['projection']['originalArgumentsReference'][field]=changed
+        forged['frozenIdentity']=_frozen_identity(forged)
+        with pytest.raises(ValueError): ContextPackInvocation.from_dict(forged)
 
 
 def allocated(*,private_source=False):

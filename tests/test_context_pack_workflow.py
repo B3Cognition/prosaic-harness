@@ -77,7 +77,8 @@ def test_markdown_two_nodes_select_different_context_and_keep_private_validation
     assert len(guards)==(2 if guarded else 0)
     for item in state['invocations']:
         receipt=harness.store.load_receipt(state['run_id'],item['id'])
-        assert receipt['version']==2 and receipt['contextPack']['projection']['originalArguments']['request']['private']=='UNRELATED-BUSINESS-419'
+        from prosaic_harness.context_packs.records import ContextPackInvocation
+        assert receipt['version']==2 and ContextPackInvocation.from_dict(receipt['contextPack']).projection['originalArguments']['request']['private']=='UNRELATED-BUSINESS-419'
         if guarded: assert 'workflow_rules_v2' in receipt['result']['metadata']
         binding=state['bindings'][item['step']]
         assert binding['contextPackIdentity']==receipt['contextPack']['selectedPackReference']['packIdentity']
