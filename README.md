@@ -1,5 +1,12 @@
 # Prosaic Harness
 
+The **0.9.13.dev0** candidate adds [context packs](docs/context-packs.md): named
+agent defaults, workflow-node overrides, Markdown and accepted-record evidence,
+bounded deferred reads and separately retained private validation facts.
+It requires Runtime **0.9.19.dev0** or later in the compatible family; optional
+PostgreSQL storage is **0.4.2.dev0**. Publication and hosted qualification remain
+pending. Existing pack-free callers and old records remain supported.
+
 Current published release: **0.9.12**. See [release notes and compatible SDK versions](docs/releases.md).
 
 Harness **0.9.12** adds [workflow enforcement tags over accepted earlier outputs](docs/workflow-rules.md) and a [copyable V2 blueprint](examples/workflow-enforcement/README.md). The existing [Validator V1 blueprint](examples/revision-review/README.md) remains supported.

@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import shutil
 import sys
 from tempfile import TemporaryDirectory
 import uuid
@@ -63,6 +64,28 @@ def origins(include_postgres):
 def config(url,tools=()):
     return runtime.RuntimeConfig({'local':runtime.EndpointConfig(url,'synthetic-context-pack',max_tokens=128,
         features={'streaming':False})},{},'local',frozenset(tools))
+
+
+def documentation_example(root,url,requests,replies):
+    source=Path(__file__).resolve().parents[1]/'examples/context-packs'
+    shutil.copytree(source,root,dirs_exist_ok=True)
+    (root/'runtime.example.yml').write_text(yaml.safe_dump({'default_profile':'local','profiles':{'local':{
+        'base_url':url,'model':'synthetic-context-pack','max_tokens':128,'features':{'streaming':False}}}}))
+    load=runpy.run_path(str(root/'run.py'))['load']
+    workflow=load(root/'workflow.yml',scope=ContextScope('example','sandbox','review','tenant','actor'),
+        authorizer=ContextAuthorizer('fixture-access','1',lambda use:True))
+    before=len(requests);replies.extend([fixture['answer']('{"ok":true}')]*3)
+    store=FileRunStore(root/'state',namespace='example');store.initialize(context_packs=True)
+    state=Harness(workflow,store=store,run_id=uuid.uuid4().hex).run(
+        {'task':'TASK-501: review requirements','private':'UNDECLARED-PRIVATE-819'})
+    assert state['status']=='completed',state['status']
+    payloads=[json.dumps(value) for value in requests[before:]]
+    assert len(payloads)==3
+    assert all('TASK-501' in value and 'UNDECLARED-PRIVATE-819' not in value for value in payloads)
+    assert 'CONSTRAINTS-317' in payloads[0] and all('CONSTRAINTS-317' not in value for value in payloads[1:])
+    assert all('REQUIREMENTS-214' in value for value in payloads[:2]) and 'REQUIREMENTS-214' not in payloads[2]
+    assert 'sourceAlias' in payloads[1] and 'candidate' in payloads[1]
+    return {'nodes':3,'providerRequests':3,'undeclaredDisclosures':0}
 
 
 def markdown_workflow(root,url,requests,replies):
@@ -251,6 +274,7 @@ def main():
     with TemporaryDirectory(prefix='prosaic-pack-installed-') as directory,fixture['endpoint']() as (url,requests,replies):
         root=Path(directory).resolve();files=root/'files';files.mkdir()
         result={'markdown':markdown_workflow(files,url,requests,replies)}
+        example=root/'example';example.mkdir();result['example']=documentation_example(example,url,requests,replies)
         memory=MemorySessionStore(namespace='test');memory.initialize(context_packs=True)
         result['memory']=conversations(memory,url,requests,replies)
         file_store=FileSessionStore(root/'sessions',namespace='test');file_store.initialize(context_packs=True)

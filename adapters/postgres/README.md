@@ -1,5 +1,10 @@
 # PostgreSQL persistence for Prosaic Harness
 
+Context-pack candidate **0.4.2.dev0** requires Harness **0.9.13.dev0** or later
+in the compatible family. It is unpublished. Explicit owner migration enables
+workflow storage contract2 or conversation contract3; readiness performs no DDL.
+See [context-pack migration and rollback](../../docs/context-packs.md#current-authorization-and-durable-storage).
+
 Current published adapter release: **0.4.1**. See [release notes and compatible SDK versions](https://github.com/B3Cognition/prosaic-harness/blob/main/docs/releases.md).
 
 Run on worker A, inspect/resume on worker B, without a shared writable run

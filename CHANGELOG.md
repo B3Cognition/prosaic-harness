@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.13.dev0 — candidate, unpublished
+
+- Add host-bound named context packs, agent defaults and per-node overrides for Markdown and accepted records.
+- Keep selected model context separate from complete frozen guard and controller validation facts; seal safe feedback.
+- Add invocation-scoped deferred reading, current-use authorization, provenance and frozen workflow/conversation recovery.
+- Add explicit local and PostgreSQL migrations; old records remain readable and old writers are fenced after opt-in.
+- Require Runtime >=0.9.19.dev0; PostgreSQL adapter 0.4.2.dev0 requires this Harness. See [candidate qualification](docs/release-0.9.13.dev0.md).
+
 See [published release notes and compatibility](docs/releases.md), including backfilled historical release notes. Documentation refreshed on 2026-11-07; package versions and release archives are unchanged.
 
 ## 0.9.12

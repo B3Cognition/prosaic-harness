@@ -1,0 +1,50 @@
+version: 1
+source: .prosaic
+runtime: runtime.example.yml
+evidence: [requirements.md, constraints.md]
+contextPacks:
+  implementation:
+    version: '1'
+    taskSource: task
+    slots:
+      - {source: task, required: true}
+      - {source: requirements, required: true}
+      - {source: constraints, required: true}
+  review:
+    version: '1'
+    taskSource: task
+    slots:
+      - {source: task, required: true}
+      - {source: requirements, required: true}
+      - {source: candidate, required: true}
+  task-only:
+    version: '1'
+    taskSource: task
+    slots: [{source: task, required: true}]
+agentContextPacks:
+  subagents/worker.md: implementation
+start: build
+limits:
+  timeout_s: 15
+  max_provider_requests_per_invocation: 1
+  max_tool_calls_per_invocation: 0
+steps:
+  build:
+    kind: agent
+    agent: subagents/worker.md
+    schema: result.json
+    next: review
+  review:
+    kind: agent
+    agent: subagents/worker.md
+    schema: result.json
+    contextPack: review
+    inputs: [build]
+    next: brief
+  brief:
+    kind: agent
+    agent: subagents/worker.md
+    schema: result.json
+    contextPack: task-only
+    next: done
+  done: {kind: finish, requires: [brief]}

@@ -4,6 +4,9 @@ include scripts/workflow_factory_smoke.py
 include scripts/conversation_smoke.py
 include scripts/release_artifacts.py
 include scripts/terminal_completion_smoke.py
+include scripts/context_pack_smoke.py scripts/context_pack_qualify.py
+include scripts/ci_context_pack_upstream.py
+include tests/test_context_pack_installed.py tests/test_context_pack_example.py
 include .github/workflows/publish.yml .github/ci/bwrap.apparmor
 include LICENSE NOTICE
 recursive-include adapters/postgres *.toml *.md *.py LICENSE NOTICE MANIFEST.in
