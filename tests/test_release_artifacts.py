@@ -196,13 +196,13 @@ def test_all_real_workflow_labels_can_qualify_and_gate(release_tool, built_relea
     labels = [f'linux-{os_name}-{version}-{kind}' for os_name in linux['os']
               for version in linux['python'] for kind in ('source', 'wheel')]
     macos = workflow['jobs']['macos']['strategy']['matrix']
-    labels += [f'macos-macos-latest-{version}-{kind}' for version in macos['python']
+    labels += [f'macos-{os_name}-{version}-{kind}' for os_name in macos['os'] for version in macos['python']
                for kind in ('source', 'wheel')]
     postgres = workflow['jobs']['postgres']['strategy']['matrix']
     labels += [f'postgres-{os_name}-{version}' for os_name in postgres['os']
                for version in postgres['postgres']]
     labels += [f'floor-{os_name}' for os_name in linux['os']]
-    assert len(labels) == 24
+    assert len(labels) == 30
     output, receipt = built_release
     for label in labels:
         release_tool.qualify(output / 'artifacts', receipt['source_commit'], label,

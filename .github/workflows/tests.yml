@@ -8,7 +8,7 @@ env:
   # the same immutable upstream artifacts used for release qualification.
   CORE_RUN: '42014531336'
   CORE_COMMIT: '67b3807281ed0cdfd345fff84c56b236ec82cfb1'
-  RUNTIME_COMMIT: '7ef7cb543cd2ef02f4ebeeffdc4038bea502d3bd'
+  RUNTIME_COMMIT: '46bb7e04ded2b9d788fb9656c0c3147bd5270c6a'
 jobs:
   test:
     runs-on: '${{ matrix.os }}'
@@ -179,7 +179,7 @@ jobs:
           POSTGRES_VERSION: '${{ matrix.postgres }}'
           PIP_FIND_LINKS: ${{ github.workspace }}/.ci-upstream/wheels
           HARNESS_TEST_WHEELHOUSE: ${{ github.workspace }}/.ci-upstream/wheels
-          HARNESS_TEST_RELEASE_DIRECTORY: ${{ github.workspace }}/.ci-upstream/artifacts
+          HARNESS_TEST_BRANCH_UPSTREAM_RECEIPT: ${{ github.workspace }}/.ci-upstream/artifacts/branch-build.json
         run: |
           fixture_manifest="$(python adapters/postgres/tests/support/local_cluster.py start --engine docker --version "$POSTGRES_VERSION")"
           trap 'python adapters/postgres/tests/support/local_cluster.py stop --manifest "$fixture_manifest"' EXIT

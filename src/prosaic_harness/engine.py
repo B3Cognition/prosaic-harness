@@ -635,7 +635,8 @@ class Harness:
         first_failed=None
         if packed:
             from .context_packs.projection import FrozenCheckContext
-            if name==state['current'] and state['invocations']:
+            if (name==state['current'] and state['invocations']
+                    and state['invocations'][-1]['step']==name):
                 frame=state['contextPacks']['attempts'].get(state['invocations'][-1]['id'])
                 if frame is not None:
                     context=FrozenCheckContext.from_dict(frame['projection']['controllerValidationContext']).to_check_context()
@@ -987,7 +988,7 @@ class Harness:
                     arguments['human_responses'] = responses
                 if kind == 'tool':
                     arguments['tool_arguments'] = deepcopy(step['arguments'])
-                if self._admission:
+                if self._admission and name not in self._pack_nodes:
                     try:
                         arguments = self._snapshot(arguments, self._admission.policy.max_invocation_bytes)
                         rendered = (json.dumps(arguments) if kind == 'tool' else

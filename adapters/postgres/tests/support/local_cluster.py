@@ -39,6 +39,12 @@ def candidate_wheels(root):
         return []
     wheelhouse = Path(os.environ['HARNESS_TEST_WHEELHOUSE']).resolve(strict=True)
     receipt_directory = os.environ.get('HARNESS_TEST_RELEASE_DIRECTORY')
+    branch_receipt=os.environ.get('HARNESS_TEST_BRANCH_UPSTREAM_RECEIPT')
+    if branch_receipt:
+        if receipt_directory:raise ValueError('branch and release evidence cannot be mixed')
+        spec=importlib.util.spec_from_file_location('branch_upstream',Path(root)/'scripts/ci_context_pack_upstream.py')
+        branch=importlib.util.module_from_spec(spec);spec.loader.exec_module(branch)
+        return branch.verify_branch_upstream(wheelhouse,Path(branch_receipt),os.environ.get('RUNTIME_COMMIT'))
     if not receipt_directory:
         raise ValueError('candidate wheelhouse requires verified release evidence')
     spec = importlib.util.spec_from_file_location('release_artifacts',
