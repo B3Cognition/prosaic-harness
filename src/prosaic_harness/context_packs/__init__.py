@@ -10,3 +10,6 @@ from .selection import ContextPacker, ContextPackCandidates, PreparedContextPack
 __all__ += ['ContextPacker', 'ContextPackCandidates', 'PreparedContextPack']
 from .bindings import ContextPackBindings, ContextAuthorizer
 __all__ += ['ContextPackBindings', 'ContextAuthorizer']
+from .sources import capture_sources,resolve_pack
+from .projection import StepPackProjection,FrozenCheckContext,project_step
+__all__ += ['capture_sources','resolve_pack','StepPackProjection','FrozenCheckContext','project_step']
