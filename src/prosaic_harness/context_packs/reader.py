@@ -42,7 +42,7 @@ class ContextPackReader:
         self._active={};self._lock=threading.RLock()
         from prosaic_runtime import CustomTool
         self._tool=CustomTool(NAME,'Read an admitted captured context item. Text offsets are UTF-8 bytes; pointers are absolute within the captured JSON item.',
-            SCHEMA,self._read,VERSION,with_context=True,max_argument_bytes=12288,max_result_bytes=max_result_bytes)
+            SCHEMA,self._dispatch,VERSION,with_context=True,max_argument_bytes=12288,max_result_bytes=max_result_bytes)
 
     def as_tool(self): return self._tool
 
@@ -86,6 +86,15 @@ class ContextPackReader:
         # Runtime's bounded_result uses this exact JSON framing (including
         # default ASCII escaping). Canonical storage size alone is insufficient.
         return len(json.dumps({'status':'ok','result':result},allow_nan=False).encode('utf-8'))
+
+    def _dispatch(self,arguments,context):
+        result=self._read(arguments,context)
+        if set(result)=={'error'}:
+            from prosaic_runtime import ToolFailure
+            codes={'contextUseDenied':'context_use_denied','contextReadLimit':'context_read_limit',
+                'contextSnapshotUnavailable':'context_snapshot_unavailable'}
+            return ToolFailure(codes[result['error']])
+        return result
 
     def _read(self,arguments,context):
         try:

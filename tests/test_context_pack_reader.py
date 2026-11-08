@@ -32,14 +32,14 @@ def test_stable_tool_reads_only_selected_discoverable_snapshot():
     descriptor=reader.as_tool().descriptor;citation=pack.envelope['index'][0]['citationId']
     assert descriptor['version']=='context-pack-reader-v1' and descriptor['with_context'] is True
     assert descriptor['max_result_bytes']==24576
-    assert call(reader,scope,citation)['result']['error']=='contextSnapshotUnavailable'
+    assert call(reader,scope,citation)['error']=='context_snapshot_unavailable'
     with reader.activate(scope,pack,bindings,deadline=time.monotonic()+60):
         result=call(reader,scope,citation)['result']
         assert result['content']=='captured facts' and result['complete'] is True
         assert result['snapshotDigest']==pack.snapshot.identity
         assert reader.as_tool().descriptor==descriptor
-        assert call(reader,api.InvocationScope('turn-2',operation_namespace='test'),citation)['result']['error']=='contextSnapshotUnavailable'
-    assert call(reader,scope,citation)['result']['error']=='contextSnapshotUnavailable'
+        assert call(reader,api.InvocationScope('turn-2',operation_namespace='test'),citation)['error']=='context_snapshot_unavailable'
+    assert call(reader,scope,citation)['error']=='context_snapshot_unavailable'
 
 
 def test_json_pointer_can_narrow_but_never_widen():
@@ -48,7 +48,7 @@ def test_json_pointer_can_narrow_but_never_widen():
     with reader.activate(scope,pack,bindings,deadline=time.monotonic()+60):
         assert call(reader,scope,citation,pointer='/public/title')['result']['content']=='visible'
         for pointer in ('','/private','/publicity'):
-            assert call(reader,scope,citation,pointer=pointer)['result']['error']=='contextUseDenied'
+            assert call(reader,scope,citation,pointer=pointer)['error']=='context_use_denied'
 
 
 def test_text_pages_respect_utf8_and_actual_runtime_json_escaping():
@@ -69,7 +69,7 @@ def test_text_pages_respect_utf8_and_actual_runtime_json_escaping():
 def test_large_json_is_not_prefix_truncated():
     reader,pack,bindings=reader_case({'large':'x'*20000});scope=api.InvocationScope('turn')
     with reader.activate(scope,pack,bindings,deadline=time.monotonic()+60):
-        assert call(reader,scope,pack.envelope['index'][0]['citationId'])['result']['error']=='contextReadLimit'
+        assert call(reader,scope,pack.envelope['index'][0]['citationId'])['error']=='context_read_limit'
 
 
 def test_current_authorization_and_cancellation_are_checked_each_read():
@@ -80,16 +80,16 @@ def test_current_authorization_and_cancellation_are_checked_each_read():
         citation=pack.envelope['index'][0]['citationId']
         assert call(reader,scope,citation)['result']['content']=='captured facts'
         allowed[0]=False
-        assert call(reader,scope,citation)['result']['error']=='contextUseDenied'
+        assert call(reader,scope,citation)['error']=='context_use_denied'
         allowed[0]=True;cancelled[0]=True
-        assert call(reader,scope,citation)['result']['error']=='contextSnapshotUnavailable'
+        assert call(reader,scope,citation)['error']=='context_snapshot_unavailable'
     assert all(use.purpose=='deferredRead' for use in uses)
 
 
 def test_inline_only_item_is_not_a_reader_grant():
     reader,pack,bindings=reader_case(availability='inline');scope=api.InvocationScope('turn')
     with reader.activate(scope,pack,bindings,deadline=time.monotonic()+60):
-        assert call(reader,scope,pack.envelope['items'][0]['citationId'])['result']['error']=='contextUseDenied'
+        assert call(reader,scope,pack.envelope['items'][0]['citationId'])['error']=='context_use_denied'
 
 
 @pytest.mark.parametrize('stage',[None,'before_tool','after_tool'])
@@ -128,4 +128,13 @@ def test_revoked_oversized_item_still_checks_current_authorization():
     reader,pack,bindings=reader_case({'large':'x'*20000},authorize=lambda use:False)
     scope=api.InvocationScope('turn')
     with reader.activate(scope,pack,bindings,deadline=time.monotonic()+60):
-        assert call(reader,scope,pack.envelope['index'][0]['citationId'])['result']['error']=='contextUseDenied'
+        assert call(reader,scope,pack.envelope['index'][0]['citationId'])['error']=='context_use_denied'
+
+
+def test_denied_reader_is_a_controlled_failed_tool_outcome():
+    from prosaic_runtime.tools import execute_custom_tool
+    reader,pack,bindings=reader_case();outcomes=[]
+    result=execute_custom_tool(reader.as_tool(),json.dumps({'citationId':pack.envelope['index'][0]['citationId']}),
+        check_boundary=lambda:None,scope=api.InvocationScope('missing'),deadline=time.monotonic()+60,on_outcome=outcomes.append)
+    assert result=={'status':'error','error':'context_snapshot_unavailable'}
+    assert outcomes[-1].to_dict()['code']=='controlled_failure'

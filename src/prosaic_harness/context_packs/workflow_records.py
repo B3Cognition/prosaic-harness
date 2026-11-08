@@ -9,13 +9,26 @@ from .capacity import PackReservation,reserve_pack_capacity,_nodes
 def _owned(value): return decode(encode(value,maximum=8388608,nodes=65536,depth=64))
 
 
-def upgrade_pack_workflow(document,workflow):
+def storage_policy(workflow):
+    from ..factory import WorkflowPolicy
+    admission=getattr(workflow,'_admission',None)
+    return admission.policy if admission is not None else WorkflowPolicy()
+
+
+def output_pack_binding(frame):
+    if frame is None: return dict(contextPackIdentity=None,contextSourceRevisions=None)
+    if type(frame) is not ContextPackInvocation: frame=ContextPackInvocation.from_dict(frame)
+    return dict(contextPackIdentity=frame.selected_pack_reference['packIdentity'],
+        contextSourceRevisions=frame.candidates.snapshot.to_dict()['sources'])
+
+
+def upgrade_pack_workflow(document,workflow,*,assembly_bindings=None):
     from ..contracts import validate_state,seal
     state=_owned(document);validate_state(state,workflow)
     bindings=workflow._context_packs
     if bindings is None or state['calls'] or state['pending'] is not None: raise ContextPackError('contextBindingMismatch')
     state.update(version=3,recordType='workflow',contextPacks=dict(version=1,scope=bindings.scope.to_dict(),
-        bindingIdentity=bindings.identity,attempts={},reservations={}))
+        bindingIdentity=bindings.identity,attempts={},reservations={},assemblyBindings=assembly_bindings))
     state=seal(state);validate_state(state,workflow)
     return state
 
@@ -36,7 +49,7 @@ def reserve_workflow_pack_attempt(document,workflow,step,arguments,frame,*,tool_
     state['calls']+=1;state['attempt']+=1
     state['contextPacks']['attempts'][aid]=frame.to_dict()
     state['contextPacks']['reservations'][aid]=None
-    policy=workflow._admission.policy
+    policy=storage_policy(workflow)
     packet=dict(version=2,recordType='workflowReceipt',run_id=state['run_id'],id=aid,step=step,
         arguments_sha256=arguments_digest(arguments),arguments=arguments,contextPack=frame.to_dict(),contextPackResult=None,
         result=None,events=[])
@@ -52,7 +65,18 @@ def reserve_workflow_pack_attempt(document,workflow,step,arguments,frame,*,tool_
 
 def validate_workflow_pack_state(state,workflow):
     if state['recordType']!='workflow': raise ContextPackError()
-    side=state['contextPacks'];closed(side,{'version','scope','bindingIdentity','attempts','reservations'})
+    side=state['contextPacks'];closed(side,{'version','scope','bindingIdentity','attempts','reservations'},optional={'diagnostics','assemblyBindings'})
+    assembly=side.get('assemblyBindings')
+    if assembly is not None:
+        from prosaic_runtime import ContextPolicy,TokenCounterDescriptor
+        closed(assembly,{'contextPolicy','counterDescriptor'})
+        policy=ContextPolicy.from_dict(assembly['contextPolicy']);counter=TokenCounterDescriptor.from_dict(assembly['counterDescriptor'])
+        if policy.counter_identity!=counter.identity or policy.context_window_tokens>counter.context_capacity_tokens: raise ContextPackError()
+    if 'diagnostics' in side:
+        from .feedback import private_diagnostics
+        if type(side['diagnostics']) is not dict or len(side['diagnostics'])>128: raise ContextPackError()
+        for value in side['diagnostics'].values():
+            if encode(value)!=encode(private_diagnostics(value['issues'])): raise ContextPackError()
     bindings=workflow._context_packs
     if (type(side['version']) is not int or side['version']!=1 or bindings is None
             or side['bindingIdentity']!=bindings.identity or side['scope']!=bindings.scope.to_dict()):
@@ -68,7 +92,14 @@ def validate_workflow_pack_state(state,workflow):
             if reservation is not None or workflow.context_pack_for(entry['step']) is not None: raise ContextPackError('contextBindingMismatch')
             continue
         frame=ContextPackInvocation.from_dict(value)
+        frozen_binding=frame.frozen_input.to_dict()['bindings']
+        if (frozen_binding.get('contextPolicy')!=(assembly['contextPolicy'] if assembly else None)
+                or frozen_binding.get('counterDescriptor')!=(assembly['counterDescriptor'] if assembly else None)):
+            raise ContextPackError('contextBindingMismatch')
         projection=frame.projection
+        alias=workflow.context_pack_for(entry['step'])
+        if alias is None or encode(frame.candidates.spec.to_dict())!=encode(bindings.specs[alias].to_dict()):
+            raise ContextPackError('contextBindingMismatch')
         if (frame.invocation_id!=aid or projection is None or projection['step']!=entry['step']
                 or projection['originalArgumentsDigest']!=entry['arguments_sha256']
                 or frame.candidates.snapshot.scope_binding.to_dict()!=side['scope']):
@@ -77,6 +108,9 @@ def validate_workflow_pack_state(state,workflow):
         if frame.stage not in expected or frame.receipt_identity!=entry['receipt_sha256']: raise ContextPackError('contextBindingMismatch')
         if state['pending'] is not None and state['pending']['id']==aid:
             if encode(projection['originalArguments'])!=encode(state['pending']['arguments']): raise ContextPackError('contextBindingMismatch')
+    for binding in state['bindings'].values():
+        expected=output_pack_binding(side['attempts'][binding['id']])
+        if any(encode(binding[k])!=encode(v) for k,v in expected.items()): raise ContextPackError('contextBindingMismatch')
 
 
 def mark_workflow_pack_dispatch(document,workflow,invocation_id):

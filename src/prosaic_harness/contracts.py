@@ -164,7 +164,7 @@ def validate_state(state, workflow):
         raise ValueError('pending invocation missing')
     for name, binding in state['bindings'].items():
         if (name not in output_steps or not isinstance(binding, dict)
-                or set(binding) != {'id', 'sha256', 'dependencies'} or binding['id'] not in ids
+                or set(binding) != {'id', 'sha256', 'dependencies',*({'contextPackIdentity','contextSourceRevisions'} if packed else ())} or binding['id'] not in ids
                 or digest(state['outputs'][name]) != binding['sha256'] or not isinstance(binding['dependencies'], dict)):
             raise ValueError('invalid artifact binding')
     if state['status'] == 'waiting':

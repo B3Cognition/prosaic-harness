@@ -24,7 +24,7 @@ def test_real_worker_threads_cannot_cross_over_same_item_ids():
 def test_timeout_and_rebinding_do_not_revive_old_grants():
     reader,pack,bindings=reader_case();scope=api.InvocationScope('turn')
     with reader.activate(scope,pack,bindings,deadline=time.monotonic()-1):
-        assert call(reader,scope,pack.envelope['index'][0]['citationId'])['result']['error']=='contextSnapshotUnavailable'
+        assert call(reader,scope,pack.envelope['index'][0]['citationId'])['error']=='context_snapshot_unavailable'
         with pytest.raises(ContextPackError):
             with reader.activate(scope,pack,bindings,deadline=time.monotonic()+60): pass
     with reader.activate(scope,pack,bindings,deadline=time.monotonic()+60):
@@ -45,6 +45,6 @@ def test_cleanup_and_new_binding_prevent_inflight_old_authorization_from_disclos
             assert entered.wait(5)
         with reader.activate(scope,new,other,deadline=time.monotonic()+60):
             release.set()
-            assert future.result(timeout=5)['result']['error']=='contextSnapshotUnavailable'
+            assert future.result(timeout=5)['error']=='context_snapshot_unavailable'
             assert call(reader,scope,new.envelope['index'][0]['citationId'])['result']['content']=='new evidence'
     assert reader.active_count==0

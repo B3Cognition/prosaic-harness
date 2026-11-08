@@ -150,3 +150,37 @@ def validate_proof(value, workflow, step, arguments, *, success=False):
             or success and (not required <= set(receipt['evaluated']) or receipt['faulted'])):
         raise ValueError('workflow rule proof coverage')
     return value
+
+
+def pack_proof(frame,rules):
+    from .workflow import digest
+    from .context_packs.codec import digest as input_digest
+    from .context_packs.projection import MODEL_PROFILE,AUTHORITATIVE_PROFILE
+    frozen=frame.frozen_input.to_dict();projection=frame.projection
+    if projection is None: raise ValueError('workflow pack projection missing')
+    views=frozen['inputViews']
+    if (views['model']!={'profile':MODEL_PROFILE,'digest':input_digest(frozen['selectedInputData'])}
+            or views['authoritative']!={'profile':AUTHORITATIVE_PROFILE,'digest':input_digest(projection['authoritativeInputData'])}):
+        raise ValueError('workflow pack input views mismatch')
+    return dict(version=2,originalFactsSha256=digest(projection['authoritativeInputData']),inputViews=views,
+        packReference=frame.selected_pack_reference,contextIdentity=frozen['contextIdentity'],rules=validate_rule_receipt(rules))
+
+
+def result_with_pack_proof(turn,frame):
+    from dataclasses import replace
+    rules=rule_receipt(turn)
+    if rules is None: raise ValueError('missing guarded Runtime evidence')
+    return replace(turn.result,metadata={**turn.result.metadata,'workflow_rules_v2':pack_proof(frame,rules)})
+
+
+def validate_pack_proof(value,workflow,step,frame,result,*,success=False):
+    from .context_packs.codec import encode
+    expected=pack_proof(frame,result['rules'])
+    if encode(value)!=encode(expected): raise ValueError('workflow pack proof mismatch')
+    rules=compiled(workflow)[step];receipt=validate_rule_receipt(value['rules'])
+    ids={b.rule_id for b in rules.bindings}
+    required={b.rule_id for b in rules.bindings if b.stage in {'before_answer','final'}}
+    if (receipt['fingerprint']!=rules.rules_fingerprint() or set(receipt['evaluated'])-ids
+            or success and (required-set(receipt['evaluated']) or receipt['faulted'])):
+        raise ValueError('workflow pack proof coverage')
+    return value
