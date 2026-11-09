@@ -222,10 +222,13 @@ def capacity_workflow(root,url,requests,replies):
     (root/'runtime.yml').write_text(yaml.safe_dump({'default_profile':'local','allowed_tools':['lookup_records','read_context_item'],
         'profiles':{'local':{'base_url':url,'model':'synthetic-context-pack','max_tokens':128,'features':{'streaming':False}}}}))
     definitions={'capacity':{'version':'1','taskSource':'task','slots':[slot.to_dict() for slot in slots]}}
+    # This is a capacity witness, including preparation and two large reads on
+    # native runners. Give that work time, and fail its single scripted attempt
+    # directly rather than starting an unscripted validation-repair invocation.
     graph={'version':1,'source':'.prosaic','runtime':'runtime.yml','evidence':list(evidence),'contextPacks':definitions,
-        'start':'lookup','limits':{'timeout_s':10,'max_provider_requests_per_invocation':3,'max_tool_calls_per_invocation':2},
+        'start':'lookup','limits':{'timeout_s':60,'max_provider_requests_per_invocation':3,'max_tool_calls_per_invocation':2},
         'steps':{'lookup':{'kind':'tool','tool':'lookup_records','arguments':{},'schema':'result.json','next':'review'},
-            'review':{'kind':'agent','agent':'subagents/worker.md','schema':'result.json','contextPack':'capacity',
+            'review':{'kind':'agent','agent':'subagents/worker.md','schema':'result.json','contextPack':'capacity','max_attempts':1,
                 'tools':['read_context_item'],'require_tools':['read_context_item'],'optional_inputs':['lookup'],'next':'done'},
             'done':{'kind':'finish','requires':['review']}}}
     (root/'workflow.yml').write_text(yaml.safe_dump(graph))
