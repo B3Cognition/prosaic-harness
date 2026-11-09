@@ -10,7 +10,11 @@
 
 **Spec:** [Context-pack design](../specs/2026-11-08-context-packs-design.md), with [review findings CP-01–CP-15](../specs/2026-11-08-context-packs-review.md). Read both before executing a task.
 
-**Status:** Planning only. Checkboxes describe future work; no product changes or test results are claimed by this document. The user authorized implementation beginning with this plan. Execution method is a separate preference; do not infer publication permission.
+**Status:** Implemented locally through native execution and one independent review.
+The original task checklists below preserve the approved plan; actual completed
+checks, exact artifact hashes and limitations are in the
+[qualification report](../../verification/2026-11-09-context-packs-qualification.md).
+Hosted promotion gates remain pending. No push, tag or publication was performed.
 
 ## Global Constraints
 
