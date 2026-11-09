@@ -173,6 +173,10 @@ remain supported; the adapter adds no new workflow interpreter.
   budget 10s, pool/connect 5s, row lock 1s, statement 5s. Deadlines cover pool,
   network and COMMIT waits. Stalled connections are quarantined; unresolved
   operations retain capacity and prevent unsafe close.
+- Ordinary operations use the configured short lock timeout. Dedicated renewal
+  operations can wait for a same-owner write within the configured statement
+  and total operation deadlines. Failed renewal remains sticky; ownership and
+  generation checks still fence every write.
 - Default lazy pool bounds per store/process: 8 ordinary + 4 renewal connections,
   maximum 4 active leases. Renewal has reserved capacity. Multiply capacity
   across replicas/namespaces; do not create a pool per HTTP request. Applications
