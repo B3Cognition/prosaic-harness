@@ -1,18 +1,19 @@
 # PostgreSQL persistence for Prosaic Harness
 
-Context-pack candidate **0.4.2.dev0** requires Harness **0.9.13.dev0** or later
-in the compatible family. It is unpublished. Explicit owner migration enables
+PostgreSQL adapter **0.4.2** requires Harness **0.9.13** or later
+in the compatible family. Explicit owner migration enables
 workflow storage contract2 or conversation contract3; readiness performs no DDL.
 See [context-pack migration and rollback](../../docs/context-packs.md#current-authorization-and-durable-storage).
 
-Current published adapter release: **0.4.1**. See [release notes and compatible SDK versions](https://github.com/B3Cognition/prosaic-harness/blob/main/docs/releases.md).
+See [0.4.2 release and migration notes](../../docs/release-postgres-0.4.2.md)
+and [compatible SDK versions](https://github.com/B3Cognition/prosaic-harness/blob/main/docs/releases.md).
 
 Run on worker A, inspect/resume on worker B, without a shared writable run
 directory. Core remains database-free; install this separate adapter only when
 you need shared durable state. The API is synchronous; a private I/O thread
 bounds network waits. Model execution holds no database connection/transaction.
-The adapter is independently versioned: `b3-prosaic-harness-postgres` **0.4.1**
-requires `b3-prosaic-harness>=0.9,<0.10`. PostgreSQL drivers remain optional for
+The adapter is independently versioned: `b3-prosaic-harness-postgres` **0.4.2**
+requires `b3-prosaic-harness>=0.9.13,<0.10`. PostgreSQL drivers remain optional for
 core Harness users. Imports and CLI names are unchanged.
 
 ## Durability profiles
@@ -50,7 +51,7 @@ Use a fresh environment and the published compatible SDKs:
 ```sh
 python3 -m venv .venv-postgres
 .venv-postgres/bin/python -m pip install 'b3-prosaic-harness==0.9.11' \
-  'b3-prosaic-runtime==0.9.16' 'b3-prosaic-harness-postgres==0.4.1'
+  'b3-prosaic-runtime==0.9.19' 'b3-prosaic-harness-postgres==0.4.2'
 export PATH="$PWD/.venv-postgres/bin:$PATH"
 prosaic --version
 prosaic-harness-postgres --help
@@ -231,7 +232,7 @@ python adapters/postgres/tests/support/local_cluster.py stop --manifest "$FIXTUR
 Repeat with version 18. Stop validates exact IDs/names/ownership labels before
 removing only owned containers/volumes/network. Generated fixture networks and
 loopback ports use synthetic trust authentication, never production defaults.
-# Lease registration candidate
+# Lease registration
 
 The adapter transfers acquisition capacity into registered
 session capacity atomically under the existing store mutex. A registering lease
@@ -241,7 +242,7 @@ an owned PostgreSQL 16/18 race regression cover the transition.
 
 ## Optional conversation sessions
 
-The conversation candidate adds `PostgresSessionStore` to this same optional
+Conversation storage provides `PostgresSessionStore` to this same optional
 distribution. It implements the public Harness `SessionStore` contract and uses
 the independent, logged `prosaic_harness_conversations` schema, storage version 1.
 Existing `PostgresRunStore` tables, grants and CLI `init`/`doctor` behavior remain
@@ -333,7 +334,7 @@ The required adapter suite includes both the existing workflow backend and the
 conversation backend. Run the owned PostgreSQL 16 and 18 fixtures shown above
 with `--require-postgres`. Missing infrastructure or any skipped required case
 fails qualification. Installed Linux AMD64 and ARM64 acceptance is required
-before claiming the conversation candidate is ready for production.
+before treating a conversation deployment as ready for production.
 
 ## Optional context storage contract
 

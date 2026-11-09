@@ -10,6 +10,7 @@ include tests/test_context_pack_installed.py tests/test_context_pack_example.py
 include tests/test_ci_context_pack_upstream.py
 include .github/workflows/publish.yml .github/ci/bwrap.apparmor
 include LICENSE NOTICE
+include docs/release-0.9.13.md docs/release-postgres-0.4.2.md
 recursive-include adapters/postgres *.toml *.md *.py LICENSE NOTICE MANIFEST.in
 global-exclude *.local.yml *.local.yaml
 
