@@ -154,15 +154,18 @@ async def ready_on_connection(conn, *, expected_versions=None):
                     raise StoreIncompatible('use least-privilege conversation runtime grants')
     versions = await (await conn.execute('SELECT schema_version,storage_contract_version '
         'FROM prosaic_harness_conversations.schema_version')).fetchall()
-    if versions != [expected_versions or (SCHEMA_VERSION, STORAGE_CONTRACT_VERSION)]:
+    allowed=[expected_versions] if expected_versions is not None else [(2,2),(3,3)]
+    if len(versions)!=1 or versions[0] not in allowed:
         raise StoreIncompatible('conversation schema version is incompatible; no automatic migration')
+    return versions[0]
 
 
 def check_ready(transport):
-    transport.call(ready_on_connection)
+    return transport.call(ready_on_connection)
 
 
-def initialize(transport):
+def initialize(transport,*,context_packs=False):
+    if type(context_packs) is not bool: raise ValueError('context_packs must be boolean')
     async def migrate(conn):
         await conn.execute("SELECT pg_catalog.set_config('lock_timeout','25000ms',true), "
                            "pg_catalog.set_config('statement_timeout','28000ms',true)")
@@ -176,11 +179,14 @@ def initialize(transport):
                                                (namespace[0],))).fetchone()
             if count[0]:
                 try:
-                    await ready_on_connection(conn)
+                    actual=await ready_on_connection(conn)
+                    if context_packs and actual!=(3,3): raise StoreIncompatible('migrate context pack storage explicitly')
                 except StoreUninitialized:
                     raise StoreIncompatible('partial conversation schema requires operator repair') from None
                 return
         await conn.execute(DDL)
+        if context_packs:
+            await conn.execute('UPDATE prosaic_harness_conversations.schema_version SET schema_version=3,storage_contract_version=3')
         await ready_on_connection(conn)
     transport.call(migrate, timeout_s=30)
 
@@ -198,7 +204,7 @@ def migrate_context_storage(transport):
             raise StoreIncompatible('migration role must own conversation schema')
         versions = await (await conn.execute('SELECT schema_version,storage_contract_version '
             'FROM prosaic_harness_conversations.schema_version')).fetchall()
-        if versions == [(2, 2)]:
+        if versions in ([(2,2)],[(3,3)]):
             await ready_on_connection(conn)
             return
         if versions != [(1, 1)]:
@@ -210,3 +216,9 @@ def migrate_context_storage(transport):
             raise StoreIncompatible('conversation version metadata is incompatible')
         await ready_on_connection(conn)
     transport.call(migrate, timeout_s=30)
+
+
+def migrate_context_pack_storage(transport):
+    from .pack_schema import migrate
+    return migrate(transport,schema=SCHEMA,target=3,versions={(1,1),(2,2),(3,3)},
+        lock=MIGRATION_LOCK,ready=ready_on_connection)

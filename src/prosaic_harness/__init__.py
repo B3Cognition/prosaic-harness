@@ -1,5 +1,5 @@
 """Durable, validated execution around Prosaic Runtime."""
-__version__ = '0.9.12'
+__version__ = '0.9.13'
 
 from .engine import Harness
 from .workflow import Workflow
@@ -36,3 +36,18 @@ from .conversation import Conversation, ConversationReply
 __all__ += ['Conversation','ConversationReply']
 from .file_session_store import FileSessionStore
 __all__ += ['FileSessionStore']
+
+from .context_packs import (ContextPackError, ContextScope, ContextSource, ContextItem,
+    ContextSnapshot, ContextSlot, ContextPackSpec, ContextPackPolicy,
+    InputSource, EvidenceSource, ArtifactSource)
+__all__ += ['ContextPackError', 'ContextScope', 'ContextSource', 'ContextItem',
+            'ContextSnapshot', 'ContextSlot', 'ContextPackSpec', 'ContextPackPolicy',
+            'InputSource', 'EvidenceSource', 'ArtifactSource']
+from .context_packs import ContextPacker, ContextPackCandidates, PreparedContextPack
+__all__ += ['ContextPacker', 'ContextPackCandidates', 'PreparedContextPack']
+from .context_packs import ContextPackBindings, ContextAuthorizer
+__all__ += ['ContextPackBindings', 'ContextAuthorizer']
+from .context_packs import ContextUse,ExposureBindings,authorize_context_use,SafeFeedback,safe_feedback
+from .context_packs import ContextPackReader
+__all__ += ['ContextPackReader']
+__all__ += ['ContextUse','ExposureBindings','authorize_context_use','SafeFeedback','safe_feedback']

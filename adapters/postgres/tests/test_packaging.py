@@ -21,7 +21,7 @@ CORE_VERSION = PROJECT['version']
 RUNTIME_REQUIREMENT = next(Requirement(value) for value in PROJECT['dependencies']
                            if Requirement(value).name == 'b3-prosaic-runtime')
 # The qualified train may be newer than the declared compatibility floor.
-RUNTIME_VERSION = '0.9.16'
+RUNTIME_VERSION = '0.9.19'
 CORE = project_wheel(ROOT)
 ADAPTER = project_wheel(ROOT, 'adapters/postgres')
 
@@ -87,7 +87,7 @@ def test_wheel_contents_and_dependency_boundaries():
     assert not any('psycopg' in value.lower() for value in core.get_all('Requires-Dist'))
     adapter, names = metadata(ADAPTER)
     assert adapter['Name'] == 'b3-prosaic-harness-postgres'
-    assert adapter['Version'] == '0.4.1'
+    assert adapter['Version'] == '0.4.2'
     assert any(value.startswith('b3-prosaic-harness<0.10,>=0.9') for value in adapter.get_all('Requires-Dist'))
     assert 'prosaic_harness_postgres/cli.py' in names
     assert any(value.startswith('psycopg[binary]<4,>=3.2.3')
@@ -188,7 +188,10 @@ def release_tool():
 
 
 @pytest.fixture
-def curated_candidates(release_tool, tmp_path):
+def curated_candidates(release_tool, tmp_path, monkeypatch):
+    # These cases deliberately exercise hosted evidence, independently of the
+    # branch-build channel inherited by ordinary PostgreSQL CI.
+    monkeypatch.delenv('HARNESS_TEST_BRANCH_UPSTREAM_RECEIPT',raising=False)
     assert RUNTIME_VERSION in RUNTIME_REQUIREMENT.specifier
     directory, wheelhouse = tmp_path / 'artifacts', tmp_path / 'wheels'
     directory.mkdir(); wheelhouse.mkdir()
@@ -231,6 +234,7 @@ def test_owned_container_uses_only_verified_opt_in_wheelhouse(
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     cluster = object.__new__(module.LocalCluster)
+    cluster.platform=None
     cluster.primary = {'id': 'owned', 'name': 'owned'}
     cluster.network, cluster.token, cluster.containers = 'owned-network', 'token', []
     monkeypatch.setattr(cluster, '_validate_container', lambda entry: None)
@@ -253,6 +257,7 @@ def test_container_mounts_verified_dependency_bytes_read_only(
     monkeypatch.setenv('HARNESS_TEST_WHEELHOUSE', str(wheelhouse))
     monkeypatch.setenv('HARNESS_TEST_RELEASE_DIRECTORY', str(directory))
     cluster = object.__new__(module.LocalCluster)
+    cluster.platform=None
     cluster.primary = {'id': 'owned', 'name': 'owned'}
     cluster.network, cluster.token, cluster.containers = 'owned-network', 'token', []
     monkeypatch.setattr(cluster, '_validate_container', lambda entry: None)

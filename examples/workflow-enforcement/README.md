@@ -1,7 +1,7 @@
 # Workflow enforcement with accepted earlier outputs
 
 Copy this directory from the Harness 0.9.12 source archive, install
-`b3-prosaic-harness==0.9.12` and `b3-prosaic-runtime==0.9.16`, then configure
+`b3-prosaic-harness==0.9.13` and `b3-prosaic-runtime==0.9.19`, then configure
 `runtime.yml`. The public SDK lives in the wheel; these application resources
 ship in the source archive. No call is made by loading or constructing a workflow.
 

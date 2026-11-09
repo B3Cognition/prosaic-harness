@@ -44,15 +44,23 @@ def check_write(store):
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Initialize/check an existing Harness database')
     commands = parser.add_subparsers(dest='command', required=True)
-    for name in ('init', 'doctor', 'migrate-conversations'):
+    for name in ('init', 'doctor', 'migrate-conversations','migrate-context-packs'):
         command = commands.add_parser(name)
         command.add_argument('--dsn-env', required=True, help='name of the DSN environment variable, never its value')
         command.add_argument('--durability-profile', choices=['postgresql', 'aurora-postgresql'],
                              default='postgresql', help='explicit operator-verified database storage contract')
+        if name=='migrate-context-packs': command.add_argument('--store',choices=['workflows','conversations'],required=True)
         if name == 'doctor':
             command.add_argument('--check-write', action='store_true', help='explicit disposable write test; DELETE credentials required')
     args = parser.parse_args(argv)
     try:
+        if args.command=='migrate-context-packs':
+            from .session_store import PostgresSessionStore
+            cls=PostgresRunStore if args.store=='workflows' else PostgresSessionStore
+            with cls.from_env(args.dsn_env,namespace='pack-migration',durability_profile=args.durability_profile) as store:
+                store.migrate_context_pack_storage()
+            print(json.dumps({'migrated':True,'store':args.store,'storage_contract':2 if args.store=='workflows' else 3}))
+            return 0
         if args.command == 'migrate-conversations':
             from .session_store import PostgresSessionStore
             with PostgresSessionStore.from_env(args.dsn_env, namespace='conversation-migration', durability_profile=args.durability_profile) as store:

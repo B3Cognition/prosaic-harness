@@ -30,8 +30,13 @@ def output_json(text):
 def validate_receipt(receipt, state, pending, workflow=None):
     verify_seal(receipt)
     required = {'version', 'run_id', 'id', 'step', 'arguments_sha256', 'arguments', 'result', 'events', 'sha256'}
-    if set(receipt) != required or receipt['version'] != 1:
+    packed=state.get('version')==3
+    if packed: required |= {'recordType','contextPack','contextPackResult'}
+    if set(receipt) != required or type(receipt['version']) is not int or receipt['version'] != (2 if packed else 1):
         raise ValueError('invalid invocation receipt schema')
+    if packed:
+        from .context_packs.workflow_records import validate_workflow_pack_receipt
+        validate_workflow_pack_receipt(receipt,state,pending,workflow)
     if (receipt['run_id'] != state['run_id'] or receipt['id'] != pending['id']
             or receipt['step'] != pending['step'] or receipt['arguments_sha256'] != pending['arguments_sha256']
             or digest(receipt['arguments']) != pending['arguments_sha256']):
@@ -47,7 +52,7 @@ def validate_receipt(receipt, state, pending, workflow=None):
         raise ValueError('invalid invocation result schema')
     if workflow is not None:
         from .workflow_rules import compiled, validate_proof
-        if pending['step'] in compiled(workflow):
+        if pending['step'] in compiled(workflow) and (not packed or receipt['contextPack'] is None):
             validate_proof(result['metadata'].get('workflow_rules_v1'), workflow, pending['step'],
                 receipt['arguments'], success=result['exit_code'] == 0)
     accounting = result['metadata'].get('accounting_v1')
@@ -70,7 +75,9 @@ def validate_state(state, workflow):
     required = {'version', 'run_id', 'fingerprint', 'validators', 'inputs', 'status', 'reason', 'current',
                 'calls', 'visits', 'outputs', 'bindings', 'history', 'pending', 'entered', 'attempt',
                 'feedback', 'invocations', 'evidence', 'started_at', 'deadline', 'sha256'}
-    if set(state) - (required | {'question', 'choices', 'pause_bindings', 'accounting_context', 'accounting_migration', 'accounting_scope'}) or required - set(state) or state['version'] != 2:
+    packed=state.get('version')==3
+    if packed: required |= {'recordType','contextPacks'}
+    if set(state) - (required | {'question', 'choices', 'pause_bindings', 'accounting_context', 'accounting_migration', 'accounting_scope'}) or required - set(state) or type(state['version']) is not int or state['version'] != (3 if packed else 2):
         raise ValueError('invalid checkpoint schema; start a new run')
     if 'accounting_context' in state:
         from prosaic_runtime.accounting import ResolvedContext
@@ -157,7 +164,7 @@ def validate_state(state, workflow):
         raise ValueError('pending invocation missing')
     for name, binding in state['bindings'].items():
         if (name not in output_steps or not isinstance(binding, dict)
-                or set(binding) != {'id', 'sha256', 'dependencies'} or binding['id'] not in ids
+                or set(binding) != {'id', 'sha256', 'dependencies',*({'contextPackIdentity','contextSourceRevisions'} if packed else ())} or binding['id'] not in ids
                 or digest(state['outputs'][name]) != binding['sha256'] or not isinstance(binding['dependencies'], dict)):
             raise ValueError('invalid artifact binding')
     if state['status'] == 'waiting':
@@ -165,3 +172,6 @@ def validate_state(state, workflow):
         if (step['kind'] != 'pause' or pending is not None or state.get('question') != step['question']
                 or state.get('choices') != list(step['choices']) or state.get('pause_bindings') != state['bindings']):
             raise ValueError('invalid human pause binding')
+    if packed:
+        from .context_packs.workflow_records import validate_workflow_pack_state
+        validate_workflow_pack_state(state,workflow)

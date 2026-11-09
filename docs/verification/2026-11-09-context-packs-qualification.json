@@ -1,0 +1,433 @@
+{
+  "artifacts": {
+    "harness": {
+      "artifacts": [
+        {
+          "filename": "b3_prosaic_harness-0.9.13.dev0-py3-none-any.whl",
+          "sha256": "dc1d4f9137141d48305aa5b2b429fd71deeaea4914319ef0011f54c5c701018d"
+        },
+        {
+          "filename": "b3_prosaic_harness-0.9.13.dev0.tar.gz",
+          "sha256": "a5cb30e4be54500dde59f6ce2b33055ba20802f533e2097d13a6c28f08d54be6"
+        },
+        {
+          "filename": "b3_prosaic_harness_postgres-0.4.2.dev0-py3-none-any.whl",
+          "sha256": "34b3a81a08c9ceb184e4542c79ca92839e87948896b6c577093c81a4d2aa3bef"
+        },
+        {
+          "filename": "b3_prosaic_harness_postgres-0.4.2.dev0.tar.gz",
+          "sha256": "da35fed989fdcb489cc9972f0ff6057722bc9c1ada175d30106bbbb6c063a97a"
+        }
+      ],
+      "distributions": [
+        {
+          "dependencies": [
+            "b3-prosaic-runtime<0.10,>=0.9.19.dev0",
+            "b3-prosaic<0.6,>=0.5.0",
+            "build>=1; extra == \"test\"",
+            "jsonschema>=4.23",
+            "packaging; extra == \"test\"",
+            "pytest>=8; extra == \"test\"",
+            "pyyaml>=6.0",
+            "referencing>=0.28.4",
+            "setuptools>=77; extra == \"test\"",
+            "wheel; extra == \"test\""
+          ],
+          "name": "b3-prosaic-harness",
+          "requires_python": ">=3.11",
+          "version": "0.9.13.dev0"
+        },
+        {
+          "dependencies": [
+            "b3-prosaic-harness<0.10,>=0.9.13.dev0",
+            "build>=1; extra == \"test\"",
+            "packaging; extra == \"test\"",
+            "psycopg-pool<4,>=3.2",
+            "psycopg[binary]<4,>=3.2.3",
+            "pytest>=8; extra == \"test\"",
+            "setuptools>=77; extra == \"test\"",
+            "wheel; extra == \"test\""
+          ],
+          "name": "b3-prosaic-harness-postgres",
+          "requires_python": ">=3.11",
+          "version": "0.4.2.dev0"
+        }
+      ],
+      "source_commit": "04e802f8a680297d376c6f367ed6094a947bf405",
+      "version": 1
+    },
+    "runtime": {
+      "artifacts": [
+        {
+          "filename": "b3_prosaic_runtime-0.9.19.dev0-py3-none-any.whl",
+          "sha256": "961d1a1a841d2ba495f5e922b434a31b6951dfd265407a0171d858866772f8ec"
+        },
+        {
+          "filename": "b3_prosaic_runtime-0.9.19.dev0.tar.gz",
+          "sha256": "2485b8655e498fa8987f8580928ece42f1e141288c556954825e50fd9ff566b4"
+        }
+      ],
+      "distributions": [
+        {
+          "dependencies": [
+            "b3-prosaic<0.6,>=0.5.0",
+            "build>=1.2; extra == \"test\"",
+            "jsonschema>=4.23",
+            "packaging>=24; extra == \"test\"",
+            "pytest>=8; extra == \"test\"",
+            "pyyaml>=6.0",
+            "setuptools>=77; extra == \"test\"",
+            "wheel; extra == \"test\""
+          ],
+          "name": "b3-prosaic-runtime",
+          "requires_python": ">=3.11",
+          "version": "0.9.19.dev0"
+        }
+      ],
+      "source_commit": "0262016cb884dbdf27772fb4e48374af9821be95",
+      "version": 1
+    }
+  },
+  "compatibility": [
+    {
+      "controlledNoDepsOverlay": true,
+      "direction": "released-harness-new-runtime",
+      "passed": true
+    },
+    {
+      "controlledNoDepsOverlay": true,
+      "direction": "new-harness-released-runtime",
+      "passed": true
+    }
+  ],
+  "defaultCapacityWitness": {
+    "capturedItems": 16,
+    "modelBytes": 27646,
+    "privateFactsBytes": 65536,
+    "readerOutcomeBytes": [
+      24572,
+      24572
+    ],
+    "receiptBytes": 460488,
+    "reservedReceiptBytes": 1013880,
+    "snapshotBytes": 68055,
+    "stateBytes": 414268
+  },
+  "fullSourceSuites": {
+    "harness": {
+      "logSha256": "48534c06c998dc0eefefe3d97f1cf0b2d716a301fcadef259c1559161bdad680",
+      "result": "1438 passed, 6 skipped, 1 warning in 531.55s (0:08:51)"
+    },
+    "runtime": {
+      "logSha256": "8b78beb8ebc0a43f806f8d3628ff84a797fb12557e2466261e1df520ed9176f8",
+      "result": "2575 passed, 2 skipped in 843.70s (0:14:03)"
+    }
+  },
+  "independentReview": {
+    "critical": 0,
+    "deferredMinor": 0,
+    "fixedImportant": 3,
+    "followupRegressionCases": 16,
+    "important": 3,
+    "independentHarnessTests": 227,
+    "independentRuntimeTests": 59
+  },
+  "installedPlatforms": [
+    {
+      "constraintsSha256": "0af434be4c81cb8456ae376c7bca3211f0ae1378d676262dd0fe57eaa618909f",
+      "driverSha256": "128551ba1012f0ec87da7737abaeed8ebe1349aab8b50eb3946660668c90c839",
+      "executionMode": "native",
+      "label": "darwin-arm64-3.11",
+      "machine": "arm64",
+      "platform": "darwin",
+      "python": "3.11.15",
+      "receiptSha256": "019b833388ad4528f3494db4def41423d328409915374101c42fddcca4b53032",
+      "requiredCommands": 16
+    },
+    {
+      "constraintsSha256": "0af434be4c81cb8456ae376c7bca3211f0ae1378d676262dd0fe57eaa618909f",
+      "driverSha256": "128551ba1012f0ec87da7737abaeed8ebe1349aab8b50eb3946660668c90c839",
+      "executionMode": "native",
+      "label": "darwin-arm64-3.12",
+      "machine": "arm64",
+      "platform": "darwin",
+      "python": "3.12.15",
+      "receiptSha256": "d2f52d00baba3a206cd1f1b10948dfb5b18ca290cfeaa8b7dad318377e2aecb8",
+      "requiredCommands": 16
+    },
+    {
+      "constraintsSha256": "0af434be4c81cb8456ae376c7bca3211f0ae1378d676262dd0fe57eaa618909f",
+      "driverSha256": "128551ba1012f0ec87da7737abaeed8ebe1349aab8b50eb3946660668c90c839",
+      "executionMode": "native",
+      "label": "darwin-arm64-3.13",
+      "machine": "arm64",
+      "platform": "darwin",
+      "python": "3.13.12",
+      "receiptSha256": "f688a268eb9d87663f4e42959ea3fd6ba8a1fc2b6743fc9553e70dce2ee9773a",
+      "requiredCommands": 16
+    },
+    {
+      "constraintsSha256": "35d34ccf5e617eda692f59a7b962307211660adacc9020bff891653a3cafce4f",
+      "driverSha256": "128551ba1012f0ec87da7737abaeed8ebe1349aab8b50eb3946660668c90c839",
+      "executionMode": "native",
+      "label": "darwin-arm64-3.11-floor",
+      "machine": "arm64",
+      "platform": "darwin",
+      "python": "3.11.15",
+      "receiptSha256": "31db61dc8529b0e2895aad2a0052d2913eeb07bcc0de787b2e2b69abe2b8d795",
+      "requiredCommands": 16
+    },
+    {
+      "constraintsSha256": "0af434be4c81cb8456ae376c7bca3211f0ae1378d676262dd0fe57eaa618909f",
+      "driverSha256": "128551ba1012f0ec87da7737abaeed8ebe1349aab8b50eb3946660668c90c839",
+      "executionMode": "container-native",
+      "label": "linux-arm64-3.11",
+      "machine": "aarch64",
+      "platform": "linux",
+      "python": "3.11.18",
+      "receiptSha256": "d2dd1afd4c6ef6f4ff2494ed8c65a9d98002a0aec67d818dea042958f04fd006",
+      "requiredCommands": 16
+    },
+    {
+      "constraintsSha256": "0af434be4c81cb8456ae376c7bca3211f0ae1378d676262dd0fe57eaa618909f",
+      "driverSha256": "128551ba1012f0ec87da7737abaeed8ebe1349aab8b50eb3946660668c90c839",
+      "executionMode": "container-native",
+      "label": "linux-arm64-3.12",
+      "machine": "aarch64",
+      "platform": "linux",
+      "python": "3.12.16",
+      "receiptSha256": "84f9642e821553cbf4252f7e4b28b18b12ba7db01cf45e405c3eb84ca4854e09",
+      "requiredCommands": 16
+    },
+    {
+      "constraintsSha256": "0af434be4c81cb8456ae376c7bca3211f0ae1378d676262dd0fe57eaa618909f",
+      "driverSha256": "128551ba1012f0ec87da7737abaeed8ebe1349aab8b50eb3946660668c90c839",
+      "executionMode": "container-native",
+      "label": "linux-arm64-3.13",
+      "machine": "aarch64",
+      "platform": "linux",
+      "python": "3.13.18",
+      "receiptSha256": "aa9168da982e44650b3be167056af523d435ce7638210c512a140273c0b568f2",
+      "requiredCommands": 16
+    },
+    {
+      "constraintsSha256": "0af434be4c81cb8456ae376c7bca3211f0ae1378d676262dd0fe57eaa618909f",
+      "driverSha256": "128551ba1012f0ec87da7737abaeed8ebe1349aab8b50eb3946660668c90c839",
+      "executionMode": "container-emulated",
+      "label": "linux-amd64-3.11",
+      "machine": "x86_64",
+      "platform": "linux",
+      "python": "3.11.18",
+      "receiptSha256": "839d7a3f8cdad0c059f09e8e83b18ae78aeeca2c0e856ed35e5336cb3dd857d6",
+      "requiredCommands": 16
+    },
+    {
+      "constraintsSha256": "0af434be4c81cb8456ae376c7bca3211f0ae1378d676262dd0fe57eaa618909f",
+      "driverSha256": "128551ba1012f0ec87da7737abaeed8ebe1349aab8b50eb3946660668c90c839",
+      "executionMode": "container-emulated",
+      "label": "linux-amd64-3.12",
+      "machine": "x86_64",
+      "platform": "linux",
+      "python": "3.12.16",
+      "receiptSha256": "dae591c96ec4799b94e1e25499a3b85b2ba941a3cdc658093d5eb8784c46849b",
+      "requiredCommands": 16
+    },
+    {
+      "constraintsSha256": "0af434be4c81cb8456ae376c7bca3211f0ae1378d676262dd0fe57eaa618909f",
+      "driverSha256": "128551ba1012f0ec87da7737abaeed8ebe1349aab8b50eb3946660668c90c839",
+      "executionMode": "container-emulated",
+      "label": "linux-amd64-3.13",
+      "machine": "x86_64",
+      "platform": "linux",
+      "python": "3.13.18",
+      "receiptSha256": "939e7be4841aa8e5cb26dd77642678f172f510fe83d394b15c7e2effec7f2af4",
+      "requiredCommands": 16
+    }
+  ],
+  "installedReviewRegression": {
+    "modelByteLimit": 4096,
+    "privateBytes": 8192,
+    "providerRequests": 1,
+    "validationNode": "approve"
+  },
+  "lab": [
+    {
+      "candidate_lineage_sha256": "e7fd0546bdcb0220f6bc21d72ee8a5ebaccd6e2c27e7ca8dd13f492a1f6712f4",
+      "candidate_manifest_sha256": "0c84ea8cb0b97549a2aa50bff3470929c473c3ee527c4c3a612cbb096960fa1d",
+      "cleanup": "verified",
+      "images": {
+        "consumer": "sha256:9694472ac0e015ac4a2636f7cc21bfd609e36200c67567a940f83ac3756aee27",
+        "postgres": "postgres:16@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d"
+      },
+      "logSha256": "2729e0788756987f7a54337d3a460a6bd8bff2e7a379db5e309d9dcacc19c526",
+      "payload_audit": "verified",
+      "postgresMajor": 16,
+      "skipped": 0,
+      "test_count": 12
+    },
+    {
+      "candidate_lineage_sha256": "e7fd0546bdcb0220f6bc21d72ee8a5ebaccd6e2c27e7ca8dd13f492a1f6712f4",
+      "candidate_manifest_sha256": "0c84ea8cb0b97549a2aa50bff3470929c473c3ee527c4c3a612cbb096960fa1d",
+      "cleanup": "verified",
+      "images": {
+        "consumer": "sha256:9694472ac0e015ac4a2636f7cc21bfd609e36200c67567a940f83ac3756aee27",
+        "postgres": "postgres:18@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336"
+      },
+      "logSha256": "767425f5faaa15fb70b0766e30c039e8f6f4486b9d6d4abfc0f86e6ef976e121",
+      "payload_audit": "verified",
+      "postgresMajor": 18,
+      "skipped": 0,
+      "test_count": 12
+    }
+  ],
+  "limitations": [
+    "Native Intel macOS hosted CI remains required and unrun locally.",
+    "No paid/live model execution or production tokenizer/quality/cost claim.",
+    "Historical Lab exact-SDK paid-evaluation pins unchanged; two legacy conversation differences reproduce with published wheels.",
+    "PostgreSQL source-suite host is native macOS ARM; server and clean-wheel child architecture are recorded separately.",
+    "Controlled legacy overlays test behavior and capability refusal, not supported dependency resolution."
+  ],
+  "ownedDatabaseFixtureCleanup": {
+    "cleanup": "verified",
+    "fixtures": [
+      {
+        "cleanup": "verified",
+        "manifestSha256": "8a08ee221afe5eba2e85b531f9763a30b806d4807b0c5985fec7932af5ea3af4",
+        "postgres": "16",
+        "removedContainers": 1
+      },
+      {
+        "cleanup": "verified",
+        "manifestSha256": "a09a68ef72c4dc14b666c0c79dfd2b5c3e3d9ea0c0c11d5aae304aea032aa2d7",
+        "postgres": "18",
+        "removedContainers": 1
+      },
+      {
+        "cleanup": "verified",
+        "manifestSha256": "2b0e8aef60ee0a053e1935c24debd56b83117c2741b6f179f1ef46da0ba7947b",
+        "postgres": "16-amd64",
+        "removedContainers": 1
+      },
+      {
+        "cleanup": "verified",
+        "manifestSha256": "7ea15de467e29dec43459f1d0a5fe3e749dcb8c5fd459c8824e5f61d90d5d66d",
+        "postgres": "18-amd64",
+        "removedContainers": 1
+      }
+    ],
+    "version": 1
+  },
+  "ownedLifecycleFixtureCleanup": {
+    "fixtures": [
+      {
+        "cleanup": "verified",
+        "manifestSha256": "66d243d49ac3d5074c0c8ffd9be198dfea515453ebacc8ac375459ef65552cd1",
+        "postgres": "16",
+        "serverPlatform": "linux/arm64",
+        "sourceSuiteHostArchitecture": "arm64"
+      },
+      {
+        "cleanup": "verified",
+        "manifestSha256": "1a2c9a45e85b3c82aa44fe1fe30c26eb21f473e5dc610fae020eab3e601aba66",
+        "postgres": "18",
+        "serverPlatform": "linux/arm64",
+        "sourceSuiteHostArchitecture": "arm64"
+      },
+      {
+        "cleanup": "verified",
+        "manifestSha256": "5dd17712b9825580c06d143178bd91d7a306a349a356f296f6bc316fb318846c",
+        "postgres": "16-amd64",
+        "serverPlatform": "linux/amd64",
+        "sourceSuiteHostArchitecture": "arm64"
+      },
+      {
+        "cleanup": "verified",
+        "manifestSha256": "494d2e0118861dc42ad44ffdd697696258f8baffc36502c77b7e81e07f30a105",
+        "postgres": "18-amd64",
+        "serverPlatform": "linux/amd64",
+        "sourceSuiteHostArchitecture": "arm64"
+      }
+    ],
+    "version": 1
+  },
+  "postgresql": [
+    {
+      "executionMode": "container-native",
+      "installedWitnessSha256": "feb3bbfa661e8ee9ccc697218703668fe6afc9afa27b6438e09b696402af75b2",
+      "legacyInstalledLifecycle": {
+        "logSha256": "defd6105f715b9fa49983dd2164fc8e3065210f878e845ff1b29db263268a3f5",
+        "result": "5 passed in 7.64s"
+      },
+      "postgresMajor": 16,
+      "serverAndChildArchitecture": "arm64",
+      "sourceSuite": {
+        "logSha256": "70052f60a5f2ca7cc766001b580b6fc99d9af9cc13058763851d50cea15a4906",
+        "result": "233 passed, 1 warning in 189.28s (0:03:09)"
+      },
+      "sourceSuiteHostArchitecture": "arm64"
+    },
+    {
+      "executionMode": "container-native",
+      "installedWitnessSha256": "1a5cbd12b0fc6aa4ed8e0b03c44105c01a22219974cb4e50c39007861ea2be13",
+      "legacyInstalledLifecycle": {
+        "logSha256": "92ebc43198433434e6490ab2f923536cb68ac0f1f98b0fded41cb1325804756e",
+        "result": "5 passed in 6.59s"
+      },
+      "postgresMajor": 18,
+      "serverAndChildArchitecture": "arm64",
+      "sourceSuite": {
+        "logSha256": "adba4fef3d5e555ecd38afc94b172188de8d4c06461700b3c6b48e1428f2e65b",
+        "result": "233 passed, 1 warning in 171.40s (0:02:51)"
+      },
+      "sourceSuiteHostArchitecture": "arm64"
+    },
+    {
+      "executionMode": "container-emulated",
+      "installedWitnessSha256": "d6b83d3e8e911fdedcc062c6950bfee34273cfb6c92a621f81a692be357f51ba",
+      "legacyInstalledLifecycle": {
+        "logSha256": "c1b58c11e623fec2ae04c6b9e3d807a85887e352b4050726f6b729706f694834",
+        "result": "5 passed in 6.44s"
+      },
+      "postgresMajor": 16,
+      "serverAndChildArchitecture": "amd64",
+      "sourceSuite": {
+        "logSha256": "f1bf7e9f3b8a27fc919bd79e0a5afaf854b294a09acf01cea6d3927c09987aea",
+        "result": "233 passed, 1 warning in 223.70s (0:03:43)"
+      },
+      "sourceSuiteHostArchitecture": "arm64"
+    },
+    {
+      "executionMode": "container-emulated",
+      "installedWitnessSha256": "1a5cbd12b0fc6aa4ed8e0b03c44105c01a22219974cb4e50c39007861ea2be13",
+      "legacyInstalledLifecycle": {
+        "logSha256": "5504591e057ae658a42c01ae9c6978427b7aff2e17ccc7618df4f2e16bc387e4",
+        "result": "5 passed in 6.07s"
+      },
+      "postgresMajor": 18,
+      "serverAndChildArchitecture": "amd64",
+      "sourceSuite": {
+        "logSha256": "34a4381cfb7882849add51e9d4e5968a82e26876f4aeb84ba9a5ba295cb4c17a",
+        "result": "233 passed, 1 warning in 223.11s (0:03:43)"
+      },
+      "sourceSuiteHostArchitecture": "arm64"
+    }
+  ],
+  "published": false,
+  "sourceCommits": {
+    "harness": "04e802f8a680297d376c6f367ed6094a947bf405",
+    "lab": "d65fb927d241943c393af5617a26797ba99cc63f",
+    "runtime": "0262016cb884dbdf27772fb4e48374af9821be95"
+  },
+  "status": "local-qualification-complete; hosted promotion pending",
+  "unchangedWitnesses": [
+    {
+      "filename": "b3_prosaic-0.5.0-py3-none-any.whl",
+      "sha256": "e858a853595746c6930fbe062e84bd8ece1a366aa3b126f2fe11bfb7cb2ceb81"
+    },
+    {
+      "filename": "b3_prosaic_runtime_postgres-0.3.0-py3-none-any.whl",
+      "sha256": "5f29ce5b0a1cb3ce4ee41f44c50e322b5b1af73cbe186ecadc428f81ccc7b5ca"
+    }
+  ],
+  "version": 1
+}

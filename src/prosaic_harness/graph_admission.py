@@ -14,7 +14,7 @@ from .errors import GraphAdmissionError, logical_location, logical_alias
 
 STEP_KEYS = {
     'agent': {'kind', 'agent', 'acquisition', 'schema', 'inputs', 'optional_inputs', 'next',
-              'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators', 'initial_tool'},
+              'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators', 'initial_tool', 'contextPack'},
     'tool': {'kind', 'tool', 'arguments', 'schema', 'next', 'inputs', 'optional_inputs', 'validators', 'max_visits'},
     'gate': {'kind', 'from', 'field', 'equals', 'pass', 'fail', 'max_visits'},
     'check': {'kind', 'from', 'validators', 'pass', 'fail', 'max_visits'},
@@ -22,7 +22,7 @@ STEP_KEYS = {
     'finish': {'kind', 'outcome', 'max_visits', 'requires'},
 }
 LIMIT_KEYS = {'max_calls', 'max_visits', 'timeout_s', 'max_tokens', 'max_run_s', *CAPS}
-ROOT_KEYS = {'version', 'name', 'start', 'limits', 'steps', 'source', 'runtime', 'evidence'}
+ROOT_KEYS = {'version', 'name', 'start', 'limits', 'steps', 'source', 'runtime', 'evidence', 'contextPacks', 'agentContextPacks'}
 
 
 def _positive(value, label):

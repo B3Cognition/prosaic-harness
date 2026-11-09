@@ -196,13 +196,13 @@ def test_all_real_workflow_labels_can_qualify_and_gate(release_tool, built_relea
     labels = [f'linux-{os_name}-{version}-{kind}' for os_name in linux['os']
               for version in linux['python'] for kind in ('source', 'wheel')]
     macos = workflow['jobs']['macos']['strategy']['matrix']
-    labels += [f'macos-macos-latest-{version}-{kind}' for version in macos['python']
+    labels += [f'macos-{os_name}-{version}-{kind}' for os_name in macos['os'] for version in macos['python']
                for kind in ('source', 'wheel')]
     postgres = workflow['jobs']['postgres']['strategy']['matrix']
     labels += [f'postgres-{os_name}-{version}' for os_name in postgres['os']
                for version in postgres['postgres']]
     labels += [f'floor-{os_name}' for os_name in linux['os']]
-    assert len(labels) == 24
+    assert len(labels) == 30
     output, receipt = built_release
     for label in labels:
         release_tool.qualify(output / 'artifacts', receipt['source_commit'], label,
@@ -438,7 +438,7 @@ def curated_candidates(release_tool, tmp_path):
     candidates = []
     for repo, expected in (
         ('B3Cognition/prosaic', {'b3-prosaic': '0.5.0'}),
-        ('B3Cognition/prosaic-runtime', {'b3-prosaic-runtime': '0.9.16',
+        ('B3Cognition/prosaic-runtime', {'b3-prosaic-runtime': '0.9.19',
                                        'b3-prosaic-runtime-postgres': '0.3.0'})):
         artifacts = []
         for name, version in expected.items():
@@ -516,8 +516,8 @@ def test_index_selection_leaves_unselected_distributions_unpublished(release_too
 
 
 @pytest.mark.parametrize('distribution,prefix,version', [
-    ('b3-prosaic-harness', 'b3_prosaic_harness', '0.9.12'),
-    ('b3-prosaic-harness-postgres', 'b3_prosaic_harness_postgres', '0.4.1'),
+    ('b3-prosaic-harness', 'b3_prosaic_harness', '0.9.13'),
+    ('b3-prosaic-harness-postgres', 'b3_prosaic_harness_postgres', '0.4.2'),
 ])
 def test_sdk_publication_uploads_only_explicit_distribution(tmp_path, distribution, prefix, version):
     """Core stays the default; an adapter release cannot republish core bytes."""
@@ -533,7 +533,7 @@ def test_sdk_publication_uploads_only_explicit_distribution(tmp_path, distributi
     prepare = next(step['run'] for step in steps if step.get('name') == 'Prepare only distribution files for upload')
     artifacts = tmp_path/'release/artifacts'
     artifacts.mkdir(parents=True)
-    for name, value in [('b3_prosaic_harness','0.9.12'), ('b3_prosaic_harness_postgres','0.4.1')]:
+    for name, value in [('b3_prosaic_harness','0.9.13'), ('b3_prosaic_harness_postgres','0.4.2')]:
         for suffix in ('-py3-none-any.whl', '.tar.gz'):
             (artifacts/(name+'-'+value+suffix)).write_bytes(b'fixture')
     subprocess.run(['sh', '-e', '-c', prepare], cwd=tmp_path,

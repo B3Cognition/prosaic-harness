@@ -64,3 +64,49 @@ def context_document(scope, *, session_id='a'*32):
         provider_allowance=2, tool_allowance=0, context_selection=prepared.context_selection,
         context_report=prepared.context_report, context_work=prepared.context_work)
     return state, prepared
+
+
+def pack_document(scope,*,session_id='a'*32,counted=False):
+    from prosaic_harness import ContextScope,ContextItem,ContextSource,ContextSnapshot,ContextSlot,ContextPackSpec,ContextPacker
+    from prosaic_harness.context_packs.records import ContextPackInvocation,upgrade_pack_session,reserve_pack_attempt
+    from prosaic_harness.context_packs.codec import digest
+    from prosaic_runtime import ContextPolicy,TokenCounterDescriptor,TokenCounterRegistration,TokenCounterRegistry
+    binding=bindings();runtime=binding.runtime();options={}
+    state=new_session(session_id,scope,binding)
+    if counted:
+        context_state,_=context_document(scope,session_id=session_id)
+        declarations=context_state['contextBindings']['ordinary']
+        policy=ContextPolicy.from_dict(declarations['policy'])
+        descriptor=TokenCounterDescriptor.from_dict(declarations['counter'])
+        class Counter:
+            def count_tokens(self,request): return 10
+        options=dict(context_policy=policy,token_counters=TokenCounterRegistry({descriptor.identity:TokenCounterRegistration(descriptor,Counter())}))
+        state=seal_context_session(state,context_state['contextBindings'])
+    context_scope=ContextScope.from_conversation(scope)
+    snapshot=ContextSnapshot.from_items([ContextItem('task','task','1',{'task':'Review ž'})],
+        sources=[ContextSource('task','request','1','complete')],scope_binding=context_scope)
+    spec=ContextPackSpec('task','1',[ContextSlot('task',required=True)],task_source='task')
+    packer=ContextPacker();candidates=packer.compose(spec,snapshot)
+    pack=packer.select(candidates,0,digest(candidates.variants[0]))
+    prepared=runtime.prepare_turn(binding.agent,message='Review ž',input_data={'contextPack':pack.envelope},
+        input_profile='context-pack-input-v1',policy=binding.run_policy,limits=binding.turn_limits,**options)
+    frame=ContextPackInvocation.from_prepared('b'*32,candidates,pack,prepared)
+    state=upgrade_pack_session(state,context_scope,'e'*64)
+    state=reserve_pack_attempt(state,frame,message_id='pack')
+    return state,frame
+
+
+def seal_context_session(state,context_bindings):
+    from prosaic_harness.session_contracts import seal,verify_session
+    return verify_session(seal({**state,'version':2,'contextBindings':context_bindings}))
+
+
+def pack_failure(frame):
+    from prosaic_runtime import ContextAssemblyReport
+    frozen=frame.frozen_input.to_dict()
+    evidence=TurnEvidence.from_dict(dict(version=2,providerAttempts=0,toolAttempts=0,knownUsage={},usageComplete=True,
+        toolOutcomes=[],failureCode='contextLimit',accounting=None,inputViews=frozen['inputViews']))
+    report=frozen['contextReport']
+    if report is not None: report=ContextAssemblyReport.from_dict({**report,
+        'candidateChecks':frame.context_work.candidate_checks,'candidateBytes':frame.context_work.candidate_bytes})
+    return TurnResult(Result(1,'','contextLimit'),None,evidence,context_work=frame.context_work,context_report=report)

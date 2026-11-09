@@ -17,7 +17,7 @@ setup. The Lab keeps fixture control tests separate from live answer grading.
 
 <a id="cross-worker-postgresql-storage-development-harness-060"></a>
 
-## Cross-worker PostgreSQL storage (Harness 0.9.12 / store 0.4.1)
+## Cross-worker PostgreSQL storage (Harness 0.9.13 / store 0.4.2)
 
 The [PostgreSQL walkthrough](postgres/README.md) starts a human-only workflow in
 one process and resumes it in another with a fresh revision. No model endpoint

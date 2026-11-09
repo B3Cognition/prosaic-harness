@@ -44,7 +44,8 @@ def run_worker(dsn, session_id, command, edge, ready, release, channel, revision
                             # The caller's actual revision authorizes this transition.
                             if current != revision:
                                 raise RevisionConflict()
-                            changed = reserve(state)
+                            import uuid
+                            changed = reserve(state,invocation_id=uuid.uuid4().hex)
                             current = store.save_session(session_id, changed, revision, lease, scope=scope)
                             state = changed
                             saved = None

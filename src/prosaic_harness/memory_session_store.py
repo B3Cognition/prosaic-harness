@@ -6,7 +6,7 @@ import threading
 from .conversation_bindings import ConversationScope
 from .conversation_errors import SessionNotFound, SessionAlreadyExists, SessionBusy
 from .run_store import (LeaseLost, RevisionConflict, ReceiptConflict, StoreUninitialized,
-    StoreUnavailable, StoreCorrupt, validate_id, validate_namespace, validate_revision)
+    StoreUnavailable, StoreCorrupt, StoreIncompatible,StoreBusy, validate_id, validate_namespace, validate_revision)
 from .session_store import SessionSnapshot
 from .session_codec import digest, encode
 from .session_contracts import (encode_session, decode_session, verify_receipt, match_receipt)
@@ -28,6 +28,7 @@ class MemorySessionStore:
         self._pid=os.getpid()
         self._closed=False
         self._initialized=False
+        self._context_packs=False
         self._records={}
         self._receipts={}
         self._locks={}
@@ -38,10 +39,18 @@ class MemorySessionStore:
     @property
     def capabilities(self):
         self.check_ready()
-        return frozenset({'context_assembly_v1'})
-    def initialize(self):
+        return frozenset({'context_assembly_v1',*({'context_packs_v1'} if self._context_packs else ())})
+    def initialize(self,*,context_packs=False):
         if self._closed or self._pid!=os.getpid(): raise StoreUnavailable()
+        if type(context_packs) is not bool: raise ValueError('context_packs must be boolean')
+        if self._initialized and context_packs and not self._context_packs: raise StoreIncompatible()
+        if not self._initialized: self._context_packs=context_packs
         self._initialized=True
+    def migrate_context_pack_storage(self):
+        with self._mutex:
+            self.check_ready()
+            if self._leases: raise StoreBusy()
+            self._context_packs=True
     def check_ready(self):
         if self._closed or self._pid!=os.getpid(): raise StoreUnavailable()
         if not self._initialized: raise StoreUninitialized()
@@ -88,6 +97,10 @@ class MemorySessionStore:
     def _content(self,session_id,state,scope):
         content=encode_session(state)
         admitted=decode_session(content)
+        if admitted['version']==3:
+            from .context_packs.records import validate_pack_storage_admission
+            if not self._context_packs: raise StoreIncompatible()
+            validate_pack_storage_admission(admitted)
         if admitted['sessionId']!=session_id or admitted['scope']!=self._scope(scope): raise StoreCorrupt()
         return content
     def create_session(self,session_id,state,lease,*,scope):

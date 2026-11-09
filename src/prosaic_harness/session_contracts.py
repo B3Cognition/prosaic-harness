@@ -128,15 +128,16 @@ def _bounds(state, *, admission=False):
 def verify_session(document):
     try:
         state=owned(document)
-        context_fields = {'contextBindings'} if state.get('version') == 2 else set()
+        context_fields = {'contextBindings'} if state.get('version') in (2,3) else set()
+        if state.get('version')==3: context_fields.add('contextPacks')
         closed(state,{'version','recordType','sessionId','scope','bindingIdentity','bindingVersion','policy',
             'accounting','accountingScope','turns','attempts','pending','workflow','sha256',*_counters_empty(),*context_fields})
         verify_seal(state)
-        if type(state['version']) is not int or state['version'] not in (1,2) or state['recordType']!='session':
+        if type(state['version']) is not int or state['version'] not in (1,2,3) or state['recordType']!='session':
             raise ValueError('record version')
-        if state['version'] == 2:
+        if state['version'] in (2,3):
             from .session_context import validate_context_bindings, validate_attempt_context, ATTEMPT_FIELDS
-            validate_context_bindings(state['contextBindings'])
+            validate_context_bindings(state['contextBindings'],allow_empty=state['version']==3)
         validate_id(state['sessionId'])
         scope_from(state['scope'])
         hash_value(state['bindingIdentity'])
@@ -210,14 +211,14 @@ def verify_session(document):
             closed(attempt,{'invocationId','turnSequence','purpose','contextIdentity','encodingVersion','inputBytes',
                 'context','dispatchMarker','receiptAdopted','effectUncertain','receiptIdentity','receiptBytes','receiptReservation',
                 'providerAllowance','toolAllowance','providerAttempts','toolAttempts',
-                'providerReservation','toolReservation',*(ATTEMPT_FIELDS if state['version']==2 else ())})
+                'providerReservation','toolReservation',*(ATTEMPT_FIELDS if state['version'] in (2,3) else ())})
             if attempt['invocationId']!=aid or attempt['purpose'] not in {'ordinary','interpretation'}:
                 raise ValueError('attempt identity')
             integer(attempt['turnSequence'],1,len(state['turns']))
             if aid not in state['turns'][attempt['turnSequence']-1]['attempts']:
                 raise ValueError('attempt source')
             hash_value(attempt['contextIdentity'])
-            if state['version']==2: validate_attempt_context(state,attempt)
+            if state['version'] in (2,3): validate_attempt_context(state,attempt)
             elif attempt['encodingVersion']!='conversation-turn-v1': raise ValueError('encoding contract')
             integer(attempt['inputBytes'],1,state['policy']['maxInputBytes'])
             if any(type(attempt[k]) is not bool for k in ('dispatchMarker','receiptAdopted','effectUncertain')):
@@ -239,7 +240,7 @@ def verify_session(document):
                 raise ValueError('allowance ledger')
             if attempt['receiptAdopted']:
                 hash_value(attempt['receiptIdentity'])
-                if ((not attempt['dispatchMarker'] and (state['version']!=2 or attempt['providerAttempts'] or attempt['toolAttempts'] or attempt['effectUncertain']))
+                if ((not attempt['dispatchMarker'] and (state['version']==1 or attempt['providerAttempts'] or attempt['toolAttempts'] or attempt['effectUncertain']))
                         or attempt['receiptBytes']==0 or attempt['receiptReservation']):
                     raise ValueError('receipt adoption')
             elif (attempt['receiptIdentity'] is not None or attempt['receiptBytes'] or
@@ -290,6 +291,9 @@ def verify_session(document):
         for key,value in _counters(state).items():
             integer(state[key])
             if state[key]!=value: raise ValueError('counter mismatch')
+        if state['version']==3:
+            from .context_packs.records import validate_pack_session
+            validate_pack_session(state)
         _bounds(state)
         return state
     except (ValueError,TypeError,KeyError,AttributeError,UnicodeError,RecursionError):
@@ -334,7 +338,7 @@ def _failed_retry_transition(old,new,before,after):
     previous=old['attempts'][before['attempts'][-1]]
     frozen=('turnSequence','purpose','contextIdentity','encodingVersion','inputBytes',
             'providerAllowance','toolAllowance')
-    if old['version']==2: frozen+=('contextSelection','initialContextReport')
+    if old['version'] in (2,3): frozen+=('contextSelection','initialContextReport')
     return (all(attempt[key]==previous[key] for key in frozen) and
         after['answer'] is None and after['failureCode'] is None and after['history']==[] and
         after['recoveryStatus'] is None and after['pendingInteraction']==before['pendingInteraction'] and
@@ -346,7 +350,7 @@ def validate_session_transition(previous, proposed):
     """Validate monotonic storage advancement, independently of a record hash."""
     old,new=verify_session(previous),verify_session(proposed)
     immutable=('version','recordType','sessionId','scope','bindingIdentity','bindingVersion','policy','accounting','accountingScope')
-    if old['version']==2: immutable += ('contextBindings',)
+    if old['version'] in (2,3): immutable += ('contextBindings',)
     turn_input=('sequence','messageId','message','requestIdentity','interactionRef','inputData','historyIdentity')
     attempt_input=('invocationId','turnSequence','purpose','contextIdentity','encodingVersion','inputBytes',
                    'context','providerAllowance','toolAllowance')
@@ -364,7 +368,7 @@ def validate_session_transition(previous, proposed):
         for aid,before in old['attempts'].items():
             after=new['attempts'][aid]
             if any(before[k]!=after[k] for k in attempt_input): raise ValueError('attempt input changed')
-            if old['version']==2:
+            if old['version'] in (2,3):
                 from .session_context import validate_work_transition, ContextWorkState
                 if any(before[k]!=after[k] for k in ('contextSelection','initialContextReport')):
                     raise ValueError('context selection changed')
@@ -377,6 +381,9 @@ def validate_session_transition(previous, proposed):
             if before['receiptAdopted'] and (not after['receiptAdopted'] or any(before[k]!=after[k]
                     for k in ('receiptIdentity','receiptBytes','providerAttempts','toolAttempts','effectUncertain'))):
                 raise ValueError('receipt rewound')
+        if old['version']==3:
+            from .context_packs.records import validate_pack_session_transition
+            validate_pack_session_transition(old,new)
         return new
     except (ValueError,KeyError,TypeError):
         raise StoreCorrupt('invalid conversation advancement') from None
@@ -403,7 +410,8 @@ def new_session(session_id, scope, bindings, *, accounting=None, accounting_scop
 def reserve_attempt(document, *, message_id, message, invocation_id, context_identity,
                     encoding_version, input_bytes, provider_allowance, tool_allowance,
                     input_data=None, interaction_ref=None, purpose='ordinary', context=None,
-                    retry=False, context_selection=None, context_report=None, context_work=None):
+                    retry=False, context_selection=None, context_report=None, context_work=None,
+                    pack_invocation=None):
     state=verify_session(document)
     p=state['policy']
     validate_id(invocation_id)
@@ -445,7 +453,8 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
         if state['pending'] is not None: raise ConversationError('messageConflict')
         if any(t['messageId']==message_id for t in state['turns']): raise ConversationError('messageConflict')
         turn={'sequence':len(state['turns'])+1,'messageId':message_id,'message':message,
-            'requestIdentity':digest({'message':message,'interactionRef':interaction_ref,'workflow':state['workflow']}),
+            'requestIdentity':digest({'message':message,'interactionRef':interaction_ref,'workflow':state['workflow'],
+                **({'contextPackCandidateIdentity':pack_invocation.candidate_identity} if pack_invocation is not None else {})}),
             'interactionRef':interaction_ref,'status':'pending','answer':None,'failureCode':None,
             'history':[],'attempts':[],'inputData':owned(input_data),
             'historyIdentity':digest(history_of(state)),'historyReservation':p['maxTurnBytes'],
@@ -459,7 +468,7 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
         'receiptBytes':0,'receiptReservation':p['maxReceiptBytes'],
         'providerAllowance':provider_allowance,'toolAllowance':tool_allowance,
         'providerAttempts':0,'toolAttempts':0,'providerReservation':provider_allowance,'toolReservation':tool_allowance}
-    if state['version']==2:
+    if state['version'] in (2,3):
         from .session_context import context_reservation_bounds
         extra_bytes,extra_nodes=context_reservation_bounds()
         turn['stateReservation']+=extra_bytes
@@ -471,6 +480,11 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
         raise ConversationError('bindingMismatch')
     turn['attempts'].append(invocation_id)
     state['attempts'][invocation_id]=attempt
+    if state['version']==3:
+        from .context_packs.records import attach_pack_attempt
+        attach_pack_attempt(state,pack_invocation,invocation_id)
+    elif pack_invocation is not None:
+        raise ConversationError('bindingMismatch')
     state['pending']={'phase':'modelInvocation','turnSequence':turn['sequence'],'invocationId':invocation_id,'command':None}
     state=_with_counters(state)
     _bounds(state,admission=True)
@@ -482,6 +496,11 @@ def mark_dispatch(document, invocation_id):
     if state['pending'] is None or state['pending']['invocationId']!=invocation_id:
         raise ConversationError('messageConflict')
     state['attempts'][invocation_id]['dispatchMarker']=True
+    if state['version']==3:
+        frame=state['contextPacks']['attempts'][invocation_id]
+        if frame is not None:
+            from .context_packs.records import ContextPackInvocation
+            state['contextPacks']['attempts'][invocation_id]=ContextPackInvocation.from_dict(frame).mark_dispatched().to_dict()
     state['turns'][-1]['status']='running'
     return verify_session(_with_counters(state))
 
@@ -504,19 +523,20 @@ def mark_interrupted(document):
 def verify_receipt(document):
     try:
         value=owned(document)
-        if value.get('version')==2:
+        if value.get('version') in (2,3):
             from .session_context import RECEIPT_FIELDS, validate_receipt_context
         closed(value,{'version','recordType','sessionId','scope','bindingIdentity','invocationId','turnSequence',
             'contextIdentity','encodingVersion','context','result','completedTurn','evidence','sha256',
-            *(RECEIPT_FIELDS if value.get('version')==2 else ())}, optional={'rules'})
+            *(RECEIPT_FIELDS if value.get('version') in (2,3) else ()),
+            *({'contextPack','exposureBindings'} if value.get('version')==3 else ())}, optional={'rules'})
         verify_seal(value)
-        if type(value['version']) is not int or value['version'] not in (1,2) or value['recordType']!='receipt':
+        if type(value['version']) is not int or value['version'] not in (1,2,3) or value['recordType']!='receipt':
             raise ValueError('receipt version')
         for name in ('sessionId','invocationId'): validate_id(value[name])
         for name in ('bindingIdentity','contextIdentity'): hash_value(value[name])
         scope_from(value['scope'])
         integer(value['turnSequence'],1)
-        if value['version']==2: validate_receipt_context(value)
+        if value['version'] in (2,3): validate_receipt_context(value)
         elif value['encodingVersion']!='conversation-turn-v1': raise ValueError('encoding version')
         result=value['result']
         closed(result,{'exitCode','answer','failureCode','timedOut'})
@@ -535,6 +555,9 @@ def verify_receipt(document):
             raise ValueError('evidence result mismatch')
         if 'rules' in value:
             validate_rule_receipt(value['rules'])
+        if value['version']==3:
+            from .context_packs.records import validate_pack_receipt
+            validate_pack_receipt(value)
         return value
     except (ValueError,TypeError,KeyError,UnicodeError,AttributeError,RecursionError):
         raise StoreCorrupt('invalid conversation receipt') from None
@@ -549,10 +572,13 @@ def match_receipt(state, receipt):
             if state[key]!=value[key]: raise ValueError('receipt scope')
         for key in ('turnSequence','contextIdentity','encodingVersion','context'):
             if attempt[key]!=value[key]: raise ValueError('receipt correlation')
-        if state['version']==2:
+        if state['version'] in (2,3):
             from .session_context import match_context_receipt
             match_context_receipt(state,attempt,value)
         elif not attempt['dispatchMarker']: raise ValueError('missing dispatch marker')
+        if state['version']==3:
+            from .context_packs.records import match_pack_receipt
+            match_pack_receipt(state,value)
         evidence=value['evidence']
         if evidence['providerAttempts']>attempt['providerAllowance'] or evidence['toolAttempts']>attempt['toolAllowance']:
             raise ValueError('unallocated dispatch')
@@ -592,13 +618,16 @@ def make_receipt(document, invocation_id, result):
                   'failureCode':evidence['failureCode'],'timedOut':result.result.timed_out},
         'completedTurn':result.completed_turn.to_dict() if result.completed_turn is not None else None,
         'evidence':evidence, **({'rules': rules} if rules is not None else {})})
-    if state['version']==2:
+    if state['version'] in (2,3):
         purpose=state['contextBindings'][attempt['purpose']]
-        packet=seal({**packet,'version':2,'contextSelection':attempt['contextSelection'],
+        packet=seal({**packet,'version':state['version'],'contextSelection':attempt['contextSelection'],
             'initialContextReport':attempt['initialContextReport'],
             'finalContextReport':result.context_report.to_dict() if result.context_report is not None else None,
             'contextWork':result.context_work.to_dict() if result.context_work is not None else None,
             'contextCounter':purpose['counter'] if purpose else None})
+    if state['version']==3:
+        from .context_packs.records import complete_pack_receipt
+        packet=seal(complete_pack_receipt(state,packet,result))
     return match_receipt(state,packet)
 
 
@@ -619,9 +648,12 @@ def adopt_receipt(document, receipt, *, finalize=True):
     evidence=value['evidence']
     attempt['providerAttempts']=evidence['providerAttempts']
     attempt['toolAttempts']=evidence['toolAttempts']
-    if state['version']==2:
+    if state['version'] in (2,3):
         attempt['finalContextReport']=value['finalContextReport']
         attempt['contextWork']=value['contextWork']
+    if state['version']==3:
+        from .context_packs.records import adopt_pack_receipt
+        adopt_pack_receipt(state,value)
     effect_uncertain=(value['result']['failureCode'] in {'toolEffectUncertain','toolJournalFailure'} or
                       any(o['status']=='uncertain' for o in evidence['toolOutcomes']))
     attempt['effectUncertain']=effect_uncertain
@@ -718,6 +750,7 @@ def reserve_host_command(document, *, message_id, message, interaction_ref, inpu
         'stateNodeReservation':(p['maxJsonNodes']-8192)//2+2*public_node_limit(p)+8192,
         'pendingInteraction':None,'recoveryStatus':'workflowCommand'}
     state['turns'].append(turn)
+    if state['version']==3: state['contextPacks']['turnExposures'][str(turn['sequence'])]=None
     state['pending']={'phase':'workflowCommand','turnSequence':turn['sequence'],'invocationId':None,'command':command}
     state=_with_counters(state)
     _bounds(state,admission=True)

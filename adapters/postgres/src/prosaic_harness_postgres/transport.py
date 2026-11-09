@@ -155,10 +155,16 @@ class PostgresTransport:
             await self._guard(conn)
             async with conn.transaction():
                 await conn.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+                # A foreground write fences through its own lease row. The
+                # dedicated renewal connection must be able to wait for that
+                # bounded write, instead of revoking healthy ownership after
+                # the short ordinary contention timeout. The statement and
+                # overall operation deadlines still bound every renewal.
+                lock_budget=self.statement_timeout_s if renewal else self.lock_timeout_s
                 await conn.execute("SELECT pg_catalog.set_config('search_path','pg_catalog',true), "
                                    "pg_catalog.set_config('lock_timeout',%s,true), "
                                    "pg_catalog.set_config('statement_timeout',%s,true)",
-                                   (f'{min(self.lock_timeout_s, budget)*1000:.0f}ms',
+                                   (f'{min(lock_budget, budget)*1000:.0f}ms',
                                     f'{min(self.statement_timeout_s, budget)*1000:.0f}ms'))
                 await self._guard(conn)
                 self._check_deadline(operation)

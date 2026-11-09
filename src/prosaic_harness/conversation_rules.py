@@ -37,7 +37,8 @@ def registrations(guards):
         names.add(guard.name)
         result.append(Guard(guard.name, guard.version, guard.stages, guard.check,
             fixes=guard.fixes, echo_values=guard.echo_values,
-            settings_schema=guard.settings_schema, path_settings=guard.path_settings))
+            settings_schema=guard.settings_schema, path_settings=guard.path_settings,
+            **({'input_access':guard.input_access} if getattr(guard,'input_access','shared')!='shared' else {})))
     return tuple(result)
 
 
@@ -45,7 +46,8 @@ def descriptors(guards):
     """Complete logical declarations, ordered independently of registry input."""
     return owned([{'name': g.name, 'version': g.version, 'stages': list(g.stages),
         'settingsSchema': g.settings_schema, 'pathSettings': list(g.path_settings),
-        'fixes': g.fixes, 'echoValues': g.echo_values}
+        'fixes': g.fixes, 'echoValues': g.echo_values,
+        **({'inputAccess':g.input_access} if getattr(g,'input_access','shared')!='shared' else {})}
         for g in sorted(registrations(guards), key=lambda g: g.name)])
 
 

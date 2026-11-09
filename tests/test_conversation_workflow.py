@@ -16,7 +16,7 @@ def workflow_fixture(conversation_fixture,tmp_path):
     @contextmanager
     def create(*,confirmation=True,response_schema=False,policy=None,session_store=None,run_store=None,
                context_policy=None,interpretation_context_policy=None,token_counters=None,
-               interpretation_model=None):
+               interpretation_model=None,context_packs=None):
         with conversation_fixture(store=session_store) as fx:
             fx.effects=[]
             fx.authorizations=[]
@@ -75,7 +75,8 @@ def workflow_fixture(conversation_fixture,tmp_path):
                     max_provider_requests=2,max_tool_calls=1),custom_tools={'apply_effect':tool},
                 tool_journal=fx.journal,operation_namespace='effects',interpreter=interpreter,
                 workflows={'selection':registration},context_policy=context_policy,
-                interpretation_context_policy=interpretation_context_policy,token_counters=token_counters)
+                interpretation_context_policy=interpretation_context_policy,token_counters=token_counters,context_packs=context_packs)
+            if context_packs is not None: fx.store.migrate_context_pack_storage()
             fx.controller=fx.fresh_controller()
             snapshot=fx.controller.create()
             fx.session_id=snapshot.session_id

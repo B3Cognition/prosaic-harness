@@ -1,20 +1,23 @@
 # Releases and compatibility
 
-Compatibility documentation updated on 2026-11-08; release pages remain the publication authority.
-The latest SDKs and the Lab's qualified dependency train are separate selections.
-Harness 0.9.12 targets Runtime 0.9.16 and Core 0.5.0, with declared Runtime floor
-`>=0.9.16,<0.10`. Lab0.9.11 qualifies Runtime0.9.18/Harness0.9.12 with its
-sent-effort blueprint; Lab0.9.10 and earlier retain their original trains.
-A new SDK release does not certify a partial Lab mixture.
+Context-pack release train prepared on 2026-11-09; release pages remain the
+publication authority. Harness 0.9.13 targets Runtime >=0.9.19,<0.10 and Core
+>=0.5.0,<0.6. Lab 0.9.12 pins the complete public train. Earlier Lab manifests
+and published artifacts remain immutable; a newer SDK does not certify a partial
+historical mixture.
 
-| Component | Latest published version | Scope |
+| Component | Context-pack train | Scope |
 | --- | --- | --- |
-| Core (`b3-prosaic`) | 0.5.0 | Canonical Markdown, native outputs and inert rule tags |
-| Runtime (`b3-prosaic-runtime`) | 0.9.18 | Actual sent effort controls/format; labels, headers and fee guards retained |
-| Harness (`b3-prosaic-harness`) | 0.9.12 | Workflow enforcement with accepted earlier outputs; V1 retained |
-| Runtime PostgreSQL recorder | 0.3.0 | Optional usage persistence; unchanged adapter release |
-| Harness PostgreSQL store | 0.4.1 | Optional workflow/session persistence; unchanged adapter release |
-| Integration Lab | 0.9.11 | Complete public train and sent-effort blueprint; earlier profiles retained |
+| Core (`b3-prosaic`) | 0.5.0 | Unchanged canonical Markdown and inert rule tags |
+| Runtime (`b3-prosaic-runtime`) | 0.9.19 | Profiled inputs, private facts, bounded variants and frozen v3 turns |
+| Harness (`b3-prosaic-harness`) | 0.9.13 | Named context packs, agent defaults and node overrides |
+| Runtime PostgreSQL recorder | 0.3.0 | Original published bytes and schema |
+| Harness PostgreSQL store | 0.4.2 | Explicit context-pack migration and safe bounded renewal |
+| Integration Lab | 0.9.12 | Complete public train and context-pack adoption |
+
+See [Harness release notes](release-0.9.13.md), [adapter migration notes](release-postgres-0.4.2.md),
+and the [Lab guide](https://github.com/B3Cognition/prosaic-integration-lab/blob/v0.9.12/docs/context-packs.md).
+Lab 0.9.11 retains Runtime 0.9.18 / Harness 0.9.12 and its sent-effort blueprint.
 
 Install current SDKs in a fresh environment; pin versions and archive hashes for reproducible deployments. Optional PostgreSQL adapters require explicit provisioning and operator readiness checks. Never co-install legacy and renamed distributions that own the same imports.
 
@@ -22,10 +25,11 @@ Runtime 0.9.15 advances `value_in_tool_output` to `value-in-tool-output-v2`; exp
 
 ## Independently versioned store
 
-[PostgreSQL store 0.4.1](https://github.com/B3Cognition/prosaic-harness/releases/tag/postgres-v0.4.1)
-adds the explicit operator-selected Aurora durability profile. Its public bytes
-are unchanged by Harness 0.9.11. Native PostgreSQL qualification does not emulate
-Aurora storage; a deployment needs its own persistence/failover evidence.
+[PostgreSQL store 0.4.2](release-postgres-0.4.2.md) adds explicit context-pack
+storage migration and prevents false renewal loss behind same-owner record
+writes. PostgreSQL 0.4.1 remains available for its historical compatible trains.
+The explicit Aurora durability profile still requires deployment-specific
+persistence and failover evidence.
 
 ## Published history
 
@@ -33,6 +37,8 @@ Every published version is linked below. Backfilled notes explain changes using 
 
 | Release | Published (UTC) | Notes |
 | --- | --- | --- |
+| [v0.9.13](https://github.com/B3Cognition/prosaic-harness/releases/tag/v0.9.13) | See release page | [Context-pack notes](release-0.9.13.md) |
+| [postgres-v0.4.2](https://github.com/B3Cognition/prosaic-harness/releases/tag/postgres-v0.4.2) | See release page | [Migration notes](release-postgres-0.4.2.md) |
 | [v0.9.12](https://github.com/B3Cognition/prosaic-harness/releases/tag/v0.9.12) | 2026-11-07 | Published notes |
 | [v0.9.11](https://github.com/B3Cognition/prosaic-harness/releases/tag/v0.9.11) | 2026-11-07 | Published notes |
 | [v0.9.10](https://github.com/B3Cognition/prosaic-harness/releases/tag/v0.9.10) | 2026-11-06 | Published notes |

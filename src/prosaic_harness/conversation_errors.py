@@ -5,7 +5,10 @@ from .run_store import StoreError
 class ConversationError(ValueError):
     CODES = frozenset({'bindingMismatch', 'identityMismatch', 'capabilityMissing',
         'invalidMessage', 'messageConflict', 'contextLimit', 'sessionLimit',
-        'confirmationRequired', 'interactionStale', 'invalidInterpretation'})
+        'confirmationRequired', 'interactionStale', 'invalidInterpretation',
+        'invalidContextPack','contextScopeMismatch','contextBindingMismatch','requiredContextMissing',
+        'selectionLimit','contextSnapshotLimit','contextPackLimit','contextCapabilityMissing',
+        'contextUseDenied','contextSnapshotUnavailable'})
     def __init__(self, code, limit=None):
         if type(code) is not str or code not in self.CODES:
             raise ValueError('invalid conversation error')

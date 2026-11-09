@@ -1,5 +1,6 @@
 """A deterministic controller around one-agent invocations and validated results."""
 from prosaic_runtime.lifecycle import ExecutionLifecycle, tracked
+from .context_packs.workflow_execution import retained_workflow_view
 from dataclasses import asdict
 from copy import deepcopy
 from contextlib import contextmanager
@@ -33,10 +34,12 @@ _TERMINAL_NODES = 16
 
 
 class Harness:
-    capabilities = frozenset({'workflow_rules_v1'})
+    capabilities = frozenset({'workflow_rules_v1','context_packs_v1'})
 
-    def __init__(self, workflow, run_dir=None, *, store=None, run_id=None, runtime=None, on_event=None, observer=None, validators=None, cancelled=None, clock=time.time, context=None, accounting=None, lifecycle=None):
+    def __init__(self, workflow, run_dir=None, *, store=None, run_id=None, runtime=None, on_event=None, observer=None, validators=None, cancelled=None, clock=time.time, context=None, accounting=None, lifecycle=None,
+                 context_policy=None,token_counters=None):
         self.workflow = workflow
+        self.context_policy,self.token_counters=context_policy,token_counters
         admission = admit_workflow(workflow)
         self._admission = admission
         self._last_saved_state = None
@@ -92,8 +95,24 @@ class Harness:
                 raise ValueError('tool steps need Runtime direct_tool_v1 support')
         self._check_custom_tools()
         self._admit()
+        from .context_packs.bindings import validate_workflow
+        self._pack_nodes=validate_workflow(workflow)
+        from .context_packs.workflow_execution import assembly_material
+        self._pack_assembly_material=assembly_material(self)
+        if self._pack_assembly_material is not None and not self._pack_nodes:
+            raise ValueError('workflow context assembly requires context packs')
+        if self._pack_nodes:
+            required={'conversation_turn_v1','frozen_turn_inputs_v1','guard_input_views_v1'}
+            if not required<=getattr(self.runtime,'capabilities',frozenset()):
+                raise ValueError('context packs require the supported profiled Runtime')
+            if self.context_policy is not None and 'context_input_variants_v1' not in self.runtime.capabilities:
+                raise ValueError('workflow pack fitting requires variant preparation support')
 
     def _admit(self):
+        if hasattr(self,'_pack_assembly_material'):
+            from .context_packs.workflow_execution import assembly_material
+            if assembly_material(self)!=self._pack_assembly_material:
+                raise WorkflowAdmissionError('binding_mismatch')
         if self._observations.observer is not None and 'observer_v1' not in getattr(self.runtime, 'capabilities', ()):
             raise ValueError('observer needs a Prosaic Runtime with observer_v1 support')
         if self._admission is None:
@@ -115,9 +134,18 @@ class Harness:
                              maximum_depth=policy.max_json_depth, maximum_nodes=policy.max_json_nodes)
 
     def _bounded_document(self, value, maximum, *, reserve=0, reserve_nodes=0):
-        policy = self._admission.policy
+        from .context_packs.workflow_records import storage_policy
+        policy = storage_policy(self.workflow)
         if policy.max_json_nodes <= reserve_nodes:
             raise WorkflowAdmissionError('limit_exceeded')
+        if type(value) is dict and (value.get('recordType')=='workflow' and value.get('version')==3 or
+                value.get('recordType')=='workflowReceipt' and value.get('version')==2):
+            from .session_codec import encode,decode
+            try:
+                return decode(encode(value,maximum=maximum-reserve,depth=policy.max_json_depth,
+                    nodes=policy.max_json_nodes-reserve_nodes))
+            except (ValueError,TypeError,UnicodeError):
+                raise WorkflowAdmissionError('limit_exceeded') from None
         owned = snapshot_json(value, maximum_bytes=maximum, maximum_depth=policy.max_json_depth,
                               maximum_nodes=policy.max_json_nodes - reserve_nodes)
         # Match FileRunStore's exact legacy on-disk encoder. SQL adapters use a
@@ -223,9 +251,12 @@ class Harness:
 
     def _save(self, state):
         self._check_ownership()
-        if self._admission:
+        from .context_packs.workflow_records import storage_policy
+        bounded=self._admission is not None or state.get('version')==3
+        caps=storage_policy(self.workflow)
+        if bounded:
             try:
-                self._bounded_document(state, self._admission.policy.max_state_bytes,
+                self._bounded_document(state, caps.max_state_bytes,
                                        reserve=0 if state['status'] == 'blocked' else _TERMINAL_HEADROOM,
                                        reserve_nodes=0 if state['status'] == 'blocked' else _TERMINAL_NODES)
             except WorkflowAdmissionError:
@@ -237,22 +268,25 @@ class Harness:
                 if (previous['pending'] is not None and state['pending'] is None
                         and state['invocations'][-1]['status'] == 'complete'):
                     previous['invocations'][-1] = deepcopy(state['invocations'][-1])
+                    if state.get('version')==3:
+                        aid=state['invocations'][-1]['id']
+                        previous['contextPacks']['attempts'][aid]=deepcopy(state['contextPacks']['attempts'][aid])
                     previous['pending'] = None
                 previous.update(status='blocked', reason='state_limit')
                 previous['history'].append({'event': 'blocked', 'step': previous['current'],
                     'sequence': len(previous['history']) + 1, 'time': self.clock(), 'reason': 'state_limit'})
                 state.clear()
                 state.update(previous)
-                self._bounded_document(state, self._admission.policy.max_state_bytes)
+                self._bounded_document(state, caps.max_state_bytes)
         state.update(seal(state))
-        if self._admission:
-            self._bounded_document(state, self._admission.policy.max_state_bytes)
+        if bounded:
+            self._bounded_document(state, caps.max_state_bytes)
         created = self._revision is None
         if created:
             self._revision = self.store.create_run(self._storage_run_id, state, self._lease)
         else:
             self._revision = self.store.save_run(self._storage_run_id, state, self._revision, self._lease)
-        if self._admission:
+        if bounded:
             self._last_saved_state = deepcopy(state)
         if self._observations.observer is not None:
             self._observations.emit_committed(state, self._revision,
@@ -272,6 +306,9 @@ class Harness:
             else:
                 self._cwd = self.workflow.path.parent
             self.store.check_ready()
+            if self._pack_nodes and 'context_packs_v1' not in getattr(self.store,'capabilities',frozenset()):
+                from .run_store import StoreIncompatible
+                raise StoreIncompatible('initialize or migrate context pack storage explicitly')
             context = self.store.lease(self._storage_run_id)
             self._lease = context.__enter__()
             self._ownership_failure = None
@@ -310,6 +347,7 @@ class Harness:
             return True
         return bool(self._resource_reason(state))
 
+    @retained_workflow_view
     def status(self):
         self._admit()
         snapshot = self.store.load_run(self._storage_run_id)
@@ -375,12 +413,16 @@ class Harness:
             self.on_event(deepcopy(event) if self._admission else event)
 
     def _block(self, state, reason):
+        if state.get('version')==3 and reason=='gate_input_missing':
+            from .context_packs.feedback import safe_feedback
+            state['feedback']=safe_feedback('gateInputInvalid',None,1,{}).to_dict()
         state.update(status='blocked', reason=reason)
         self._event(state, 'blocked', reason=reason)
         self._save(state)
         return state
 
     @tracked
+    @retained_workflow_view
     def run(self, inputs):
         self._admit()
         self._check_custom_tools()
@@ -404,10 +446,14 @@ class Harness:
                     state['accounting_scope'] = scope
             if self._observations.observer is not None:
                 self._observations.begin(state['run_id'])
+            if self._pack_nodes:
+                from .context_packs.workflow_records import upgrade_pack_workflow
+                state=upgrade_pack_workflow(seal(state),self.workflow,assembly_bindings=self._pack_assembly_material)
             self._save(state)
             return self._drive(state)
 
     @tracked
+    @retained_workflow_view
     def resume(self, *, choice=None, response=None, retry_interrupted=False, expected_revision=None, decision_id=None):
         if decision_id is not None:
             validate_id(decision_id)
@@ -418,8 +464,9 @@ class Harness:
         with self._execution():
             snapshot = self.store.load_run(self._storage_run_id)
             state, self._revision = snapshot.state, snapshot.revision
-            if self._admission:
-                self._bounded_document(state, self._admission.policy.max_state_bytes)
+            if self._admission or state.get('version')==3:
+                from .context_packs.workflow_records import storage_policy
+                self._bounded_document(state, storage_policy(self.workflow).max_state_bytes)
                 self._last_saved_state = deepcopy(state)
             validate_state(state, self.workflow)
             self._validate_address(state)
@@ -479,7 +526,9 @@ class Harness:
                         error = self._checks(state, state['current'], {'choice': choice, 'response': response}, step.get('validators', []))
                     except StoreError:
                         raise
-                    except ValueError:
+                    except ValueError as fault:
+                        from .context_packs.codec import ContextPackError
+                        if isinstance(fault,ContextPackError): raise
                         raise HumanResponseError('response_validation_failed') from None
                     if error:
                         raise HumanResponseError('response_validation_failed')
@@ -504,8 +553,17 @@ class Harness:
                     validate_receipt(receipt, state, pending, self.workflow)
                     with self._observations.recovery():
                         self._accept(state, receipt)
+                elif (state.get('version')==3 and state['contextPacks']['attempts'][pending['id']] is not None
+                        and state['contextPacks']['attempts'][pending['id']]['stage']=='prepared'):
+                    from .context_packs.workflow_execution import resume_prepared
+                    work=state['contextPacks']['attempts'][pending['id']]['contextWork']
+                    resume_prepared(self,state,fresh_attempt=bool(retry_interrupted and work and work['reservedActiveMicros']))
+                    if state['status']=='blocked': return state
                 elif not retry_interrupted or self.workflow.definition['steps'][pending['step']]['kind'] == 'tool':
                     return self._block(state, 'interrupted_call')
+                elif state.get('version')==3 and state['contextPacks']['attempts'][pending['id']] is not None:
+                    from .context_packs.workflow_execution import resume_prepared
+                    resume_prepared(self,state,fresh_attempt=True)
                 else:
                     self._event(state, 'interrupted_retry', abandoned=pending['id'])
                     state['pending'] = None
@@ -573,21 +631,55 @@ class Harness:
         context = CheckContext(name, deepcopy(state['inputs']), deepcopy(state['outputs']),
                                deepcopy(state['evidence']), deepcopy(state['bindings']), self._human_responses(state))
         issues = []
+        packed=state.get('version')==3
+        first_failed=None
+        if packed:
+            from .context_packs.projection import FrozenCheckContext
+            if (name==state['current'] and state['invocations']
+                    and state['invocations'][-1]['step']==name):
+                frame=state['contextPacks']['attempts'].get(state['invocations'][-1]['id'])
+                if frame is not None:
+                    context=FrozenCheckContext.from_dict(frame['projection']['controllerValidationContext']).to_check_context()
+            frozen_context=FrozenCheckContext.from_context(context)
+            if names:
+                from .context_packs.projection import validation_exposures
+                from .context_packs.authorization import ContextUse,authorize_context_use
+                bindings=self.workflow._context_packs
+                exposures=validation_exposures(bindings,frozen_context.to_check_context())
+                operation=state['invocations'][-1]['id'] if state['invocations'] else state['run_id']
+                authorize_context_use(bindings,ContextUse('validation',scope=bindings.scope,operation_id=operation,
+                    run_id=state['run_id'],exposures=exposures,deadline=time.monotonic()+self.workflow.definition['limits']['timeout_s'],
+                    validation_input={'profile':'workflow-check-context-v1','digest':frozen_context.identity}))
         for validator in names:
             try:
                 owned_context = (CheckContext(context.step, deepcopy(context.request),
                     deepcopy(context.artifacts), deepcopy(context.evidence), deepcopy(context.bindings),
                     deepcopy(context.human_responses), deepcopy(terminal_completion))
-                    if terminal_completion is not None else context)
+                    if terminal_completion is not None else frozen_context.to_check_context() if packed else context)
                 result = self.validators[validator].check(deepcopy(output), owned_context)
                 if not isinstance(result, list) or any(not isinstance(i, str) or not i for i in result):
                     raise ValueError('validators must return a list of nonempty issue strings')
             except StoreError:
                 raise
             except Exception as exc:
+                if packed:
+                    self._private_check_diagnostics(state,[type(exc).__name__])
+                    from .context_packs.feedback import safe_feedback
+                    state['feedback']=safe_feedback('validatorFault',validator,1,self.workflow._feedback_catalog).to_dict()
+                    raise ValueError('trusted validator fault') from None
                 raise ValueError(f'trusted validator {validator} failed ({type(exc).__name__})') from exc
+            if result and first_failed is None: first_failed=validator
             issues.extend(result[:8])
+        if packed and issues:
+            self._private_check_diagnostics(state,issues)
+            from .context_packs.feedback import safe_feedback
+            return safe_feedback('validationFailed',first_failed,min(len(issues),65536),self.workflow._feedback_catalog).to_dict()
         return '; '.join(issues)[:2048] or None
+
+    def _private_check_diagnostics(self,state,issues):
+        from .context_packs.feedback import private_diagnostics
+        key=state['invocations'][-1]['id'] if state['invocations'] else state['current']
+        state['contextPacks'].setdefault('diagnostics',{})[key]=private_diagnostics(issues)
 
     def _human_responses(self, state):
         return deepcopy({event['step']: {'choice': event['choice'], 'response': event['response']}
@@ -691,6 +783,9 @@ class Harness:
         self._check_ownership()
         validate_receipt(receipt, state, state['pending'], self.workflow)
         self._evidence_unchanged(state)
+        if state.get('version')==3 and receipt['contextPack'] is not None:
+            from .context_packs.records import ContextPackInvocation
+            state['contextPacks']['attempts'][receipt['id']]=ContextPackInvocation.from_dict(receipt['contextPack']).adopt(receipt['sha256']).to_dict()
         state['invocations'][-1].update(status='complete', token_usage=receipt['result']['token_usage'], receipt_sha256=receipt['sha256'])
         state['pending'] = None
         reason = self._resource_reason(state)
@@ -735,7 +830,11 @@ class Harness:
                 errors = evaluate_schema(self.workflow.schemas[state['current']], output,
                                          profile=self._schema_profile())
                 if errors:
-                    error = '; '.join(errors)[:2048]
+                    if state.get('version')==3:
+                        from .context_packs.feedback import safe_feedback
+                        self._private_check_diagnostics(state,errors)
+                        error=safe_feedback('schemaViolation',None,min(len(errors),65536),{}).to_dict()
+                    else: error = '; '.join(errors)[:2048]
             except SchemaEvaluationError:
                 return self._block(state, self._resource_reason(state) or 'schema_error')
             except WorkflowAdmissionError as exc:
@@ -772,7 +871,10 @@ class Harness:
                                      terminal_completion=terminal_candidate)
             except StoreError:
                 raise
-            except ValueError:
+            except ValueError as fault:
+                from .context_packs.codec import ContextPackError
+                if isinstance(fault,ContextPackError):
+                    return self._block(state,fault.code)
                 return self._block(state, 'validator_error')
         self._check_ownership()
         if terminal_enabled:
@@ -785,6 +887,10 @@ class Harness:
                 for ref, binding in dependencies.items()):
             return self._block(state, 'stale_artifact')
         if error:
+            if state.get('version')==3 and type(error) is not dict:
+                from .context_packs.feedback import safe_feedback
+                self._private_check_diagnostics(state,[error])
+                error=safe_feedback('validationFailed',None,1,{}).to_dict()
             state['feedback'] = error
             self._event(state, 'validation_failed', attempt_id=receipt['id'], message=error)
             if (terminal_enabled and not first_tool_repair) or state['attempt'] >= (1 if step['kind'] == 'tool' else step.get('max_attempts', 2)):
@@ -795,6 +901,9 @@ class Harness:
             state['outputs'][state['current']] = output
             state['bindings'][state['current']] = {'id': receipt['id'], 'sha256': digest(output),
                 'dependencies': dependencies}
+            if state.get('version')==3:
+                from .context_packs.workflow_records import output_pack_binding
+                state['bindings'][state['current']].update(output_pack_binding(receipt['contextPack']))
             self._event(state, 'accepted', attempt_id=receipt['id'], token_usage=result['token_usage'])
             self._advance(state, step['next'])
 
@@ -838,7 +947,9 @@ class Harness:
                         error = self._checks(state, step['from'], state['outputs'][step['from']], step['validators'])
                     except StoreError:
                         raise
-                    except ValueError:
+                    except ValueError as fault:
+                        from .context_packs.codec import ContextPackError
+                        if isinstance(fault,ContextPackError): return self._block(state,fault.code)
                         return self._block(state, 'validator_error')
                     state['feedback'] = error
                     self._event(state, 'check_failed' if error else 'check_passed', artifact_id=state['bindings'][step['from']]['id'], message=error)
@@ -877,7 +988,7 @@ class Harness:
                     arguments['human_responses'] = responses
                 if kind == 'tool':
                     arguments['tool_arguments'] = deepcopy(step['arguments'])
-                if self._admission:
+                if self._admission and name not in self._pack_nodes:
                     try:
                         arguments = self._snapshot(arguments, self._admission.policy.max_invocation_bytes)
                         rendered = (json.dumps(arguments) if kind == 'tool' else
@@ -887,6 +998,19 @@ class Harness:
                     except (WorkflowAdmissionError, ValueError, TypeError):
                         return self._block(state, 'invocation_limit')
                 self._admit()
+                if name in self._pack_nodes:
+                    from .context_packs.workflow_execution import execute_step
+                    from .context_packs.codec import ContextPackError
+                    from prosaic_runtime import TurnAdmissionError
+                    try:
+                        execute_step(self,state,name,step,arguments)
+                    except (ContextPackError,TurnAdmissionError) as exc:
+                        # Admission refusals before pending persistence have no
+                        # external effect. Durable in-flight failures propagate
+                        # for the existing unknown-call recovery boundary.
+                        if state['pending'] is not None: raise
+                        self._block(state,getattr(exc,'code','contextPackLimit'))
+                    continue
                 attempt_id = uuid.uuid4().hex
                 accounting_options = self._invocation_accounting(state, attempt_id, name)
                 if self._admission:
@@ -949,6 +1073,9 @@ class Harness:
                 state['pending'] = {'id': attempt_id, 'step': name, 'arguments_sha256': digest(arguments), 'arguments': arguments}
                 state['invocations'].append({'id': attempt_id, 'step': name, 'arguments_sha256': digest(arguments),
                                              'status': 'pending', 'token_usage': None, 'receipt_sha256': None})
+                if state.get('version')==3:
+                    state['contextPacks']['attempts'][attempt_id]=None
+                    state['contextPacks']['reservations'][attempt_id]=None
                 self._event(state, 'invocation', attempt_id=attempt_id, call=state['calls'])
                 self._save(state)
                 if state['status'] == 'blocked':
@@ -1088,6 +1215,8 @@ class Harness:
         receipt = seal({'version': 1, 'run_id': state['run_id'], 'id': attempt_id, 'step': name,
                         'arguments_sha256': digest(arguments), 'arguments': arguments,
                         'result': payload, 'events': events})
+        if state.get('version')==3:
+            receipt=seal({**receipt,'version':2,'recordType':'workflowReceipt','contextPack':None,'contextPackResult':None})
         if self._admission:
             try:
                 validate_receipt(receipt, state, state['pending'], self.workflow)

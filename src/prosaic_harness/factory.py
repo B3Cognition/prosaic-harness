@@ -185,7 +185,12 @@ class WorkflowBindings:
     """Native effective configuration and trusted registrations, without probes."""
     def __init__(self, *, config, custom_tools=None, validators=None,
                  operation_namespace=None, tool_journal=None, runtime_adapter=None,
-                 guards=(), rule_project=None, rule_project_identity=None):
+                 guards=(), rule_project=None, rule_project_identity=None,
+                 context_packs=None,feedback_catalog=None,repeatable_validators=None):
+        from .context_packs.bindings import ContextPackBindings,admit_options
+        if context_packs is not None and type(context_packs) is not ContextPackBindings: _fail('binding_mismatch')
+        self._context_packs=context_packs.frozen_copy() if context_packs is not None else None
+        self._feedback_catalog,self._repeatable_validators=admit_options(feedback_catalog,repeatable_validators)
         self._rule_bindings = RuleBindings.create(guards, rule_project, rule_project_identity)
         self._config_json = _encode(_config_payload(config, native=True))
         if runtime_adapter is not None:
@@ -369,7 +374,8 @@ def _identity_payload(workflow, policy, *, operation=None, adapter=None):
         record = getattr(workflow, '_admission', None)
         declared = record.runtime_adapter if type(record) is _AdmissionRecord else None
         adapter = declared.descriptor if declared is not None else None
-    return {**rule_material(workflow), 'workflow': definition, 'runtime': runtime_identity(config),
+    from .context_packs.bindings import material as context_material
+    return {**rule_material(workflow), **context_material(workflow), 'workflow': definition, 'runtime': runtime_identity(config),
             'schemas': schemas, 'prose': artifacts,
             **({'custom_tools': descriptors} if descriptors else {}),
             **({'operation_bindings': operation} if operation else {}),
@@ -451,6 +457,9 @@ class WorkflowFactory:
         self._agents = MappingProxyType(dict(catalog._agents))
         self._schemas = MappingProxyType(dict(catalog._schemas))
         self._rule_bindings = bindings._rule_bindings
+        self._context_packs=bindings._context_packs
+        self._feedback_catalog=dict(bindings._feedback_catalog)
+        self._repeatable_validators=bindings._repeatable_validators
         self._runtime_adapter = bindings._runtime_adapter
         self._config_json = bindings._config_json
         self._tools = MappingProxyType(dict(bindings._tools))
@@ -463,6 +472,9 @@ class WorkflowFactory:
         self._policy = policy
         self._public_metadata_json = catalog._public_metadata_json
         metadata = json.loads(self._public_metadata_json)
+        public_packs=metadata.get('contextPacks',{})
+        if public_packs and (self._context_packs is None or set(public_packs)-self._context_packs.specs.keys()):
+            _fail('unknown_reference')
         for category, known in (('tools', self._tools), ('validators', self._validators)):
             if set(metadata.get(category, {})) - known.keys():
                 _fail('unknown_reference')
@@ -482,7 +494,10 @@ class WorkflowFactory:
                     maximum_depth=_HOST_DEPTH, maximum_nodes=_HOST_NODES)
             catalog = WorkflowCatalog(
                 agents={name: decoded(text) for name, text in self._agents.items()},
-                schemas={name: decoded(text) for name, text in self._schemas.items()})
+                schemas={name: decoded(text) for name, text in self._schemas.items()},
+                public_metadata=({'contextPacks':{alias:{'description':''}
+                    for alias in decoded(self._public_metadata_json).get('contextPacks',{})}}
+                    if self._context_packs is not None else None))
             tools = {}
             for name, tool in validate_custom_tools(self._tools).items():
                 tools[name] = CustomTool(tool.name, tool.description, decoded(tool._schema_json),
@@ -501,6 +516,8 @@ class WorkflowFactory:
                                         custom_tools=tools, validators=validators,
                                         guards=self._rule_bindings.guards, rule_project=self._rule_bindings.project,
                                         rule_project_identity=self._rule_bindings.identity,
+                                        context_packs=self._context_packs.frozen_copy() if self._context_packs is not None else None,
+                                        feedback_catalog=self._feedback_catalog,repeatable_validators=self._repeatable_validators,
                                         operation_namespace=self._operation_namespace,
                                         tool_journal=self._tool_journal, runtime_adapter=self._runtime_adapter)
             return WorkflowFactory(catalog=catalog, bindings=bindings, policy=policy)
@@ -520,6 +537,9 @@ class WorkflowFactory:
             runtime['cli_sandbox']['runtime_roots'] = list(runtime['cli_sandbox']['runtime_roots'])
         operation = self._check_operation_bindings()
         return _host_snapshot({'version': 1,
+            **({'context_pack_bindings':self._context_packs.readmit(),
+                'context_feedback':self._feedback_catalog,'repeatable_validators':list(self._repeatable_validators),
+                'public_context_packs':sorted(json.loads(self._public_metadata_json).get('contextPacks',{}))} if self._context_packs is not None else {}),
             **({'rule_bindings': self._rule_bindings.bundle_material()} if self._rule_bindings.bundle_material() else {}),
             **({'operation_bindings': operation} if operation else {}),
             'agents': {name: json.loads(text) for name, text in self._agents.items()},
@@ -550,6 +570,7 @@ class WorkflowFactory:
         owned = snapshot_json(envelope, maximum_bytes=min(_STORAGE_BYTES, policy.max_proposal_bytes * 6),
             maximum_depth=policy.max_json_depth, maximum_nodes=policy.max_json_nodes)
         try:
+            self._check_proposal_context(owned['definition'])
             workflow = self._build(owned['definition'], owned.get('inline_agents', {}))
         except WorkflowAdmissionError:
             raise
@@ -576,7 +597,19 @@ class WorkflowFactory:
             _fail('invalid_definition')
         if 'inline_agents' in envelope and type(envelope['inline_agents']) is not dict:
             _fail('invalid_definition')
+        self._check_proposal_context(envelope['definition'])
         return self.build(envelope['definition'], inline_agents=envelope.get('inline_agents'))
+
+    def _check_proposal_context(self,definition):
+        if type(definition) is not dict or {'contextPacks','agentContextPacks'} & definition.keys():
+            _fail('invalid_definition')
+        public=json.loads(self._public_metadata_json).get('contextPacks',{})
+        steps=definition.get('steps',{})
+        if type(steps) is not dict: _fail('invalid_definition')
+        for name,step in steps.items():
+            if type(step) is not dict: _fail('invalid_definition')
+            if 'contextPack' in step and (type(step['contextPack']) is not str or step['contextPack'] not in public):
+                _fail('unknown_reference',logical_location('definition','steps',logical_alias(name),'contextPack'))
 
     def build(self, definition, *, inline_agents=None):
         policy = self._policy
@@ -600,7 +633,7 @@ class WorkflowFactory:
             _fail('invalid_definition')
         if 'resources' in definition:
             _fail('resource_not_bound', logical_location('definition', 'resources'))
-        if set(definition) - {'version', 'name', 'start', 'limits', 'steps'}:
+        if set(definition) - {'version', 'name', 'start', 'limits', 'steps', 'contextPacks', 'agentContextPacks'}:
             _fail('invalid_definition', logical_location('definition', '*'))
         if inline_agents and not policy.allow_inline_agents:
             _fail('policy_denied')
@@ -706,12 +739,16 @@ class WorkflowFactory:
         # Only enforced-rule graphs gain explicit host defaults, preserving old seals.
         from prosaic_runtime.rules import artifact_rules
         parsed_rules = [artifact_rules(a) for a in artifacts.values()]
-        if config.required_guards or any(issues or any(entry.get('kind') == 'enforce' for entry in entries)
+        if self._context_packs is not None or config.required_guards or any(issues or any(entry.get('kind') == 'enforce' for entry in entries)
                 for entries, issues in parsed_rules):
             for name in CAPS:
                 if name not in limits and getattr(policy, name) is not None:
                     limits[name] = getattr(policy, name)
         rule_material(workflow)
+        from .context_packs.bindings import attach,validate_workflow as context_nodes
+        attach(workflow,self._context_packs,feedback_catalog=self._feedback_catalog if self._context_packs is not None else None,
+            repeatable_validators=self._repeatable_validators if self._context_packs is not None else None)
+        if context_nodes(workflow) and self._runtime_adapter is not None: _fail('binding_mismatch')
         if rule_material(workflow) and self._runtime_adapter is not None:
             _fail('binding_mismatch')
         descriptors = custom_descriptors(self._tools)

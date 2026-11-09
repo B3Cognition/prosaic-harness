@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.13 / PostgreSQL 0.4.2 — 2026-11-09
+
+- Add host-bound named context packs, agent defaults and per-node overrides for Markdown and accepted records.
+- Keep selected model context separate from complete frozen guard and controller validation facts; seal safe feedback.
+- Add invocation-scoped deferred reading, current-use authorization, provenance and frozen workflow/conversation recovery.
+- Add explicit local and PostgreSQL migrations; old records remain readable and old writers are fenced after opt-in.
+- Prevent false PostgreSQL lease loss when renewal waits behind the same owner's bounded record write; retain expiry/generation fencing and sticky failure.
+- Require Runtime >=0.9.19; PostgreSQL adapter 0.4.2 requires this Harness. See [release notes](docs/release-0.9.13.md) and [adapter migration notes](docs/release-postgres-0.4.2.md).
+
 See [published release notes and compatibility](docs/releases.md), including backfilled historical release notes. Documentation refreshed on 2026-11-07; package versions and release archives are unchanged.
 
 ## 0.9.12

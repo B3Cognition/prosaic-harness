@@ -1,12 +1,21 @@
 # Prosaic Harness
 
-Current published release: **0.9.12**. See [release notes and compatible SDK versions](docs/releases.md).
+Harness **0.9.13** adds [context packs](docs/context-packs.md): named
+agent defaults, workflow-node overrides, Markdown and accepted-record evidence,
+bounded deferred reads and separately retained private validation facts.
+It requires Runtime **0.9.19** or later in the compatible family; optional
+PostgreSQL storage is **0.4.2**. Existing pack-free callers and old records
+remain supported. Storage migration is an explicit owner operation.
+
+See [0.9.13 release notes](docs/release-0.9.13.md),
+[PostgreSQL 0.4.2 notes](docs/release-postgres-0.4.2.md), and
+[compatible SDK versions](docs/releases.md).
 
 Harness **0.9.12** adds [workflow enforcement tags over accepted earlier outputs](docs/workflow-rules.md) and a [copyable V2 blueprint](examples/workflow-enforcement/README.md). The existing [Validator V1 blueprint](examples/revision-review/README.md) remains supported.
 
 [Integration Lab 0.9.9](https://github.com/B3Cognition/prosaic-integration-lab/releases/tag/v0.9.9) includes the installed workflow-enforcement blueprint and its synthetic qualification.
 
-It supports Prosaic **0.5.0** and qualifies against Runtime **0.9.16**.
+It supports Prosaic **0.5.0** and qualifies against Runtime **0.9.19**.
 Canonical inspection and existing workflow identities, permissions and recovery
 contracts stay unchanged when Core renders native tool layouts.
 
@@ -22,7 +31,7 @@ annotations. Published Harness0.9.12 retains these in private Result receipts
 across pause/reopen and no-call recovery; no store schema or input identity changes.
 Sent does not prove provider compliance. See the
 [Lab0.9.11 blueprint and complete-train proof](https://github.com/B3Cognition/prosaic-integration-lab/blob/v0.9.11/docs/sent-reasoning-effort.md).
-Harness's version and declared Runtime floor stay unchanged.
+This earlier Runtime-only release kept Harness0.9.12 and its declared Runtime floor unchanged.
 
 Harness **0.9.7** lets native tools finish an admitted task with host-owned output and a durable
 inline artifact. See [terminal completion](docs/terminal-completion.md) for policy,
@@ -40,12 +49,12 @@ conversation and run caps wins; explicit tighter run caps stay intact. See
 [input request caps](docs/conversations.md#input-request-caps) to configure both
 policies from one value for new sessions.
 
-The published `b3-prosaic-harness` 0.9.12 distribution selects
-`b3-prosaic-runtime>=0.9.16,<0.10` and directly requires `b3-prosaic>=0.5.0,<0.6`. The optional `b3-prosaic-harness-postgres`
-**0.4.1** package supports shared workflow and conversation storage.
+The `b3-prosaic-harness` 0.9.13 distribution selects
+`b3-prosaic-runtime>=0.9.19,<0.10` and directly requires `b3-prosaic>=0.5.0,<0.6`. The optional `b3-prosaic-harness-postgres`
+**0.4.2** package supports shared workflow and conversation storage.
 Imports (`prosaic_harness`) and CLI commands (`prosaic-harness`) remain unchanged.
-Use Runtime **0.9.16** for host per-invocation headers, canonical `effort: none` and Gemma thinking controls.
-Install with `python -m pip install 'b3-prosaic-harness==0.9.12'`.
+Runtime **0.9.19** retains per-invocation headers, canonical `effort: none` and Gemma thinking controls.
+Install with `python -m pip install 'b3-prosaic-harness==0.9.13'`.
 See [reasoning in workflows](docs/reasoning-effort.md), the
 [conversation installation guide](docs/conversations.md#install-the-compatible-candidate-train)
 and [package migration](docs/package-migration.md) for fresh environments.
@@ -146,9 +155,9 @@ environment so another application's older runtime cannot be picked up by accide
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.9.12
+git checkout v0.9.13
 python3 -m venv .venv
-.venv/bin/python -m pip install 'b3-prosaic-harness==0.9.12' 'b3-prosaic-runtime==0.9.16'
+.venv/bin/python -m pip install 'b3-prosaic-harness==0.9.13' 'b3-prosaic-runtime==0.9.19'
 
 export PATH="$PWD/.venv/bin:$PATH"
 prosaic --help
@@ -158,7 +167,7 @@ prosaic --help
 ALWAYS use a fresh clone/environment for migration; NEVER reuse an environment
 containing legacy distributions. In a future terminal, return to the repository and add its `.venv/bin` to PATH
 again. Node.js and npm are not required. Current dependency metadata selects
-`b3-prosaic-runtime>=0.9.16,<0.10`, `b3-prosaic>=0.5.0,<0.6`, PyYAML, jsonschema and referencing.
+`b3-prosaic-runtime>=0.9.19,<0.10`, `b3-prosaic>=0.5.0,<0.6`, PyYAML, jsonschema and referencing.
 Published packages resolve through PyPI. Reproducible deployments should use
 checksum-pinned complete manifests, such as the Integration Lab's separate
 [reasoning lane](https://github.com/B3Cognition/prosaic-integration-lab/blob/main/docs/reasoning-effort.md).

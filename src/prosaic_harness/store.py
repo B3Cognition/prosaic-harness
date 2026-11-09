@@ -61,8 +61,9 @@ def read_json(path):
     return parse_json(read_bytes(path).decode('utf-8'))
 
 
-def write_json(path, value):
-    content = json.dumps(value, indent=2, allow_nan=False).encode()
+def write_json(path, value, *, canonical=False):
+    content = (json.dumps(value,sort_keys=True,ensure_ascii=False,separators=(',',':'),allow_nan=False).encode()
+        if canonical else json.dumps(value, indent=2, allow_nan=False).encode())
     if len(content) > MAX_BYTES:
         raise ValueError('checkpoint exceeds size limit')
     with parent_descriptor(path, create=True) as (parent, name):

@@ -1,5 +1,9 @@
 # Graph-free conversations
 
+For per-turn host-selected evidence, see [context packs](context-packs.md).
+Pack-enabled sessions require explicit v3 storage admission and current-use
+authorization. Existing sessions retain their legacy encoding until opted in.
+
 ## Optional context assembly
 
 Current SDKs support separate `context_policy` and

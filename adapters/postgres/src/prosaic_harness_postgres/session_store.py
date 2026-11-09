@@ -55,15 +55,18 @@ class PostgresSessionStore:
     def namespace(self):
         return self._namespace
 
-    def initialize(self):
-        session_schema.initialize(self._transport)
+    def initialize(self,*,context_packs=False):
+        session_schema.initialize(self._transport,context_packs=context_packs)
 
     def check_ready(self):
         session_schema.check_ready(self._transport)
     @property
     def capabilities(self):
-        self.check_ready()
-        return frozenset({'context_assembly_v1'})
+        version=session_schema.check_ready(self._transport)
+        return frozenset({'context_assembly_v1',*({'context_packs_v1'} if version==(3,3) else ())})
+
+    def migrate_context_pack_storage(self):
+        session_schema.migrate_context_pack_storage(self._transport)
 
     def migrate_context_storage(self):
         session_schema.migrate_context_storage(self._transport)
@@ -206,6 +209,11 @@ class PostgresSessionStore:
     def _document(self, session_id, state, scope):
         content = encode_session(state)
         value = decode_session(content)
+        if value['version']==3:
+            from prosaic_harness import StoreIncompatible
+            from prosaic_harness.context_packs.records import validate_pack_storage_admission
+            if 'context_packs_v1' not in self.capabilities: raise StoreIncompatible('migrate context pack storage explicitly')
+            validate_pack_storage_admission(value)
         if value['sessionId'] != session_id or value['scope'] != scope.to_dict():
             raise StoreCorrupt('conversation identity does not match its address')
         return content, value
@@ -295,6 +303,10 @@ class PostgresSessionStore:
         content = encode(value)
         async def save(conn):
             snapshot, _ = await self._read_session(conn, session_id, scope, lock=True)
+            existing = await self._read_receipt(conn, snapshot.state, invocation_id)
+            if existing is not None:
+                if encode(existing)!=content: raise ReceiptConflict('immutable receipt differs from committed evidence')
+                return
             match_receipt(snapshot.state, value)
             await conn.execute('INSERT INTO prosaic_harness_conversations.receipts '
                 '(namespace,session_id,scope_identity,invocation_id,document,sha256) VALUES(%s,%s,%s,%s,%s,%s) '

@@ -21,7 +21,7 @@ CATEGORIES = ('agents', 'schemas', 'tools', 'validators')
 def public_metadata(value, *, agents, schemas):
     owned = snapshot_json({} if value is None else value, maximum_bytes=HOST_BYTES,
                           maximum_depth=8, maximum_nodes=1_048_576)
-    if type(owned) is not dict or set(owned) - set(CATEGORIES):
+    if type(owned) is not dict or set(owned) - (set(CATEGORIES)|{'contextPacks'}):
         raise WorkflowAdmissionError('invalid_definition')
     for category, entries in owned.items():
         if type(entries) is not dict:
@@ -69,6 +69,8 @@ def describe(factory, *, include_schemas=False, maximum_bytes=262_144):
     metadata = json.loads(factory._public_metadata_json)
     registrations = json.loads(factory._discovery_json)
     document = {'version': 1}
+    public_packs=metadata.get('contextPacks',{})
+    if public_packs: document['contextPacks']=public_packs
     for category in CATEGORIES:
         aliases = selected[category]
         document[category] = {alias: dict(metadata.get(category, {}).get(alias, {})) for alias in aliases}
@@ -131,6 +133,7 @@ def proposal_schema(factory, *, maximum_bytes=262_144):
     positive = lambda cap: {'type': 'integer', 'minimum': 1, 'maximum': cap}
     shapes = {
         'kind': {}, 'agent': agent_ref, 'schema': schema_ref,
+        'contextPack':_enum(sorted(json.loads(factory._public_metadata_json).get('contextPacks',{}))),
         'tool': _enum(manifest['directTools']), 'arguments': {'type': 'object'},
         'inputs': _names(reference), 'optional_inputs': _names(reference), 'next': reference,
         'max_attempts': positive(policy.max_attempts), 'max_visits': positive(policy.max_visits),
@@ -148,7 +151,9 @@ def proposal_schema(factory, *, maximum_bytes=262_144):
                 'check': ['from', 'validators', 'pass', 'fail'], 'pause': ['question', 'choices'], 'finish': []}
     branches = []
     for kind, keys in STEP_KEYS.items():
-        properties = {key: shapes[key] for key in sorted(keys - {'acquisition', 'read_roots', 'require_reads'})}
+        hidden={'acquisition','read_roots','require_reads'}
+        if not json.loads(factory._public_metadata_json).get('contextPacks'): hidden.add('contextPack')
+        properties = {key: shapes[key] for key in sorted(keys - hidden)}
         properties['kind'] = {'const': kind}
         if kind == 'check':
             properties['validators'] = _names(_enum(manifest['validators']), unique=True, minimum=1)
