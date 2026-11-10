@@ -445,3 +445,6 @@ See [model-free tool steps](docs/direct-tool-step.md) for literal host-admitted
 [Cerebro requests and deferred work](docs/cerebro-requests.md) track workflow enforcement tags and the remaining consumer feedback.
 
 Safe tool events and captured citations are available through explicit opt-in bindings. See [the opt-in bindings, storage migration and receipt contract](docs/tool-events-citations.md).
+
+The development candidate adds host-bounded, per-agent **parallel read tools**
+and explicit store enablement. See [authority, recovery and compatibility](docs/parallel-tools.md).

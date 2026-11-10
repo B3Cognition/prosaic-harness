@@ -5,13 +5,13 @@ import prosaic_runtime as rt
 from test_workflow_rules_execution import rule_endpoint
 
 
-def factory(cfg,*,host=True,parallel=True,contracts=True,version='1'):
-    schema={'type':'object','properties':{'ok':{'type':'boolean'}},'required':['ok'],'additionalProperties':False}
-    tool=rt.CustomTool('lookup','Read',{'type':'object','additionalProperties':False},lambda a,c:{'ok':True},version,with_context=True,parallel_read=parallel,max_result_bytes=8192)
+def factory(cfg,*,host=True,parallel=True,contracts=True,version='1',handler=None,packs=None):
+    schema={'type':'object','properties':{'ok':{'type':'boolean'},'citation':{'type':'string'}},'required':['ok'],'additionalProperties':False}
+    tool=rt.CustomTool('lookup','Read',{'type':'object','additionalProperties':False},handler or (lambda a,c:{'ok':True}),version,with_context=True,parallel_read=parallel,max_result_bytes=8192)
     agent=rt.ProsaicArtifact('approved','subagent',{'name':'analyst','description':'Read','tools':['lookup']},'Return JSON with ok.')
-    options=dict(allowed_agents={'analyst'},allowed_schemas={'result'},allowed_tools={'lookup'},max_provider_requests_per_invocation=3,max_tool_calls_per_invocation=4,max_receipt_bytes=8388608)
+    options=dict(allowed_agents={'analyst'},allowed_schemas={'result'},allowed_tools={'lookup'},max_provider_requests_per_invocation=3,max_tool_calls_per_invocation=4,max_receipt_bytes=8388608,max_state_bytes=8388608,max_json_nodes=262144)
     if host:options['parallel_tools']=rt.ParallelToolPolicyV1(max_concurrency=4)
-    return api.WorkflowFactory(catalog=api.WorkflowCatalog(agents={'analyst':agent},schemas={'result':schema}),bindings=api.WorkflowBindings(config=replace(cfg,allowed_tools=frozenset({'lookup'})),custom_tools={'lookup':tool},tool_contracts=api.ToolContracts('host','1') if contracts else None),policy=api.WorkflowPolicy(**options))
+    return api.WorkflowFactory(catalog=api.WorkflowCatalog(agents={'analyst':agent},schemas={'result':schema}),bindings=api.WorkflowBindings(config=replace(cfg,allowed_tools=frozenset({'lookup'})),custom_tools={'lookup':tool},context_packs=packs,tool_contracts=api.ToolContracts('host','1') if contracts is True else contracts if contracts else None),policy=api.WorkflowPolicy(**options))
 
 
 def proposal(request=2):
