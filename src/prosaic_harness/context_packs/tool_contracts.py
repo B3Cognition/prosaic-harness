@@ -148,7 +148,7 @@ def pack_evidence_bindings(frame, runtime_evidence, bindings, *, tool_contracts,
 
 
 def prepare_pack_contract(runtime, artifact, candidates, roots, *, bindings, contracts, scope, options,
-                          context_policy=None, token_counters=None, deadline=None, session_id=None):
+                          context_policy=None, token_counters=None, deadline=None, session_id=None,binding_factory=None):
     from .selection import ContextPacker
     if contracts.evidence_authorizer is not None and any(root['contextPack']['index'] for root in roots):
         from .reader import NAME
@@ -170,8 +170,9 @@ def prepare_pack_contract(runtime, artifact, candidates, roots, *, bindings, con
         restore=dict(context_policy=context_policy,token_counters=token_counters,
             context_selection=prepared.context_selection,context_report=prepared.context_report,
             context_work=prepared.context_work,_warn_rules=False)
+    binding=adapter.runtime_bindings if binding_factory is None else binding_factory(adapter)
     prepared=runtime.prepare_turn(artifact,input_data=public_roots[selected],
-        tool_contract_bindings=adapter.runtime_bindings,**restore,**options)
+        tool_contract_bindings=binding,**restore,**options)
     return prepared,pack,[selected],adapter
 
 

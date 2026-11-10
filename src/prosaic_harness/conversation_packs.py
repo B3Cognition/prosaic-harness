@@ -87,7 +87,22 @@ def prepare_pack(chat,state,turn,candidates):
         history_of(state,before_sequence=turn['sequence'])),policy=chat.bindings.run_policy,
         limits=chat.bindings.turn_limits,workspace=chat.bindings._workspace,input_profile='context-pack-input-v1')
     roots=[{'contextPack':envelope} for envelope in candidates.variants]
-    if chat.bindings.context_policy is not None:
+    if chat.bindings.tool_contracts is not None:
+        from .context_packs.tool_contracts import prepare_pack_contract,CONVERSATION_PROFILE
+        from .session_tool_contracts import scope_for
+        factory=None
+        if turn.get('_retainedReferences'):
+            from .session_tool_contracts import invocation_bindings
+            _,models=invocation_bindings(chat,state,aid,references=turn['_retainedReferences'])
+            roots=[{**root,'retainedEvidence':models} for root in roots]
+            factory=lambda adapter:invocation_bindings(chat,state,aid,references=turn['_retainedReferences'],pack_adapter=adapter)[0]
+        options['input_profile']=CONVERSATION_PROFILE
+        prepared,pack,mapping,adapter=prepare_pack_contract(rt,chat.bindings.agent,candidates,roots,
+            bindings=bindings,contracts=chat.bindings.tool_contracts,scope=scope_for(state,aid,namespace=chat.bindings.readmit()['operationNamespace']),
+            options=options,context_policy=chat.bindings.context_policy,token_counters=chat.bindings.token_counters,
+            deadline=deadline,session_id=state['sessionId'],binding_factory=factory)
+        turn['_contractPackMapping']=mapping
+    elif chat.bindings.context_policy is not None:
         prepared=rt.prepare_turn_variants(chat.bindings.agent,input_data_variants=roots,
             context_policy=chat.bindings.context_policy,token_counters=chat.bindings.token_counters,**options)
     else:
@@ -99,7 +114,8 @@ def frame_for(chat,state,turn,prepared,aid,*,previous=None):
     if previous is None:
         candidates=turn['_contextPack']
         index=prepared.input_variant_selection.to_dict()['selectedIndex'] if chat.bindings.context_policy else len(candidates.variants)-1
-        mapping=list(range(len(candidates.variants))) if chat.bindings.context_policy else [index]
+        mapping=turn.get('_contractPackMapping',list(range(len(candidates.variants))) if chat.bindings.context_policy else [index])
+        if chat.bindings.tool_contracts is not None:index=mapping[0]
         pack=ContextPacker().select(candidates,index,digest(candidates.variants[index]))
         inherited=history_exposures(chat,state,before_sequence=turn['sequence'])
         private=ExposureBindings.from_snapshot(candidates.snapshot) if chat.bindings._guards else None
@@ -108,7 +124,8 @@ def frame_for(chat,state,turn,prepared,aid,*,previous=None):
         inherited=ExposureBindings.from_dict(previous.to_dict()['initialExposureBindings'])
         private=ExposureBindings.from_dict(previous.validation_bindings) if previous.validation_bindings else None
     return ContextPackInvocation.from_prepared(aid,candidates,pack,prepared,runtime_input_mapping=mapping,
-        history_exposures=inherited,validation_bindings=private)
+        history_exposures=inherited,validation_bindings=private,
+        **({'execution_epoch':previous.execution_epoch+1} if previous is not None and chat.bindings.tool_contracts is not None else {}))
 
 
 def tool_reservations(chat):

@@ -13,6 +13,7 @@ from .session_codec import encode, decode, digest, reference
 from .session_contracts import (new_session, reserve_attempt, mark_dispatch, make_receipt,
     adopt_receipt, history_of, public_node_limit, mark_interrupted, match_receipt)
 from .conversation_workflow import ConversationWorkflow
+from .session_tool_contracts import has_packs
 from .conversation_packs import (pack_errors,admit_candidates,authorize_history,authorize_private_view,
     prepare_pack,frame_for,tool_reservations,reader_for,authorize_pack)
 
@@ -54,14 +55,15 @@ class Conversation(ConversationWorkflow):
         state=snapshot.state
         if state['bindingIdentity']!=self.bindings.identity or state['bindingVersion']!=self.bindings.version:
             raise ConversationError('bindingMismatch')
-        if state['version'] != (3 if self.bindings.context_packs else 2 if self.bindings.context_enabled else 1):
+        if state['version'] != (4 if self.bindings.tool_contracts else 3 if self.bindings.context_packs else 2 if self.bindings.context_enabled else 1):
             raise ConversationError('bindingMismatch')
-        if state['version'] in (2,3):
+        if state['version'] in (2,3,4):
             from .session_context import binding_context
             if state['contextBindings'] != binding_context(self.bindings):
                 raise ConversationError('bindingMismatch')
-        if state['version']==3 and state['contextPacks']['bindingIdentity']!=self.bindings.context_packs.identity:
+        if has_packs(state) and state['contextPacks']['bindingIdentity']!=self.bindings.context_packs.identity:
             raise ConversationError('contextBindingMismatch')
+        if state['version']==4 and state['toolContractV1']['bindings']!=material['toolContractV1']: raise ConversationError('bindingMismatch')
         if (state['accounting'] is None)!=(self.context is None): raise ConversationError('identityMismatch')
         if state['accountingScope']!=self._accounting_scope(): raise ConversationError('identityMismatch')
         if self.context is not None:
@@ -109,6 +111,8 @@ class Conversation(ConversationWorkflow):
             raise ConversationError('capabilityMissing')
         if self.bindings.context_packs and 'context_packs_v1' not in getattr(self.store,'capabilities',()):
             raise ConversationError('contextCapabilityMissing')
+        if self.bindings.tool_contracts and 'tool_contracts_v1' not in getattr(self.store,'capabilities',()):
+            raise ConversationError('capabilityMissing')
         sid=uuid4().hex if session_id is None else validate_id(session_id)
         self.bindings.readmit()
         with self.store.lease(sid,scope=self.scope) as lease:
@@ -143,7 +147,11 @@ class Conversation(ConversationWorkflow):
             view.update({key:turn[key] for key in ('messageId','status','failureCode','pendingInteraction','recoveryStatus')})
             view['turnSequence']=turn['sequence']
             if turn['answer'] is not None: view['answer']=turn['answer']
-            if state['version'] in (2,3) and turn['attempts']:
+            if state['version']==4 and turn['attempts'] and turn['answer'] is not None:
+                packet=self.store.load_receipt(snapshot.session_id,turn['attempts'][-1],scope=self.scope)
+                side=packet['toolContractV1'] if packet else None
+                if side and side['citations'] is not None: view['citations']=side['citations']
+            if state['version'] in (2,3,4) and turn['attempts']:
                 report=state['attempts'][turn['attempts'][-1]]['finalContextReport']
                 if report is not None: view['contextAssembly']=report
         if state['workflow'] is not None and not replay:
@@ -151,6 +159,18 @@ class Conversation(ConversationWorkflow):
         p=state['policy']
         return ConversationReply(view,maximum=p['maxPublicBytes'],depth=p['maxJsonDepth']-8,
                                  nodes=public_node_limit(p))
+
+    def retain_citation(self,session_id,invocation_id,evidence_id):
+        from .session_tool_contracts import retain
+        return retain(self,session_id,invocation_id,evidence_id)
+
+    def citation_view(self,session_id,invocation_id,evidence_id):
+        from .session_tool_contracts import verified,origin_receipts
+        from .tool_contract_views import ToolContractViewBindings,resolve_citation_view
+        receipt=verified(self,session_id,invocation_id)
+        origins=origin_receipts(self,session_id,receipt.to_dict()['toolContractV1']['retainedReferences'])
+        return resolve_citation_view(receipt,evidence_id,ToolContractViewBindings(self.scope,
+            evidence_authorizer=self.bindings.tool_contracts.evidence_authorizer,context_packs=self.bindings.context_packs,origins=origins))
 
     @pack_errors
     def status(self, session_id): return self._reply(self._load(session_id))
@@ -186,6 +206,12 @@ class Conversation(ConversationWorkflow):
                     context_args.update(context_selection=ContextSelection.from_dict(saved_attempt['contextSelection']),
                         context_report=ContextAssemblyReport.from_dict(saved_attempt['initialContextReport']),
                         context_work=ContextWorkState.from_dict(saved_attempt['contextWork']))
+            if self.bindings.tool_contracts is not None and not interpreting:
+                from .session_tool_contracts import invocation_bindings
+                binding,models=invocation_bindings(self,state,turn['_packInvocationId'],references=turn.get('_retainedReferences',()))
+                context_args['tool_contract_bindings']=binding
+                if models:
+                    turn['inputData']={**(turn['inputData'] or {}),'retainedEvidence':models}
             prepared=rt.prepare_turn(ProsaicArtifact.from_inspection(phase['artifact']) if phase else self.bindings.agent,
                 message=turn['message'],history=tuple(ConversationMessage.from_dict(m) for m in
                     history_of(state,before_sequence=turn['sequence'])),input_data=turn['inputData'],
@@ -210,21 +236,29 @@ class Conversation(ConversationWorkflow):
     @tracked
     @pack_errors
     def send(self, session_id, *, message_id, message, expected_revision,
-             interaction_ref=None, on_event=None, cancelled=None,context_pack=None):
+             interaction_ref=None, on_event=None, cancelled=None,context_pack=None,retained_evidence=()):
         try:
             reference(message_id)
             if interaction_ref is not None: reference(interaction_ref)
             if type(message) is not str or not message or len(message.encode())>self.bindings.policy.max_user_bytes:
                 raise ValueError()
         except (ValueError,UnicodeError): raise ConversationError('invalidMessage') from None
+        from .session_tool_contracts import RetainedCitationReference,validate_refs
+        if type(retained_evidence) is not tuple or any(type(ref) is not RetainedCitationReference for ref in retained_evidence):
+            raise ConversationError('bindingMismatch')
+        refs=[ref.to_dict() for ref in retained_evidence];validate_refs(refs)
+        if refs and self.bindings.tool_contracts is None:raise ConversationError('capabilityMissing')
         candidates=admit_candidates(self,context_pack) if context_pack is not None else None
         with self.store.lease(session_id,scope=self.scope) as lease:
             snapshot=self._load(session_id)
             state=snapshot.state
             for turn in state['turns']:
                 if turn['messageId']==message_id:
+                    if state['version']==4 and turn['attempts']:
+                        prior_refs=state['toolContractV1']['attempts'][turn['attempts'][0]]
+                        if refs!=(prior_refs['retainedReferences'] if prior_refs else []):raise ConversationError('messageConflict')
                     prior=(state['contextPacks']['attempts'][turn['attempts'][0]]
-                        if state['version']==3 and turn['attempts'] else None)
+                        if has_packs(state) and turn['attempts'] else None)
                     if (prior['candidateIdentity'] if prior else None)!=(candidates.candidate_identity if candidates else None):
                         raise ConversationError('messageConflict')
                     if (turn['message']!=message or turn['interactionRef']!=interaction_ref
@@ -239,6 +273,7 @@ class Conversation(ConversationWorkflow):
                 return self._send_workflow(snapshot,lease,message_id,message,interaction_ref,on_event,cancelled)
             if interaction_ref is not None: raise ConversationError('interactionStale')
             turn={'sequence':len(state['turns'])+1,'message':message,'inputData':None}
+            if self.bindings.tool_contracts is not None:turn.update(_packInvocationId=uuid4().hex,_retainedReferences=refs)
             if candidates is not None: turn.update(_contextPack=candidates,_packInvocationId=uuid4().hex)
             rt,prepared=self._prepare(state,turn)
             snapshot=self._reserve(snapshot,lease,message_id,turn,prepared)
@@ -246,29 +281,33 @@ class Conversation(ConversationWorkflow):
 
     def _reserve(self,snapshot,lease,message_id,turn,prepared, *, purpose='ordinary',interaction_ref=None,retry=False):
         state=snapshot.state
-        aid=turn.get('_packInvocationId',uuid4().hex)
+        aid=(prepared.export_frozen_input().to_dict()['bindings']['toolContractV1']['scope']['invocation_id']
+            if prepared.encoding_version=='conversation-turn-v4' else turn.get('_packInvocationId',uuid4().hex))
         context=(ResolvedContext.from_dict(state['accounting']).child(invocation_id=aid,
             run_id=snapshot.session_id,step_id='turn.'+str(turn['sequence'])+'.'+purpose).to_dict()
             if state['accounting'] is not None else None)
         policy=self.bindings.interpretation_policy if purpose=='interpretation' else self.bindings.run_policy
         context_args=({'context_selection':prepared.context_selection,
                        'context_report':prepared.context_report,'context_work':prepared.context_work}
-                      if state['version'] in (2,3) else {})
-        if prepared.encoding_version=='conversation-turn-v3':
+                      if state['version'] in (2,3,4) else {})
+        if prepared.encoding_version=='conversation-turn-v3' or (prepared.encoding_version=='conversation-turn-v4' and (turn.get('_contextPack') is not None or (retry and has_packs(state) and state['contextPacks']['attempts'].get(turn['attempts'][-1]) is not None))):
             from .context_packs.records import reserve_pack_attempt,ContextPackInvocation
             previous=(ContextPackInvocation.from_dict(state['contextPacks']['attempts'][turn['attempts'][-1]]) if retry else None)
             frame=frame_for(self,state,turn,prepared,aid,previous=previous)
             reader_for(self,frame.prepared_pack)
             pending=reserve_pack_attempt(state,frame,message_id=message_id,input_data=turn['inputData'],
                 interaction_ref=interaction_ref,purpose=purpose,context=context,retry=retry,
-                tool_result_bytes=tool_reservations(self),acknowledge_unknown=retry)
+                tool_result_bytes=tool_reservations(self),acknowledge_unknown=retry,
+                **({'retained_references':state['toolContractV1']['attempts'][turn['attempts'][-1]]['retainedReferences'] if retry else turn.get('_retainedReferences',())} if state['version']==4 else {}))
             return self._save(snapshot,pending,lease)
         pending=reserve_attempt(state,message_id=message_id,message=turn['message'],invocation_id=aid,
             context_identity=prepared.context_identity,encoding_version=prepared.encoding_version,
             input_bytes=prepared.input_bytes,provider_allowance=policy.max_provider_requests,
             tool_allowance=policy.max_tool_calls,input_data=turn['inputData'],interaction_ref=interaction_ref,
-            purpose=purpose,context=context,retry=retry,**context_args)
-        if state['version']==3:
+            purpose=purpose,context=context,retry=retry,
+            **({'tool_contract_frozen':prepared.export_frozen_input().to_dict() if purpose=='ordinary' else None,
+                'retained_references':(state['toolContractV1']['attempts'][turn['attempts'][-1]]['retainedReferences'] if retry and purpose=='ordinary' else turn.get('_retainedReferences',()))} if state['version']==4 else {}),**context_args)
+        if has_packs(state):
             from .session_contracts import seal,verify_session
             inherited=authorize_history(self,state,aid,before_sequence=turn['sequence'])
             pending['contextPacks']['turnExposures'][str(turn['sequence'])]=inherited.to_dict()
@@ -279,7 +318,7 @@ class Conversation(ConversationWorkflow):
         aid=snapshot.state['pending']['invocationId']
         attempt=snapshot.state['attempts'][aid]
         if attempt['dispatchMarker']: raise ConversationError('messageConflict')
-        context_enabled=prepared.encoding_version in ('conversation-turn-v2','conversation-turn-v3')
+        context_enabled=prepared.encoding_version in ('conversation-turn-v2','conversation-turn-v3','conversation-turn-v4')
         if not context_enabled:
             authorize_history(self,snapshot.state,aid)
             snapshot=self._save(snapshot,mark_dispatch(snapshot.state,aid),lease)
@@ -292,9 +331,17 @@ class Conversation(ConversationWorkflow):
                 ownership_error.append(exc)
                 return True
             return bool(cancelled()) if cancelled is not None else False
+        captured_events=[];event_bytes=2;events_truncated=False
         def provisional(event):
+            nonlocal event_bytes,events_truncated
             lease.check_valid()
-            if attempt['purpose']=='ordinary' and on_event is not None: on_event(event)
+            if snapshot.state['version']==4 and event.get('event') in {'tool_started','tool_completed'} and 'toolEventV1' in event:
+                size=len(encode(event))+1
+                if event_bytes+size<=self.bindings.turn_limits.max_event_bytes and len(captured_events)<2048:
+                    captured_events.append(decode(encode(event)));event_bytes+=size
+                else:events_truncated=True
+            if attempt['purpose']=='ordinary' and on_event is not None:
+                on_event({**event,'sessionId':snapshot.session_id,'turnSequence':attempt['turnSequence'],'invocationId':aid} if snapshot.state['version']==4 else event)
         self.bindings.readmit()
         context_args={}
         if context_enabled:
@@ -305,7 +352,7 @@ class Conversation(ConversationWorkflow):
                 self._phase(on_event,'contextCheckpointSaved',snapshot,aid)
             def admitted():
                 nonlocal snapshot
-                if snapshot.state['version']==3:
+                if has_packs(snapshot.state):
                     import time
                     authorize_history(self,snapshot.state,aid)
                     saved=snapshot.state['contextPacks']['attempts'][aid]
@@ -315,19 +362,30 @@ class Conversation(ConversationWorkflow):
                 snapshot=self._save(snapshot,mark_dispatch(snapshot.state,aid),lease)
                 self._phase(on_event,'turnAdmitted',snapshot,aid)
             context_args={'token_counters':self.bindings.token_counters,
-                'context_checkpoint':checkpoint,'on_admitted':admitted}
+                **({'context_checkpoint':checkpoint} if prepared.context_work is not None else {}),'on_admitted':admitted}
         try:
             from contextlib import nullcontext
             import time
             operation=InvocationScope(aid,operation_namespace=(self.bindings.readmit()['operationNamespace'] if attempt['purpose']=='ordinary' else None))
-            saved=snapshot.state['contextPacks']['attempts'][aid] if snapshot.state['version']==3 else None
-            reader=None
+            saved=snapshot.state['contextPacks']['attempts'][aid] if has_packs(snapshot.state) else None
+            reader=None;adapter=None
+            if snapshot.state['version']==4 and attempt['purpose']=='ordinary':
+                from .session_tool_contracts import invocation_bindings
+                if saved is not None:
+                    from .context_packs.records import ContextPackInvocation
+                    from .context_packs.tool_contracts import pack_evidence_bindings
+                    from .session_tool_contracts import scope_for
+                    adapter=pack_evidence_bindings(ContextPackInvocation.from_dict(saved),None,self.bindings.context_packs,
+                        tool_contracts=self.bindings.tool_contracts,scope=scope_for(snapshot.state,aid,namespace=self.bindings.readmit()['operationNamespace']),
+                        session_id=snapshot.session_id)
+                binding,_=invocation_bindings(self,snapshot.state,aid,references=snapshot.state['toolContractV1']['attempts'][aid]['retainedReferences'],pack_adapter=adapter)
+                operation=binding.scope;context_args['tool_contract_bindings']=binding
             if saved is not None:
                 from .context_packs.records import ContextPackInvocation
                 pack=ContextPackInvocation.from_dict(saved).prepared_pack;reader=reader_for(self,pack)
             activation=reader.activate(operation,pack,self.bindings.context_packs,
                 deadline=time.monotonic()+self.bindings.run_policy.timeout_s,cancelled=cancellation,
-                session_id=snapshot.session_id) if reader else nullcontext()
+                session_id=snapshot.session_id,**({'evidence_capture':adapter.capture_read} if adapter else {})) if reader else nullcontext()
             with activation:
                 result=rt.turn(prepared,on_event=provisional,cancelled=cancellation,
                 context=ResolvedContext.from_dict(attempt['context']) if attempt['context'] is not None else None,
@@ -342,7 +400,7 @@ class Conversation(ConversationWorkflow):
         if ownership_error: raise ownership_error[0]
         lease.check_valid()
         self.bindings.readmit()
-        packet=make_receipt(snapshot.state,aid,result)
+        packet=make_receipt(snapshot.state,aid,result,**({'tool_events':captured_events,'events_truncated':events_truncated} if snapshot.state['version']==4 else {}))
         self.store.save_receipt(snapshot.session_id,aid,packet,lease,scope=self.scope)
         self._phase(on_event,'receiptSaved',snapshot,aid)
         return self._adopt(snapshot,lease,packet,on_event)
@@ -353,11 +411,17 @@ class Conversation(ConversationWorkflow):
         attempt=state['attempts'][aid]
         attribution=({'context':attempt['context'],**state['accountingScope'],'provider_call_ids':[]}
                      if attempt['context'] is not None and state['accountingScope'] is not None else None)
-        frame=state['contextPacks']['attempts'][aid] if state['version']==3 else None
+        frame=state['contextPacks']['attempts'][aid] if has_packs(state) else None
         views=frame['frozenInput']['inputViews'] if frame is not None else None
-        evidence=TurnEvidence.from_dict({'version':2 if views else 1,'providerAttempts':0,'toolAttempts':0,
+        contract={}
+        if state['version']==4 and attempt['purpose']=='ordinary':
+            from .session_tool_contracts import attempt_frozen
+            frozen=attempt_frozen(state,aid);views=frozen['inputViews']
+            contract={'toolContractV1':{'version':1,'bindings':frozen['bindings']['toolContractV1'],
+                'evidence':{'version':1,'records':[],'calls':[],'deliveries':{}},'citations':None}}
+        evidence=TurnEvidence.from_dict({'version':3 if contract else 2 if views else 1,'providerAttempts':0,'toolAttempts':0,
             'knownUsage':{},'usageComplete':True,'toolOutcomes':[],'failureCode':code,'accounting':attribution,
-            **({'inputViews':views} if views else {})})
+            **({'inputViews':views} if views else {}),**contract})
         work=ContextWorkState.from_dict(attempt['contextWork']) if attempt['contextWork'] is not None else None
         report=(ContextAssemblyReport.from_dict({**attempt['initialContextReport'],
             'candidateChecks':work.candidate_checks,'candidateBytes':work.candidate_bytes}) if work is not None else None)
@@ -379,6 +443,9 @@ class Conversation(ConversationWorkflow):
         pending=state['pending']
         attempt=state['attempts'][attempt_id or pending['invocationId']]
         turn=state['turns'][attempt['turnSequence']-1]
+        if attempt['encodingVersion']=='conversation-turn-v4':
+            from .session_tool_contracts import restore_attempt
+            return restore_attempt(self,state,attempt,turn,fresh_attempt=fresh_attempt)
         if attempt['encodingVersion']=='conversation-turn-v3':
             import time
             from .context_packs.records import ContextPackInvocation
@@ -432,7 +499,7 @@ class Conversation(ConversationWorkflow):
             if attempt['dispatchMarker']:
                 state=mark_interrupted(snapshot.state)
                 return self._reply(snapshot if state==snapshot.state else self._save(snapshot,state,lease))
-            if snapshot.state['version']==3:
+            if has_packs(snapshot.state):
                 frame=snapshot.state['contextPacks']['attempts'][aid]
                 if frame is not None and frame['contextWork'] is not None and frame['contextWork']['reservedActiveMicros']:
                     return self._reply(self._save(snapshot,mark_interrupted(snapshot.state),lease))

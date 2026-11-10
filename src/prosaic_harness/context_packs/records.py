@@ -191,6 +191,12 @@ class ContextPackInvocation(_Record):
             if data['version']==2:
                 from .tool_contracts import public_pack_input
                 roots=[public_pack_input(root) for root in roots]
+                if data['projection'] is None and type(frozen['selectedInputData']) is dict and 'retainedEvidence' in frozen['selectedInputData']:
+                    retained=frozen['selectedInputData']['retainedEvidence']
+                    from prosaic_runtime.tool_imports import validate_import_descriptor
+                    descriptors=[validate_import_descriptor(item) for item in frozen['bindings']['toolContractV1']['retained'] if item['originKind']=='retainedReceipt']
+                    if len(retained)!=len(descriptors) or sorted(digest(view) for view in retained)!=sorted(item['modelViewSha256'] for item in descriptors):raise ContextPackError('contextBindingMismatch')
+                    roots=[{**root,'retainedEvidence':retained} for root in roots]
             if ([digest(roots[index]) for index in mapping]!=runtime_selection['candidateDigests']
                     or encode(frozen['selectedInputData'])!=encode(roots[selected_index])):
                 raise ContextPackError('contextBindingMismatch')
@@ -374,7 +380,7 @@ def upgrade_pack_session(document,scope,binding_identity):
         raise ContextPackError('contextBindingMismatch')
     scope=scope.to_dict()
     if scope!=state['scope']: raise ContextPackError('contextScopeMismatch')
-    state.update(version=3,contextBindings=state.get('contextBindings',{'ordinary':None,'interpretation':None}),
+    state.update(version=4 if state['version']==4 else 3,contextBindings=state.get('contextBindings',{'ordinary':None,'interpretation':None}),
         contextPacks=dict(version=1,scope=scope,bindingIdentity=binding_identity,attempts={},turnExposures={},reservations={}))
     return verify_session(seal(state))
 
@@ -409,7 +415,7 @@ def conversation_metadata_bounds(frame,tool_result_bytes):
 
 
 def reserve_pack_attempt(document,frame,*,message_id,input_data=None,interaction_ref=None,
-                         purpose='ordinary',context=None,retry=False,tool_result_bytes=(),acknowledge_unknown=False):
+                         purpose='ordinary',context=None,retry=False,tool_result_bytes=(),acknowledge_unknown=False,retained_references=()):
     from ..session_contracts import reserve_attempt,seal,verify_session,_bounds
     from prosaic_runtime import ContextSelection,ContextAssemblyReport
     from .capacity import reserve_pack_capacity
@@ -430,7 +436,8 @@ def reserve_pack_attempt(document,frame,*,message_id,input_data=None,interaction
         input_data=input_data,interaction_ref=interaction_ref,purpose=purpose,context=context,retry=retry,
         context_selection=ContextSelection.from_dict(frozen['contextSelection']) if frozen['contextSelection'] is not None else None,
         context_report=ContextAssemblyReport.from_dict(frozen['contextReport']) if frozen['contextReport'] is not None else None,
-        context_work=frame.context_work,pack_invocation=frame)
+        context_work=frame.context_work,pack_invocation=frame,
+        **({'retained_references':retained_references} if admitted['version']==4 else {}))
     p=state['policy']
     # Count the retained frame in both records; terminal hashes and wrappers
     # consume the fixed failure/metadata headroom as well.
