@@ -186,8 +186,11 @@ class WorkflowBindings:
     def __init__(self, *, config, custom_tools=None, validators=None,
                  operation_namespace=None, tool_journal=None, runtime_adapter=None,
                  guards=(), rule_project=None, rule_project_identity=None,
-                 context_packs=None,feedback_catalog=None,repeatable_validators=None):
+                 context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None):
         from .context_packs.bindings import ContextPackBindings,admit_options
+        from .tool_contracts import ToolContracts
+        if tool_contracts is not None and type(tool_contracts) is not ToolContracts: _fail('binding_mismatch')
+        self._tool_contracts=tool_contracts.frozen_copy() if tool_contracts is not None else None
         if context_packs is not None and type(context_packs) is not ContextPackBindings: _fail('binding_mismatch')
         self._context_packs=context_packs.frozen_copy() if context_packs is not None else None
         self._feedback_catalog,self._repeatable_validators=admit_options(feedback_catalog,repeatable_validators)
@@ -375,7 +378,8 @@ def _identity_payload(workflow, policy, *, operation=None, adapter=None):
         declared = record.runtime_adapter if type(record) is _AdmissionRecord else None
         adapter = declared.descriptor if declared is not None else None
     from .context_packs.bindings import material as context_material
-    return {**rule_material(workflow), **context_material(workflow), 'workflow': definition, 'runtime': runtime_identity(config),
+    from .tool_contracts import material as tool_contract_material
+    return {**rule_material(workflow), **context_material(workflow), **tool_contract_material(workflow), 'workflow': definition, 'runtime': runtime_identity(config),
             'schemas': schemas, 'prose': artifacts,
             **({'custom_tools': descriptors} if descriptors else {}),
             **({'operation_bindings': operation} if operation else {}),
@@ -457,6 +461,7 @@ class WorkflowFactory:
         self._agents = MappingProxyType(dict(catalog._agents))
         self._schemas = MappingProxyType(dict(catalog._schemas))
         self._rule_bindings = bindings._rule_bindings
+        self._tool_contracts=bindings._tool_contracts
         self._context_packs=bindings._context_packs
         self._feedback_catalog=dict(bindings._feedback_catalog)
         self._repeatable_validators=bindings._repeatable_validators
@@ -516,6 +521,7 @@ class WorkflowFactory:
                                         custom_tools=tools, validators=validators,
                                         guards=self._rule_bindings.guards, rule_project=self._rule_bindings.project,
                                         rule_project_identity=self._rule_bindings.identity,
+                                        tool_contracts=self._tool_contracts,
                                         context_packs=self._context_packs.frozen_copy() if self._context_packs is not None else None,
                                         feedback_catalog=self._feedback_catalog,repeatable_validators=self._repeatable_validators,
                                         operation_namespace=self._operation_namespace,
@@ -537,6 +543,7 @@ class WorkflowFactory:
             runtime['cli_sandbox']['runtime_roots'] = list(runtime['cli_sandbox']['runtime_roots'])
         operation = self._check_operation_bindings()
         return _host_snapshot({'version': 1,
+            **({'toolContractV1': self._tool_contracts.descriptor()} if self._tool_contracts is not None else {}),
             **({'context_pack_bindings':self._context_packs.readmit(),
                 'context_feedback':self._feedback_catalog,'repeatable_validators':list(self._repeatable_validators),
                 'public_context_packs':sorted(json.loads(self._public_metadata_json).get('contextPacks',{}))} if self._context_packs is not None else {}),
@@ -734,12 +741,13 @@ class WorkflowFactory:
                             logical_alias(name), 'validators', index))
         workflow = _NativeWorkflow(None, definition, config, artifacts, schemas, '',
                                    custom_tools=self._tools, allowed_direct_tools=policy.allowed_direct_tools)
+        workflow._tool_contracts=self._tool_contracts.frozen_copy() if self._tool_contracts is not None else None
         workflow._rule_bindings = RuleBindings(self._rule_bindings.guards, self._rule_bindings.project,
             self._rule_bindings.identity, policy.allowed_guards)
         # Only enforced-rule graphs gain explicit host defaults, preserving old seals.
         from prosaic_runtime.rules import artifact_rules
         parsed_rules = [artifact_rules(a) for a in artifacts.values()]
-        if self._context_packs is not None or config.required_guards or any(issues or any(entry.get('kind') == 'enforce' for entry in entries)
+        if self._tool_contracts is not None or self._context_packs is not None or config.required_guards or any(issues or any(entry.get('kind') == 'enforce' for entry in entries)
                 for entries, issues in parsed_rules):
             for name in CAPS:
                 if name not in limits and getattr(policy, name) is not None:
@@ -748,6 +756,7 @@ class WorkflowFactory:
         from .context_packs.bindings import attach,validate_workflow as context_nodes
         attach(workflow,self._context_packs,feedback_catalog=self._feedback_catalog if self._context_packs is not None else None,
             repeatable_validators=self._repeatable_validators if self._context_packs is not None else None)
+        if self._tool_contracts is not None and self._runtime_adapter is not None: _fail('binding_mismatch')
         if context_nodes(workflow) and self._runtime_adapter is not None: _fail('binding_mismatch')
         if rule_material(workflow) and self._runtime_adapter is not None:
             _fail('binding_mismatch')
@@ -772,6 +781,9 @@ class WorkflowFactory:
 
 def _check_adapter(workflow, runtime, descriptors, *, native):
     check_rule_runtime(workflow, runtime)
+    if runtime is not None:
+        from .tool_contracts import material as tool_contract_material
+        tool_contract_material(workflow, runtime)
     if runtime is None:
         return
     if any(step.get('kind') == 'tool' for step in workflow.definition['steps'].values()):

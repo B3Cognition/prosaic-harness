@@ -51,3 +51,5 @@ from .context_packs import ContextUse,ExposureBindings,authorize_context_use,Saf
 from .context_packs import ContextPackReader
 __all__ += ['ContextPackReader']
 __all__ += ['ContextUse','ExposureBindings','authorize_context_use','SafeFeedback','safe_feedback']
+from .tool_contracts import ToolContracts
+__all__ += ['ToolContracts']

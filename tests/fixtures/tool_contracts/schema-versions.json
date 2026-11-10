@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "marker": "toolContractV1",
+  "runtimePreparedEncoding": "conversation-turn-v4",
+  "runtimeFrozenInput": 2,
+  "runtimeEvidence": 3,
+  "run": 4,
+  "workflowReceipt": 3,
+  "session": 4,
+  "sessionReceipt": 4
+}
