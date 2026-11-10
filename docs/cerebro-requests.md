@@ -4,20 +4,23 @@ Updated 2026-11-10. The original requests and their delivery history remain belo
 
 ## Current tools work — 2026-11-10
 
-The maintainer requested a shared tool result/event/evidence design. **Safe tool
-events and citations are the first implementation increment.** Parallel tool
-execution, an MCP client and sub-agents remain separate follow-ups. The
+Safe tool events and citations are published in Runtime 0.9.20, Harness 0.9.14,
+Harness PostgreSQL 0.4.3 and Lab 0.9.13. The released family preserves Core 0.5.0
+and Runtime PostgreSQL 0.3.0. See the
 [shared contract design](superpowers/specs/2026-11-10-tool-result-event-evidence-design.md)
-has been implemented on focused candidate branches. The
-[Runtime/Harness/Lab implementation plan](superpowers/plans/2026-11-10-safe-tool-events-citations.md)
-preserves native execution and an independent final review; these capabilities
-remain unpublished until a separate release is authorized. See [candidate usage](tool-events-citations.md).
+and [usage contract](tool-events-citations.md).
+
+The next requested increment is parallel tool calls. Its
+[proposed design](superpowers/specs/2026-11-10-parallel-tool-calls-design.md) and
+[detailed implementation plan](superpowers/plans/2026-11-10-parallel-tool-calls.md)
+are prepared for review; implementation and publication have not started. MCP
+and sub-agents remain separate follow-ups.
 
 | Request | Existing foundation | Status and acceptance direction |
 | --- | --- | --- |
-| Tool arguments in step events | Runtime tool lifecycle events, call identity, typed outcomes and private conversation history | First increment: explicit host-approved argument/result display projections, bounded versioned events, separate permission to display, and no raw argument/result fields in general telemetry. Events describe observed execution and journal replay accurately. |
-| Citation contract | Harness context packs retain citation IDs, source revisions/locators, representation hashes and actual deferred-read evidence | First increment: shared evidence references and final-answer citations that resolve only to authorized model-exposed content. Persist accepted citations with the answer and replay receipts without executing tools again. Provenance validation and semantic claim support remain separate checks. |
-| Parallel tool calls | Provider batches, shared budget admission and per-call execution records; dispatch is sequential today | Separate follow-up: host-approved independent reads, bounded concurrency, per-call immutable outcomes, deterministic history, cancellation and aggregate budget reservation. Sequential execution remains the default. |
+| Tool arguments in step events | Runtime tool lifecycle events, call identity, typed outcomes and private conversation history | Released first increment: explicit host-approved argument/result display projections, bounded versioned events, separate permission to display, and no raw argument/result fields in general telemetry. Events describe observed execution and journal replay accurately. |
+| Citation contract | Harness context packs retain citation IDs, source revisions/locators, representation hashes and actual deferred-read evidence | Released first increment: shared evidence references and final-answer citations that resolve only to authorized model-exposed content. Persist accepted citations with the answer and replay receipts without executing tools again. Provenance validation and semantic claim support remain separate checks. |
+| Parallel tool calls | Provider batches, shared budget admission and per-call execution records; dispatch is sequential today | Design/plan ready for review: explicitly registered independent reads, fixed bounded windows and serial barriers, atomic pending-attempt reservations, coordinator-owned events/journals/guards, joined cancellation and versioned recovery. Default sequential behavior stays exact; no implementation or release yet. |
 | MCP client | Local `CustomTool` registry with schema validation, explicit grants and bounded results | Separate follow-up: optional SDK-backed adapter, explicit protocol/transport coverage, admitted schemas and stable tool aliases, catalog changes, authentication and per-call authorization. Remote annotations do not grant execution or parallelism. |
 | Sub-agents | Nested execution budgets, child accounting context, specialist prompts and context packs | Separate follow-up: named host-registered delegates with narrowed context/tools, parent/child budget accounting, depth/call bounds, cancellation and durable result adoption. Do not introduce unrestricted recursive delegation in the first increment. |
 
@@ -25,8 +28,8 @@ The first increment belongs primarily in Runtime, with Harness adapters for
 context-pack provenance, durable adoption and authorized views, and focused Lab
 consumer scenarios. Preserve legacy tool wire values, guard bindings and saved
 records when the new contracts are absent. Capability checks must reject
-unsupported enabled combinations before dispatch. No release versions are
-assigned until the implementation scope is approved.
+unsupported enabled combinations before dispatch. No stable release versions are
+assigned to the parallel-tool increment in this planning task.
 
 ## Earlier requests — recorded 2026-11-07
 
