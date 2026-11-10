@@ -133,6 +133,7 @@ def proposal_schema(factory, *, maximum_bytes=262_144):
     positive = lambda cap: {'type': 'integer', 'minimum': 1, 'maximum': cap}
     shapes = {
         'kind': {}, 'agent': agent_ref, 'schema': schema_ref,
+        'parallel_tools':{'type':'object','additionalProperties':False,'required':['max_concurrency'],'properties':{'max_concurrency':positive(policy.parallel_tools.max_concurrency if policy.parallel_tools else 1)}},
         'contextPack':_enum(sorted(json.loads(factory._public_metadata_json).get('contextPacks',{}))),
         'tool': _enum(manifest['directTools']), 'arguments': {'type': 'object'},
         'inputs': _names(reference), 'optional_inputs': _names(reference), 'next': reference,
@@ -152,6 +153,7 @@ def proposal_schema(factory, *, maximum_bytes=262_144):
     branches = []
     for kind, keys in STEP_KEYS.items():
         hidden={'acquisition','read_roots','require_reads'}
+        if policy.parallel_tools is None:hidden.add('parallel_tools')
         if not json.loads(factory._public_metadata_json).get('contextPacks'): hidden.add('contextPack')
         properties = {key: shapes[key] for key in sorted(keys - hidden)}
         properties['kind'] = {'const': kind}

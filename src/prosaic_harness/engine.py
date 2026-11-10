@@ -1190,7 +1190,8 @@ class Harness:
                            **({'initial_tool': step['initial_tool']} if 'initial_tool' in step else
                               {'initial_tool': 'read_file'} if step.get('require_reads') and
                               'initial_tool_v1' in getattr(self.runtime, 'capabilities', ()) else {}))
-        return policy
+        from .parallel_tools import parallel_policy
+        return replace(policy,parallel_tools=parallel_policy(self.workflow,name))
 
     def _receipt(self, state, attempt_id, name, arguments, result, events, failure):
         if not self._admission:

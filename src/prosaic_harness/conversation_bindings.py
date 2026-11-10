@@ -138,6 +138,8 @@ def _policy(value):
         if type(raw[key]) is not tuple:
             raise ConversationError('bindingMismatch')
         raw[key] = list(raw[key])
+    parallel=raw.pop('parallel_tools',None)
+    if parallel is not None:raw['parallel_tools']=parallel.to_dict()
     data = owned(raw)
     value.__post_init__()
     # Preserve pre-feature sealed bytes when the optional Runtime policy is off.
@@ -154,6 +156,9 @@ def _policy_from(data):
     data['allowed_tools'] = frozenset(data['allowed_tools'])
     for key in ('read_roots', 'write_paths', 'forbidden_roots'):
         data[key] = tuple(data[key])
+    if 'parallel_tools' in data:
+        from prosaic_runtime import ParallelToolPolicyV1
+        data['parallel_tools']=ParallelToolPolicyV1.from_dict(data['parallel_tools'])
     return RunPolicy(**data)
 
 
@@ -399,6 +404,8 @@ class ConversationBindings:
             data.update(context_data)
             if context_packs is not None: data['contextPacks']=context_packs.to_dict()
             if tool_contracts is not None: data['toolContractV1']=contract_material
+            from .parallel_tools import conversation_parallel
+            data.update(conversation_parallel(runtime,run_policy,tool_contracts))
             for key, value in {'_encoded': encode(data), '_config': encode(config_data),
                 '_tools': MappingProxyType(tools), '_journal': tool_journal, '_workspace': workspace,
                 '_workflows': MappingProxyType(registered), '_admitted': _ADMITTED,
@@ -504,6 +511,8 @@ class ConversationBindings:
             if context_data != expected: raise ValueError('context descriptor drift')
             from .tool_contracts import conversation_material
             contract_material=conversation_material(runtime, data['tools'], self._tool_contracts, self.policy, self.run_policy, self.turn_limits)
+            from .parallel_tools import conversation_parallel
+            if data.get('parallelToolsV1')!=conversation_parallel(runtime,self.run_policy,self._tool_contracts).get('parallelToolsV1'):raise ValueError('parallel binding drift')
             if data.get('toolContractV1') != (contract_material or None): raise ValueError('tool contract drift')
             runtime.prepare_turn(self.agent, message='a', policy=self.run_policy,
                                  limits=self.turn_limits, workspace=self._workspace,**_pack_probe(self._context_packs),

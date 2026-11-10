@@ -14,7 +14,7 @@ from .errors import GraphAdmissionError, logical_location, logical_alias
 
 STEP_KEYS = {
     'agent': {'kind', 'agent', 'acquisition', 'schema', 'inputs', 'optional_inputs', 'next',
-              'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators', 'initial_tool', 'contextPack'},
+              'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators', 'initial_tool', 'contextPack', 'parallel_tools'},
     'tool': {'kind', 'tool', 'arguments', 'schema', 'next', 'inputs', 'optional_inputs', 'validators', 'max_visits'},
     'gate': {'kind', 'from', 'field', 'equals', 'pass', 'fail', 'max_visits'},
     'check': {'kind', 'from', 'validators', 'pass', 'fail', 'max_visits'},
