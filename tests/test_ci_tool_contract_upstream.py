@@ -5,8 +5,8 @@ import yaml
 def test_harness_contract_ci_uses_exact_runtime_source():
     root = Path(__file__).resolve().parents[1]
     workflow = yaml.safe_load((root / '.github/workflows/tests.yml').read_text())
-    assert workflow['env']['RUNTIME_COMMIT'] == '5df11bf6cb9951d619764c42e8f3b5ced57f1dda'
-    assert 'b3_prosaic_runtime-0.9.20-py3-none-any.whl' in (root / 'scripts/ci_context_pack_upstream.py').read_text()
+    assert workflow['env']['RUNTIME_COMMIT'] == 'b2daac52276dc4a70455b80d2dd6ea6894ad1e73'
+    assert 'b3_prosaic_runtime-0.9.21.dev1-py3-none-any.whl' in (root / 'scripts/ci_context_pack_upstream.py').read_text()
     assert 'b3_prosaic_runtime-0.9.19-py3-none-any.whl' not in (root / '.github/workflows/tests.yml').read_text()
 
 
