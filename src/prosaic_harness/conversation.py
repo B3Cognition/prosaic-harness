@@ -431,7 +431,10 @@ class Conversation(ConversationWorkflow):
             frozen=attempt_frozen(state,aid);views=frozen['inputViews']
             contract={'toolContractV1':{'bindings':frozen['bindings']['toolContractV1'],
                 'evidence':{'version':1,'records':[],'calls':[],'deliveries':{}},'citations':None}}
-        evidence=TurnEvidence.from_dict({'version':3 if contract else 2 if views else 1,'providerAttempts':0,'toolAttempts':0,
+        if state['version']==5 and contract:
+            parallel=frozen['bindings']['parallelToolsV1']
+            contract['parallelToolsV1']={'bindings':parallel,'schedule':dict(**parallel,batches=[])}
+        evidence=TurnEvidence.from_dict({'version':4 if 'parallelToolsV1' in contract else 3 if contract else 2 if views else 1,'providerAttempts':0,'toolAttempts':0,
             'knownUsage':{},'usageComplete':True,'toolOutcomes':[],'failureCode':code,'accounting':attribution,
             **({'inputViews':views} if views is not None or contract else {}),**contract})
         work=ContextWorkState.from_dict(attempt['contextWork']) if attempt['contextWork'] is not None else None

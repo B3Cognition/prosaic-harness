@@ -137,7 +137,7 @@ def validate_workflow_pack_state(state,workflow):
             if reservation is not None or workflow.context_pack_for(entry['step']) is not None: raise ContextPackError('contextBindingMismatch')
             continue
         frame=ContextPackInvocation.from_dict(value)
-        if frame.to_dict()['version']==2:
+        if frame.to_dict()['version'] in (2,3):
             prior=predecessors.get(entry['step'])
             if frame.execution_epoch!=1 or prior is not None and prior[0]=='abandoned':
                 if (prior is None or prior[0]!='abandoned' or frame.execution_epoch!=prior[1].execution_epoch+1

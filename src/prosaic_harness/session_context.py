@@ -195,7 +195,7 @@ def match_context_receipt(state, attempt, value):
             validate_work_transition(previous, work)
     if not attempt['dispatchMarker']:
         evidence = value['evidence']
-        if ((purpose is None and state['version']!=4) or value['result']['exitCode'] == 0
+        if ((purpose is None and state['version'] not in (4,5)) or value['result']['exitCode'] == 0
                 or value['result']['failureCode'] not in ({'contextLimit', 'bindingMismatch', 'cancelled', 'timeout'} | ({'evidenceUseDenied'} if state['version'] in (4,5) else set()))
                 or evidence['providerAttempts'] or evidence['toolAttempts'] or evidence['toolOutcomes']):
             raise ValueError('undispatched receipt claims effects')

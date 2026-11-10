@@ -25,3 +25,21 @@ def test_parallel_session_receipt_retains_and_reopens(parallel_endpoint):
     assert receipt['version']==5 and receipt['evidence']['version']==4
     before=len(requests);assert api.Conversation(binding,store=store,scope=scope).status(session.session_id).document==result.document
     assert len(requests)==before
+
+
+@pytest.mark.parametrize('reason',['bindingMismatch','evidenceUseDenied'])
+def test_parallel_readmission_failure_is_durable_without_dispatch(parallel_endpoint,monkeypatch,reason):
+    cfg,requests,replies=parallel_endpoint;seen=[]
+    chat,binding,store,scope=chat_case(cfg,lambda a,c:seen.append(1) or {'ok':True});session=chat.create()
+    if reason=='bindingMismatch':
+        monkeypatch.setattr(rt.ProsaicRuntime,'turn',lambda *a,**kw:(_ for _ in ()).throw(rt.TurnAdmissionError(reason)))
+    else:
+        import prosaic_harness.session_tool_contracts as contracts
+        monkeypatch.setattr(contracts,'authorize_tool_history',lambda *a,**kw:(_ for _ in ()).throw(contracts.HistoricalEvidenceDenied()))
+    failed=chat.send(session.session_id,message_id='one',message='Review',expected_revision=session.revision)
+    assert failed.document['failureCode']==reason and not requests and not seen
+    state=store.load_session(session.session_id,scope=scope).state;assert state['pending'] is None
+    aid=state['turns'][0]['attempts'][0];packet=store.load_receipt(session.session_id,aid,scope=scope)
+    assert packet['version']==5 and packet['evidence']['version']==4
+    assert packet['evidence']['parallelToolsV1']['schedule']['batches']==[]
+    assert api.Conversation(binding,store=store,scope=scope).status(session.session_id).document==failed.document

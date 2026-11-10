@@ -171,7 +171,7 @@ def resume_prepared(controller,state,*,fresh_attempt=False):
     controller._admit()
     workflow=controller.workflow;pending=state['pending'];name=pending['step'];step=workflow.definition['steps'][name]
     frame=ContextPackInvocation.from_dict(state['contextPacks']['attempts'][pending['id']])
-    if frame.to_dict()['version']==2:
+    if frame.to_dict()['version'] in (2,3):
         from .tool_contracts import resume_contract_pack
         return resume_contract_pack(controller,state,frame,fresh_attempt=fresh_attempt)
     if frame.stage not in ({'prepared','dispatched'} if fresh_attempt else {'prepared'}): raise ContextPackError('contextBindingMismatch')
