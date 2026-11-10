@@ -3,6 +3,10 @@ name: Publish SDK
 on:
   workflow_dispatch:
     inputs:
+      release_tag:
+        description: Existing immutable version tag; empty uses the workflow ref
+        type: string
+        default: ''
       distribution:
         description: Distribution to publish; other package bytes remain qualification witnesses
         type: choice
@@ -37,7 +41,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: package-${{ github.ref }}
+  group: package-${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -50,7 +54,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
           fetch-depth: 0
+      - name: Resolve immutable release source
+        run: echo "PROSAIC_RELEASE_SOURCE=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
@@ -58,9 +65,9 @@ jobs:
       - name: Build or promote immutable candidate bytes
         env:
           GH_TOKEN: ${{ secrets.ECOSYSTEM_ARTIFACT_TOKEN || github.token }}
-          SOURCE_COMMIT: ${{ github.sha }}
-          SOURCE_REF: ${{ github.ref }}
-          SOURCE_TAG: ${{ github.ref_name }}
+          SOURCE_COMMIT: ${{ env.PROSAIC_RELEASE_SOURCE }}
+          SOURCE_REF: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+          SOURCE_TAG: ${{ inputs.release_tag || github.ref_name }}
           CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
           PUBLISH: ${{ inputs.publish }}
           DISTRIBUTION: ${{ inputs.distribution }}
@@ -143,7 +150,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
           fetch-depth: 0
+      - name: Resolve immutable release source
+        run: echo "PROSAIC_RELEASE_SOURCE=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: ${{ matrix.python }}
@@ -205,7 +215,7 @@ jobs:
           PY
       - name: Qualify source and the transported wheel
         env:
-          SOURCE_COMMIT: ${{ github.sha }}
+          SOURCE_COMMIT: ${{ env.PROSAIC_RELEASE_SOURCE }}
           LANE: linux-${{ matrix.os }}-${{ matrix.python }}
           PIP_FIND_LINKS: ${{ github.workspace }}/release/upstream-wheels
         run: |
@@ -251,7 +261,7 @@ jobs:
           python -m venv .floor-test
           .floor-test/bin/python -m pip install 'PyYAML==6.0' 'pyuca==1.2' 'markdown-it-py==3.0.0' 'jsonschema==4.23.0' 'referencing==0.28.4' 'psycopg[binary]==3.2.3' 'psycopg-pool==3.2.0' release/upstream-wheels/b3_prosaic-0.5.0-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime-0.9.20-py3-none-any.whl release/upstream-wheels/b3_prosaic_runtime_postgres-0.3.0-py3-none-any.whl release/artifacts/b3_prosaic_harness-0.9.14-py3-none-any.whl release/artifacts/b3_prosaic_harness_postgres-0.4.3-py3-none-any.whl
           .floor-test/bin/python -m pip check
-          python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$GITHUB_SHA" --label floor-${{ matrix.os }} -- .floor-test/bin/python -I -c "from prosaic_harness_postgres import PostgresRunStore, PostgresSessionStore; store = PostgresRunStore('postgresql://invalid.invalid/unused', namespace='floor'); store.close(); sessions = PostgresSessionStore('postgresql://invalid.invalid/unused', namespace='floor'); sessions.close(); import runpy; runpy.run_path('scripts/workflow_factory_smoke.py', run_name='__main__'); runpy.run_path('scripts/conversation_smoke.py', run_name='__main__'); runpy.run_path('scripts/terminal_completion_smoke.py', run_name='__main__'); runpy.run_path('scripts/context_pack_smoke.py', run_name='__main__')"
+          python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$PROSAIC_RELEASE_SOURCE" --label floor-${{ matrix.os }} -- .floor-test/bin/python -I -c "from prosaic_harness_postgres import PostgresRunStore, PostgresSessionStore; store = PostgresRunStore('postgresql://invalid.invalid/unused', namespace='floor'); store.close(); sessions = PostgresSessionStore('postgresql://invalid.invalid/unused', namespace='floor'); sessions.close(); import runpy; runpy.run_path('scripts/workflow_factory_smoke.py', run_name='__main__'); runpy.run_path('scripts/conversation_smoke.py', run_name='__main__'); runpy.run_path('scripts/terminal_completion_smoke.py', run_name='__main__'); runpy.run_path('scripts/context_pack_smoke.py', run_name='__main__')"
           .floor-test/bin/python -I scripts/conversation_smoke.py --context-assembly
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
@@ -273,7 +283,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
           fetch-depth: 0
+      - name: Resolve immutable release source
+        run: echo "PROSAIC_RELEASE_SOURCE=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: ${{ matrix.python }}
@@ -305,7 +318,7 @@ jobs:
           PY
       - name: Qualify source and the transported wheel
         env:
-          SOURCE_COMMIT: ${{ github.sha }}
+          SOURCE_COMMIT: ${{ env.PROSAIC_RELEASE_SOURCE }}
           LANE: macos-${{ matrix.os }}-${{ matrix.python }}
           PIP_FIND_LINKS: ${{ github.workspace }}/release/upstream-wheels
         run: |
@@ -336,6 +349,10 @@ jobs:
         postgres: ['16', '18']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+      - name: Resolve immutable release source
+        run: echo "PROSAIC_RELEASE_SOURCE=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
@@ -357,7 +374,7 @@ jobs:
           from pathlib import Path
           spec = importlib.util.spec_from_file_location('release', 'scripts/release_artifacts.py')
           release = importlib.util.module_from_spec(spec); spec.loader.exec_module(release)
-          release.verify_receipt(Path('release/artifacts'), '${{ github.sha }}')
+          release.verify_receipt(Path('release/artifacts'), '${{ env.PROSAIC_RELEASE_SOURCE }}')
           release.verify_upstream(Path('release/artifacts'), Path('release/upstream-wheels'))
           PY
           mkdir -p dist adapters/postgres/dist
@@ -375,7 +392,7 @@ jobs:
         run: |
           fixture_manifest="$(python adapters/postgres/tests/support/local_cluster.py start --engine docker --version "$POSTGRES_VERSION")"
           trap 'python adapters/postgres/tests/support/local_cluster.py stop --manifest "$fixture_manifest"' EXIT
-          python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$GITHUB_SHA" --label postgres-${{ matrix.os }}-${{ matrix.postgres }} --junit "$HARNESS_TEST_JUNIT_XML" -- python adapters/postgres/tests/support/local_cluster.py test --manifest "$fixture_manifest"
+          python scripts/release_artifacts.py qualify --directory release/artifacts --commit "$PROSAIC_RELEASE_SOURCE" --label postgres-${{ matrix.os }}-${{ matrix.postgres }} --junit "$HARNESS_TEST_JUNIT_XML" -- python adapters/postgres/tests/support/local_cluster.py test --manifest "$fixture_manifest"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: qualified-postgres-${{ matrix.os }}-${{ matrix.postgres }}
@@ -390,6 +407,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+      - name: Resolve immutable release source
+        run: echo "PROSAIC_RELEASE_SOURCE=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
@@ -419,7 +440,7 @@ jobs:
           labels += [f'postgres-{os_name}-{version}' for os_name in ('ubuntu-24.04', 'ubuntu-24.04-arm') for version in ('16', '18')]
           labels += [f'floor-{os_name}' for os_name in ('ubuntu-24.04', 'ubuntu-24.04-arm')]
           assert Path('release/artifacts/upstream-receipt.json').is_file()
-          release.require_qualification(Path('release/artifacts'), os.environ['GITHUB_SHA'], labels)
+          release.require_qualification(Path('release/artifacts'), os.environ['PROSAIC_RELEASE_SOURCE'], labels)
           for label in labels:
               record = json.loads(Path('release/artifacts', 'qualification-' + label + '.json').read_text())
               expected_machine = ('x86_64' if 'macos-15-intel' in label else 'arm64' if label.startswith('macos-') else
@@ -438,7 +459,7 @@ jobs:
           retention-days: 90
 
   pypi:
-    if: github.event_name == 'workflow_dispatch' && inputs.publish && startsWith(github.ref, 'refs/tags/')
+    if: ${{ always() && needs.gate.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.publish && startsWith(github.ref, 'refs/tags/') }}
     needs: gate
     env:
       DISTRIBUTION: ${{ inputs.distribution == 'postgres' && 'b3-prosaic-harness-postgres' || 'b3-prosaic-harness' }}
@@ -450,6 +471,10 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+      - name: Resolve immutable release source
+        run: echo "PROSAIC_RELEASE_SOURCE=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
@@ -460,7 +485,7 @@ jobs:
           path: release/artifacts
       - name: Refuse conflicting existing index bytes
         run: |
-          python scripts/release_artifacts.py index-check --distribution "$DISTRIBUTION" --directory release/artifacts --commit ${{ github.sha }} --allow-missing
+          python scripts/release_artifacts.py index-check --distribution "$DISTRIBUTION" --directory release/artifacts --commit ${{ env.PROSAIC_RELEASE_SOURCE }} --allow-missing
       - name: Prepare only distribution files for upload
         run: |
           mkdir upload
@@ -475,9 +500,10 @@ jobs:
           skip-existing: true # Safe only with the mandatory pre/post digest checks.
       - name: Verify actual downloaded public bytes
         run: |
-          python scripts/release_artifacts.py index-check --distribution "$DISTRIBUTION" --directory release/artifacts --commit ${{ github.sha }}
+          python scripts/release_artifacts.py index-check --distribution "$DISTRIBUTION" --directory release/artifacts --commit ${{ env.PROSAIC_RELEASE_SOURCE }}
 
   github-release:
+    if: ${{ always() && needs.gate.result == 'success' && needs.pypi.result == 'success' }}
     needs: [gate, pypi]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -485,6 +511,10 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+      - name: Resolve immutable release source
+        run: echo "PROSAIC_RELEASE_SOURCE=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
@@ -496,12 +526,12 @@ jobs:
       - name: Publish the same bytes and evidence without replacing assets
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
-          python scripts/release_artifacts.py verify --directory release/artifacts --commit "$GITHUB_SHA"
+          python scripts/release_artifacts.py verify --directory release/artifacts --commit "$PROSAIC_RELEASE_SOURCE"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release download "$RELEASE_TAG" --dir existing
-            python scripts/release_artifacts.py verify --directory existing --commit "$GITHUB_SHA"
+            python scripts/release_artifacts.py verify --directory existing --commit "$PROSAIC_RELEASE_SOURCE"
             cmp existing/release-receipt.json release/artifacts/release-receipt.json
             cmp existing/upstream-receipt.json release/artifacts/upstream-receipt.json
           else
