@@ -87,12 +87,12 @@ def validate_attempt_context(state, attempt):
         from .context_packs.records import validate_pack_attempt_context
         return validate_pack_attempt_context(state,attempt)
     purpose = state['contextBindings'][attempt['purpose']]
-    enabled=state['version']==4 and attempt['purpose']=='ordinary'
+    enabled=state['version'] in (4,5) and attempt['purpose']=='ordinary'
     if purpose is None:
-        if attempt['encodingVersion'] != ('conversation-turn-v4' if enabled else 'conversation-turn-v1') or any(attempt[key] is not None for key in ATTEMPT_FIELDS):
+        if attempt['encodingVersion'] != (('conversation-turn-v5' if state['version']==5 else 'conversation-turn-v4') if enabled else 'conversation-turn-v1') or any(attempt[key] is not None for key in ATTEMPT_FIELDS):
             raise ValueError('legacy purpose context')
         return
-    if attempt['encodingVersion'] != ('conversation-turn-v4' if enabled else 'conversation-turn-v2'):
+    if attempt['encodingVersion'] != (('conversation-turn-v5' if state['version']==5 else 'conversation-turn-v4') if enabled else 'conversation-turn-v2'):
         raise ValueError('context encoding')
     policy = ContextPolicy.from_dict(purpose['policy'])
     selection = ContextSelection.from_dict(attempt['contextSelection'])
@@ -144,7 +144,7 @@ def validate_final_report(initial, final, work):
 def checkpoint_context_work(document, invocation_id, work):
     from .session_contracts import verify_session, _consume_headroom
     state = verify_session(document)
-    if (state['version'] not in (2,3,4) or state['pending'] is None or
+    if (state['version'] not in (2,3,4,5) or state['pending'] is None or
             state['pending']['invocationId'] != invocation_id):
         raise ConversationError('messageConflict')
     before_bytes, before_nodes = len(encode(state)), node_count(state)
@@ -160,15 +160,15 @@ def checkpoint_context_work(document, invocation_id, work):
 
 
 def validate_receipt_context(value):
-    if value['version'] in (3,4) and value['contextPack'] is not None:
+    if value['version'] in (3,4,5) and value['contextPack'] is not None:
         from .context_packs.records import validate_pack_receipt_context
         return validate_pack_receipt_context(value)
-    enabled=value['version']==4 and value['toolContractV1'] is not None
+    enabled=value['version'] in (4,5) and value['toolContractV1'] is not None
     if value['contextSelection'] is None:
-        if value['encodingVersion'] != ('conversation-turn-v4' if enabled else 'conversation-turn-v1') or any(value[key] is not None for key in RECEIPT_FIELDS):
+        if value['encodingVersion'] != (('conversation-turn-v5' if value['version']==5 else 'conversation-turn-v4') if enabled else 'conversation-turn-v1') or any(value[key] is not None for key in RECEIPT_FIELDS):
             raise ValueError('legacy receipt context')
         return
-    if value['encodingVersion'] != ('conversation-turn-v4' if enabled else 'conversation-turn-v2'): raise ValueError('context receipt encoding')
+    if value['encodingVersion'] != (('conversation-turn-v5' if value['version']==5 else 'conversation-turn-v4') if enabled else 'conversation-turn-v2'): raise ValueError('context receipt encoding')
     selection = ContextSelection.from_dict(value['contextSelection'])
     initial = ContextAssemblyReport.from_dict(value['initialContextReport'])
     counter = TokenCounterDescriptor.from_dict(value['contextCounter'])
@@ -196,6 +196,6 @@ def match_context_receipt(state, attempt, value):
     if not attempt['dispatchMarker']:
         evidence = value['evidence']
         if ((purpose is None and state['version']!=4) or value['result']['exitCode'] == 0
-                or value['result']['failureCode'] not in ({'contextLimit', 'bindingMismatch', 'cancelled', 'timeout'} | ({'evidenceUseDenied'} if state['version']==4 else set()))
+                or value['result']['failureCode'] not in ({'contextLimit', 'bindingMismatch', 'cancelled', 'timeout'} | ({'evidenceUseDenied'} if state['version'] in (4,5) else set()))
                 or evidence['providerAttempts'] or evidence['toolAttempts'] or evidence['toolOutcomes']):
             raise ValueError('undispatched receipt claims effects')

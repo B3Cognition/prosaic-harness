@@ -44,16 +44,23 @@ def check_write(store):
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Initialize/check an existing Harness database')
     commands = parser.add_subparsers(dest='command', required=True)
-    for name in ('init', 'doctor', 'migrate-conversations','migrate-context-packs'):
+    for name in ('init', 'doctor', 'migrate-conversations','migrate-context-packs','migrate-parallel-tools'):
         command = commands.add_parser(name)
         command.add_argument('--dsn-env', required=True, help='name of the DSN environment variable, never its value')
         command.add_argument('--durability-profile', choices=['postgresql', 'aurora-postgresql'],
                              default='postgresql', help='explicit operator-verified database storage contract')
-        if name=='migrate-context-packs': command.add_argument('--store',choices=['workflows','conversations'],required=True)
+        if name in {'migrate-context-packs','migrate-parallel-tools'}: command.add_argument('--store',choices=['workflows','conversations'],required=True)
         if name == 'doctor':
             command.add_argument('--check-write', action='store_true', help='explicit disposable write test; DELETE credentials required')
+    commands.choices['init'].add_argument('--parallel-tools',action='store_true')
     args = parser.parse_args(argv)
     try:
+        if args.command=='migrate-parallel-tools':
+            from .session_store import PostgresSessionStore
+            cls=PostgresRunStore if args.store=='workflows' else PostgresSessionStore
+            with cls.from_env(args.dsn_env,namespace='parallel-migration',durability_profile=args.durability_profile) as store:store.migrate_parallel_tool_storage()
+            print(json.dumps({'migrated':True,'store':args.store,'storage_contract':4 if args.store=='workflows' else 5}))
+            return 0
         if args.command=='migrate-context-packs':
             from .session_store import PostgresSessionStore
             cls=PostgresRunStore if args.store=='workflows' else PostgresSessionStore
@@ -70,8 +77,8 @@ def main(argv=None):
         namespace = 'prosaic-diagnostic-' + uuid.uuid4().hex
         with PostgresRunStore.from_env(args.dsn_env, namespace=namespace, durability_profile=args.durability_profile) as store:
             if args.command == 'init':
-                store.initialize()
-                result = {'initialized': True, 'schema_version': 1}
+                store.initialize(parallel_tools=args.parallel_tools)
+                result = {'initialized': True, 'schema_version': 4 if args.parallel_tools else 1}
             else:
                 store.check_ready()
                 if args.check_write:

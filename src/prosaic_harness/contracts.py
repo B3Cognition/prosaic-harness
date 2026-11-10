@@ -31,12 +31,16 @@ def output_json(text):
 def validate_receipt(receipt, state, pending, workflow=None):
     verify_seal(receipt)
     required = {'version', 'run_id', 'id', 'step', 'arguments_sha256', 'arguments', 'result', 'events', 'sha256'}
-    enabled=state.get('version')==4
+    enabled=state.get('version') in (4,5)
     packed=has_packs(state)
     if packed or enabled: required |= {'recordType','contextPack','contextPackResult'}
     if enabled: required.add('toolContractV1')
-    if set(receipt) != required or type(receipt['version']) is not int or receipt['version'] != (3 if enabled else 2 if packed else 1):
+    if state.get('version')==5:required.add('parallelToolsV1')
+    if set(receipt) != required or type(receipt['version']) is not int or receipt['version'] != (4 if state.get("version")==5 else 3 if enabled else 2 if packed else 1):
         raise ValueError('invalid invocation receipt schema')
+    if state.get('version')==5:
+        from .parallel_tools import parallel_material
+        if state.get('parallelToolsV1')!=parallel_material(workflow).get('parallelToolsV1') or receipt['parallelToolsV1']!=state['parallelToolsV1']:raise ValueError('parallel receipt binding mismatch')
     if enabled:
         from .tool_contracts import validate_tool_contract_receipt
         validate_tool_contract_receipt(receipt,state,pending,workflow)
@@ -81,11 +85,12 @@ def validate_state(state, workflow):
     required = {'version', 'run_id', 'fingerprint', 'validators', 'inputs', 'status', 'reason', 'current',
                 'calls', 'visits', 'outputs', 'bindings', 'history', 'pending', 'entered', 'attempt',
                 'feedback', 'invocations', 'evidence', 'started_at', 'deadline', 'sha256'}
-    enabled=state.get('version')==4
+    enabled=state.get('version') in (4,5)
     packed=has_packs(state)
     if packed or enabled: required |= {'recordType','contextPacks'}
     if enabled: required.add('toolContractV1')
-    if set(state) - (required | {'question', 'choices', 'pause_bindings', 'accounting_context', 'accounting_migration', 'accounting_scope'}) or required - set(state) or type(state['version']) is not int or state['version'] != (4 if enabled else 3 if packed else 2):
+    if state.get('version')==5:required.add('parallelToolsV1')
+    if set(state) - (required | {'question', 'choices', 'pause_bindings', 'accounting_context', 'accounting_migration', 'accounting_scope'}) or required - set(state) or type(state['version']) is not int or state['version'] != (5 if state.get("version")==5 else 4 if enabled else 3 if packed else 2):
         raise ValueError('invalid checkpoint schema; start a new run')
     if 'accounting_context' in state:
         from prosaic_runtime.accounting import ResolvedContext
@@ -180,6 +185,9 @@ def validate_state(state, workflow):
         if (step['kind'] != 'pause' or pending is not None or state.get('question') != step['question']
                 or state.get('choices') != list(step['choices']) or state.get('pause_bindings') != state['bindings']):
             raise ValueError('invalid human pause binding')
+    if state.get('version')==5:
+        from .parallel_tools import parallel_material
+        if state['parallelToolsV1']!=parallel_material(workflow).get('parallelToolsV1'):raise ValueError('parallel workflow binding mismatch')
     if enabled:
         from .tool_contracts import validate_workflow_state
         validate_workflow_state(state,workflow)

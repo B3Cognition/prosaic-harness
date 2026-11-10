@@ -4,7 +4,7 @@ from prosaic_harness import StoreIncompatible,StoreUninitialized,StoreBusy
 
 def migrate(transport,*,schema,target,versions,lock,ready):
     # These identifiers are internal constants, never user/model data.
-    if (schema,target) not in {('prosaic_harness',2),('prosaic_harness_conversations',3),('prosaic_harness',3),('prosaic_harness_conversations',4)}:
+    if (schema,target) not in {('prosaic_harness',2),('prosaic_harness_conversations',3),('prosaic_harness',3),('prosaic_harness_conversations',4),('prosaic_harness',4),('prosaic_harness_conversations',5)}:
         raise StoreIncompatible()
     async def operation(conn):
         await conn.execute("SELECT pg_catalog.set_config('lock_timeout','25000ms',true), "

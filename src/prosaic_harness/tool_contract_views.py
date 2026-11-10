@@ -37,7 +37,7 @@ class VerifiedToolReceipt:
         state=store.load_run(run_id).state
         packet=store.load_receipt(run_id,invocation_id)
         admit_workflow(workflow);validate_state(state,workflow)
-        if packet is None or state['fingerprint']!=workflow.current_fingerprint() or state.get('version')!=4:
+        if packet is None or state['fingerprint']!=workflow.current_fingerprint() or state.get('version') not in (4,5):
             raise ValueError('unavailable owned tool receipt')
         invocation=next((item for item in state['invocations'] if item['id']==invocation_id),None)
         if invocation is None or invocation['status']!='complete' or invocation['receipt_sha256']!=packet['sha256']:
@@ -51,7 +51,7 @@ class VerifiedToolReceipt:
         state=store.load_session(session_id,scope=scope).state
         packet=store.load_receipt(session_id,invocation_id,scope=scope)
         bindings.readmit()
-        if state['bindingIdentity']!=bindings.identity or state.get('version')!=4 or packet is None:
+        if state['bindingIdentity']!=bindings.identity or state.get('version') not in (4,5) or packet is None:
             raise ValueError('unavailable owned tool receipt')
         attempt=state['attempts'].get(invocation_id)
         if attempt is None or not attempt['receiptAdopted'] or attempt['receiptIdentity']!=packet['sha256']:
@@ -106,7 +106,7 @@ def _parts(verified):
 
 def _record(verified,evidence_id):
     packet,frozen,evidence=_parts(verified)
-    if evidence is None or evidence.get('version')!=3: raise ValueError('source was not exposed')
+    if evidence is None or evidence.get('version') not in (3,4): raise ValueError('source was not exposed')
     registry=evidence['toolContractV1']['evidence']
     if evidence_id not in registry['deliveries']: raise ValueError('source was not delivered')
     record=next((record for record in registry['records'] if record['id']==evidence_id),None)

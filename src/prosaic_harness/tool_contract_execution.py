@@ -126,7 +126,7 @@ def execute_prepared(controller, state, prepared, binding, policy):
     if event_failure:
         payload = controller._failure_result(payload, 'event_limit')
         proof['answer']=result.stdout
-    packet = seal(dict(version=3, recordType='workflowReceipt', run_id=state['run_id'], **pending,
+    packet = seal(dict(version=4 if state['version']==5 else 3, **({'parallelToolsV1':state['parallelToolsV1']} if state['version']==5 else {}), recordType='workflowReceipt', run_id=state['run_id'], **pending,
         result=payload, events=events, contextPack=None, contextPackResult=None, toolContractV1=proof))
     validate_receipt(packet, state, pending, workflow)
     controller._bounded_document(packet, caps.max_receipt_bytes)

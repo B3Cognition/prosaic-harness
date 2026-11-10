@@ -51,7 +51,7 @@ def metadata_bounds(frame,tool_bytes):
     byte_bound=(limits['max_metadata_bytes']+base_evidence+proof_bytes+rule_bytes+
         len(encode(report))+4096+1024+tool_room)
     node_bound=meta_nodes+max(0,evidence_nodes-tool_nodes)+_nodes(maximum_proof)+_nodes(maximum_rules)+_nodes(report)+128+64*len(tool_bytes)
-    if frozen['encodingVersion']=='conversation-turn-v4':
+    if frozen['encodingVersion']in ('conversation-turn-v4','conversation-turn-v5'):
         contract=frozen['bindings']['toolContractV1']['limits']
         byte_bound+=tool_room+contract['max_citation_bytes']+4096
         registry_nodes=contract['max_registry_items']*(32+4*frozen['bindings']['policy']['max_provider_requests'])
@@ -74,7 +74,7 @@ def reserve_workflow_pack_attempt(document,workflow,step,arguments,frame,*,tool_
     from ..contracts import validate_state,seal
     from ..workflow import digest as arguments_digest
     state=_owned(document);validate_state(state,workflow)
-    if state['version'] not in (3,4) or state['pending'] is not None or state['current']!=step: raise ContextPackError('contextBindingMismatch')
+    if state['version'] not in (3,4,5) or state['pending'] is not None or state['current']!=step: raise ContextPackError('contextBindingMismatch')
     if type(frame) is not ContextPackInvocation or frame.stage!='prepared' or frame.projection is None: raise ContextPackError()
     projection=frame.projection
     if projection['step']!=step or projection['originalArgumentsDigest']!=arguments_digest(arguments): raise ContextPackError('contextBindingMismatch')
@@ -85,15 +85,16 @@ def reserve_workflow_pack_attempt(document,workflow,step,arguments,frame,*,tool_
         status='pending',token_usage=None,receipt_sha256=None))
     state['calls']+=1;state['attempt']+=1
     state['contextPacks']['attempts'][aid]=frame.to_dict()
-    if state['version']==4: state['toolContractV1']['attempts'][aid]=None
+    if state['version'] in (4,5): state['toolContractV1']['attempts'][aid]=None
     state['contextPacks']['reservations'][aid]=None
     policy=storage_policy(workflow)
     metadata_bytes,metadata_nodes,result_metadata_bytes=metadata_bounds(frame,tool_result_bytes)
     if result_metadata_bytes>policy.max_metadata_bytes: raise ContextPackError('contextPackLimit')
-    packet=dict(version=3 if state['version']==4 else 2,recordType='workflowReceipt',run_id=state['run_id'],id=aid,step=step,
+    packet=dict(version=4 if state['version']==5 else 3 if state['version']==4 else 2,recordType='workflowReceipt',run_id=state['run_id'],id=aid,step=step,
         arguments_sha256=arguments_digest(arguments),arguments=arguments,contextPack=frame.to_dict(),contextPackResult=None,
         result=None,events=[])
-    if state['version']==4: packet['toolContractV1']=None
+    if state['version']==5:packet['parallelToolsV1']=state['parallelToolsV1']
+    if state['version'] in (4,5): packet['toolContractV1']=None
     reservation=reserve_pack_capacity(state,packet,max_state_bytes=policy.max_state_bytes,
         max_receipt_bytes=policy.max_receipt_bytes,max_json_nodes=policy.max_json_nodes,
         output_bytes=min(policy.max_output_bytes,65536),metadata_bytes=metadata_bytes,metadata_nodes=metadata_nodes,
@@ -214,12 +215,13 @@ def make_workflow_pack_receipt(document,workflow,turn,*,events,result=None):
     state=_owned(document);validate_state(state,workflow)
     pending=state['pending'];aid=pending['id']
     frame=ContextPackInvocation.from_dict(state['contextPacks']['attempts'][aid]).complete(turn)
-    packet=seal(dict(version=3 if state['version']==4 else 2,recordType='workflowReceipt',run_id=state['run_id'],**pending,
+    packet=seal(dict(version=4 if state['version']==5 else 3 if state['version']==4 else 2,recordType='workflowReceipt',run_id=state['run_id'],**pending,
         result=asdict(turn.result) if result is None else result,events=_owned(events),contextPack=frame.to_dict(),
         contextPackResult=dict(evidence=turn.evidence.to_dict(),rules=rule_receipt(turn),
             finalContextReport=turn.context_report.to_dict() if turn.context_report is not None else None,
             contextWork=turn.context_work.to_dict() if turn.context_work is not None else None)))
-    if state['version']==4:
+    if state['version']==5:packet['parallelToolsV1']=state['parallelToolsV1']
+    if state['version'] in (4,5):
         from ..tool_contracts import freeze_tool_contract_receipt,invocation_scope
         from prosaic_runtime import Result
         payload=Result(**packet['result'])

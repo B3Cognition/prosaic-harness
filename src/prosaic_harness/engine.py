@@ -1,7 +1,7 @@
 """A deterministic controller around one-agent invocations and validated results."""
 from prosaic_runtime.lifecycle import ExecutionLifecycle, tracked
 from .context_packs.workflow_execution import retained_workflow_view
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from copy import deepcopy
 from contextlib import contextmanager
 import json
@@ -139,8 +139,8 @@ class Harness:
         policy = storage_policy(self.workflow)
         if policy.max_json_nodes <= reserve_nodes:
             raise WorkflowAdmissionError('limit_exceeded')
-        if type(value) is dict and (value.get('recordType')=='workflow' and value.get('version') in (3,4) or
-                value.get('recordType')=='workflowReceipt' and value.get('version') in (2,3)):
+        if type(value) is dict and (value.get('recordType')=='workflow' and value.get('version') in (3,4,5) or
+                value.get('recordType')=='workflowReceipt' and value.get('version') in (2,3,4)):
             from .session_codec import encode,decode
             try:
                 return decode(encode(value,maximum=maximum-reserve,depth=policy.max_json_depth,
@@ -307,6 +307,8 @@ class Harness:
             else:
                 self._cwd = self.workflow.path.parent
             self.store.check_ready()
+            from .parallel_tools import parallel_material
+            if parallel_material(self.workflow,self.runtime) and 'parallel_tool_calls_v1' not in getattr(self.store,'capabilities',()):raise ValueError('parallel tool storage capability missing')
             if getattr(self.workflow,'_tool_contracts',None) is not None and 'tool_contracts_v1' not in getattr(self.store,'capabilities',()):
                 from .run_store import StoreIncompatible
                 raise StoreIncompatible('initialize tool contract storage explicitly')
@@ -560,7 +562,7 @@ class Harness:
                     validate_receipt(receipt, state, pending, self.workflow)
                     with self._observations.recovery():
                         self._accept(state, receipt)
-                elif (state.get('version')==4 and state['toolContractV1']['attempts'][pending['id']] is not None
+                elif (state.get('version') in (4,5) and state['toolContractV1']['attempts'][pending['id']] is not None
                         and not state['toolContractV1']['attempts'][pending['id']]['dispatched']):
                     from .tool_contract_execution import resume_prepared
                     resume_prepared(self,state)

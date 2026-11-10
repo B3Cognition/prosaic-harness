@@ -80,7 +80,7 @@ class LeaseSession(Protocol):
 class RunStore(Protocol):
     namespace: str
     capabilities: frozenset[str]
-    def initialize(self, *, context_packs: bool = False) -> None: ...
+    def initialize(self, *, context_packs: bool = False, tool_contracts: bool = False, parallel_tools: bool = False) -> None: ...
     def migrate_context_pack_storage(self) -> None: ...
     def check_ready(self) -> None: ...
     def lease(self, run_id: str) -> ContextManager[LeaseSession]: ...
@@ -118,8 +118,8 @@ def encode_document(value):
     try:
         if not isinstance(value, dict):
             raise ValueError('not an object')
-        packed=(value.get('recordType')=='workflow' and value.get('version') in (3,4) or
-            value.get('recordType')=='workflowReceipt' and value.get('version') in (2,3))
+        packed=(value.get('recordType')=='workflow' and value.get('version') in (3,4,5) or
+            value.get('recordType')=='workflowReceipt' and value.get('version') in (2,3,4))
         encoded = json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False,
             **({'separators':(',',':')} if packed else {})).encode('utf-8')
         if len(encoded) > MAX_BYTES:
