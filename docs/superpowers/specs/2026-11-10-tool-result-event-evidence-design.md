@@ -1,7 +1,8 @@
 # Shared tool result, event and evidence contract
 
-Date: 2026-11-10. Status: proposed, independently reviewed; no implementation or
-release is implied. Baseline: Runtime main `b2b2e39` / released 0.9.19, Harness main
+Date: 2026-11-10. Status: independently reviewed and approved for implementation
+planning; implementation and release remain pending. Baseline: Runtime main
+`b2b2e39` / released 0.9.19, Harness main
 `c43ebb9` / released 0.9.13, and Harness PostgreSQL 0.4.2.
 
 ## Intent and first increment
