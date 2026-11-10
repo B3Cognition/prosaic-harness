@@ -145,22 +145,22 @@ Add a copyable `parallel-tools` blueprint using public Runtime/Harness APIs, thr
 
 Add 16 logical real-stack cases over both provider wires: 32 required cases per AMD64/ARM64 and PostgreSQL 16/18 cell. Scenarios:
 
-1. Prove two handler intervals overlap using deterministic rendezvous.
-2. Prove concurrency cap and fixed-window admission.
-3. Reverse finishes; verify ordered guard facts/history/citations.
-4. Serial tool barrier between read groups.
-5. Malformed later call and budget shortfall each dispatch zero handlers.
-6. Current authorization denial/revocation before a queued start.
-7. Cancellation drains callbacks, retains known commits and dispatches no next window.
-8. Unknown claim or lost acknowledgement fences recovery.
-9. Duplicate operation key yields one handler and authoritative replay.
-10. Controlled failure follows recovery policy without rerunning siblings.
-11. Guard stop after sibling completion retains private facts but exposes no unapproved evidence.
-12. Safe event delivery is serialized and fast settlement carries no payload.
-13. Evidence/current permissions and actual provider delivery control citations.
-14. Bounded results/events fail without erasing known completion.
-15. Fresh controller adopts accepted receipt with zero provider/tool work.
-16. Lease takeover and foreign owner cannot dispatch or expose the original owner's work.
+1. `independent-overlap` — Prove two handler intervals overlap using deterministic rendezvous.
+2. `concurrency-windows` — Prove concurrency cap and fixed-window admission.
+3. `ordered-evidence` — Reverse finishes; verify ordered guard facts/history/citations.
+4. `serial-barrier` — Serial tool barrier between read groups.
+5. `atomic-batch-admission` — Malformed later call and budget shortfall each dispatch zero handlers.
+6. `current-authorization` — Current authorization denial/revocation before a queued start.
+7. `cancel-drain` — Cancellation drains callbacks, retains known commits and dispatches no next window.
+8. `uncertain-journal` — Unknown claim or lost acknowledgement fences recovery.
+9. `same-key-replay` — Duplicate operation key yields one handler and authoritative replay.
+10. `controlled-failure` — Controlled failure follows recovery policy without rerunning siblings.
+11. `guard-stop-retains-completion` — Guard stop after sibling completion retains private facts but exposes no unapproved evidence.
+12. `safe-settlement-events` — Safe event delivery is serialized and fast settlement carries no payload.
+13. `delivered-citations` — Evidence/current permissions and actual provider delivery control citations.
+14. `bounded-buffers` — Bounded results/events fail without erasing known completion.
+15. `receipt-adoption` — Fresh controller adopts accepted receipt with zero provider/tool work.
+16. `lease-owner-fencing` — Lease takeover and foreign owner cannot dispatch or expose the original owner's work.
 
 Retain all eleven current lanes (370 cases/cell). A coherent new feature family adds `parallel-tools` for 402 cases/cell; previous public families keep their original gate inventory. Mixed or partially published families fail closed. Candidate qualification uses exact original SDK wheels and unmodified Core/recorder archives; do not switch active public manifests before separate publication/adoption authorization.
 
