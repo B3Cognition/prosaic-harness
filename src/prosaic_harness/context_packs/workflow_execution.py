@@ -10,6 +10,7 @@ from .authorization import ContextUse,ExposureBindings,authorize_context_use
 from .records import ContextPackInvocation
 from .workflow_records import (reserve_workflow_pack_attempt,mark_workflow_pack_dispatch,
     checkpoint_workflow_pack_work,make_workflow_pack_receipt,storage_policy)
+from ..tool_contracts import has_packs
 
 
 def retained_workflow_view(method):
@@ -25,7 +26,7 @@ def retained_workflow_view(method):
                 exc.feedback=safe_feedback('humanResponseInvalid',None,1,{}).to_dict()
             raise
         state=result if type(result) is dict else result.state
-        if state.get('version')==3:
+        if has_packs(state):
             from ..validation import CheckContext
             bindings=controller.workflow._context_packs
             private=validation_exposures(bindings,CheckContext(state['current'],state['inputs'],state['outputs'],
@@ -63,11 +64,14 @@ def turn_limits(controller,tool_bytes):
     from .capacity import TOOL_ENVELOPE_BYTES
     caps=storage_policy(controller.workflow)
     base=min(16384,caps.max_metadata_bytes//4)
+    contracts=getattr(controller.workflow,'_tool_contracts',None)
+    if contracts is not None: base=min(49152,caps.max_metadata_bytes-8192)
     if base<128: raise ContextPackError('contextPackLimit')
     return TurnLimits(max_input_bytes=caps.max_invocation_bytes,max_user_bytes=caps.max_invocation_bytes,
         max_assistant_bytes=min(caps.max_output_bytes,65536),max_turn_bytes=caps.max_receipt_bytes,
         max_metadata_bytes=base,max_event_bytes=caps.max_event_bytes,
-        max_evidence_bytes=base+sum(amount+TOOL_ENVELOPE_BYTES for amount in tool_bytes),
+        max_evidence_bytes=base+sum(amount+TOOL_ENVELOPE_BYTES for amount in tool_bytes)+(
+            contracts.limits.max_evidence_bytes+contracts.limits.max_citation_bytes+65536 if contracts is not None else 0),
         max_json_depth=caps.max_json_depth,max_json_nodes=caps.max_json_nodes)
 
 
@@ -75,6 +79,19 @@ def pack_workspace(controller):
     # Native pack nodes prohibit acquisition and filesystem read roots. Their
     # ephemeral execution directory is not a durable part of the selected input.
     return None if controller._admission is not None else controller._cwd
+
+
+def reader_for_pack(controller,pack,policy):
+    if not pack.envelope['index']: return None
+    from .reader import ContextPackReader,NAME
+    tool=controller.workflow.custom_tools.get(NAME)
+    reader=getattr(getattr(tool,'handler',None),'__self__',None)
+    if type(reader) is not ContextPackReader or NAME not in policy.allowed_tools:
+        raise ContextPackError('contextCapabilityMissing')
+    contracts=getattr(controller.workflow,'_tool_contracts',None)
+    if contracts is not None and contracts.evidence_authorizer is not None and tool.result_contract is None:
+        raise ContextPackError('contextCapabilityMissing')
+    return reader
 
 
 def execute_step(controller,state,name,step,arguments):
@@ -119,7 +136,15 @@ def execute_step(controller,state,name,step,arguments):
         authoritative_input_data=projection.authoritative_input_data,authoritative_input_profile=projection.authoritative_input_profile,
         policy=policy,limits=limits,workspace=pack_workspace(controller))
     mapping=[index]
-    if controller.context_policy is not None:
+    contracts=getattr(workflow,'_tool_contracts',None)
+    if contracts is not None:
+        from .tool_contracts import prepare_pack_contract,MODEL_PROFILE
+        from ..tool_contracts import invocation_scope
+        options['input_profile']=MODEL_PROFILE
+        prepared,pack,mapping,_=prepare_pack_contract(controller.runtime,workflow.artifacts[name],candidates,
+            projection.variants,bindings=bindings,contracts=contracts,scope=invocation_scope(state,aid,name,workflow),
+            options=options,context_policy=controller.context_policy,token_counters=controller.token_counters,deadline=deadline)
+    elif controller.context_policy is not None:
         prepared=controller.runtime.prepare_turn_variants(workflow.artifacts[name],input_data_variants=projection.variants,
             context_policy=controller.context_policy,token_counters=controller.token_counters,**options)
         index=prepared.input_variant_selection.to_dict()['selectedIndex']
@@ -146,6 +171,9 @@ def resume_prepared(controller,state,*,fresh_attempt=False):
     controller._admit()
     workflow=controller.workflow;pending=state['pending'];name=pending['step'];step=workflow.definition['steps'][name]
     frame=ContextPackInvocation.from_dict(state['contextPacks']['attempts'][pending['id']])
+    if frame.to_dict()['version']==2:
+        from .tool_contracts import resume_contract_pack
+        return resume_contract_pack(controller,state,frame,fresh_attempt=fresh_attempt)
     if frame.stage not in ({'prepared','dispatched'} if fresh_attempt else {'prepared'}): raise ContextPackError('contextBindingMismatch')
     if frame.context_work is not None and frame.context_work.reserved_active_micros and not fresh_attempt:
         return controller._block(state,'interrupted_call')
@@ -196,6 +224,12 @@ def execute_prepared(controller,state,prepared,frame,pack,reader,deadline):
     name=state['pending']['step']
     scope=InvocationScope(aid,run_id=state['run_id'],step_id=name,
         operation_namespace=controller._admission.operation_namespace if controller._admission else None)
+    contract_options={};evidence_capture={}
+    if getattr(workflow,'_tool_contracts',None) is not None:
+        from .tool_contracts import pack_evidence_bindings
+        adapter=pack_evidence_bindings(frame,None,bindings,tool_contracts=workflow._tool_contracts,scope=scope,deadline=deadline)
+        contract_options['tool_contract_bindings']=adapter.runtime_bindings
+        evidence_capture['evidence_capture']=adapter.capture_read
     def dispatch():
         controller._check_ownership()
         authorize_context_use(bindings,ContextUse.for_pack('invocation',pack,operation_id=aid,run_id=state['run_id'],deadline=deadline))
@@ -228,13 +262,13 @@ def execute_prepared(controller,state,prepared,frame,pack,reader,deadline):
                 return
             events.append(event)
         if controller.on_event: controller.on_event({**event,'step':name,'attempt_id':aid})
-    activation=(reader.activate(scope,pack,bindings,deadline=deadline,cancelled=lambda:controller._runtime_cancelled(state))
+    activation=(reader.activate(scope,pack,bindings,deadline=deadline,cancelled=lambda:controller._runtime_cancelled(state),**evidence_capture)
         if reader is not None else nullcontext())
     with activation:
         turn=controller.runtime.turn(prepared,on_event=record,operation_context=scope,
             on_admitted=dispatch,context_checkpoint=checkpoint,cancelled=lambda:event_failure or controller._runtime_cancelled(state),
             **({'token_counters':controller.token_counters,'context_work':frame.context_work} if controller.context_policy is not None else {}),
-            **controller._invocation_accounting(state,aid,name),
+            **contract_options,**controller._invocation_accounting(state,aid,name),
             **({'tool_journal':controller._admission.tool_journal} if controller._admission and controller._admission.tool_journal is not None else {}),
             **({'observer':controller._observations.observer} if controller._observations.observer is not None else {}))
     controller._check_ownership()

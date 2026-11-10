@@ -36,6 +36,13 @@ def test_index_only_entry_is_not_citable():
     assert adapter.runtime_bindings.retained == ()
 
 
+def test_event_only_pack_binding_needs_no_evidence_authorizer():
+    _,pack,bindings=reader_case(availability='inline')
+    adapter=pack_evidence_bindings(pack,None,bindings,tool_contracts=ToolContracts('events','1'),
+        scope=runtime_api.InvocationScope('a'*32),deadline=time.monotonic()+30)
+    assert adapter.runtime_bindings.evidence_authorizer is None and adapter.runtime_bindings.retained==()
+
+
 @pytest.mark.parametrize('generic_allowed,pack_allowed', [(True, False), (False, True), (False, False)])
 def test_generic_and_pack_authorizers_both_required(generic_allowed, pack_allowed):
     from prosaic_runtime.tool_evidence import EvidenceRegistryV1, EvidenceUseDenied

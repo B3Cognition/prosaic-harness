@@ -118,8 +118,8 @@ def encode_document(value):
     try:
         if not isinstance(value, dict):
             raise ValueError('not an object')
-        packed=(value.get('recordType')=='workflow' and value.get('version')==3 or
-            value.get('recordType')=='workflowReceipt' and value.get('version')==2)
+        packed=(value.get('recordType')=='workflow' and value.get('version') in (3,4) or
+            value.get('recordType')=='workflowReceipt' and value.get('version') in (2,3))
         encoded = json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False,
             **({'separators':(',',':')} if packed else {})).encode('utf-8')
         if len(encoded) > MAX_BYTES:

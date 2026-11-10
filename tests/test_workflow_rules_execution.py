@@ -19,6 +19,7 @@ def rule_endpoint(request):
         def do_POST(self):
             requests.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
             answer = replies.pop(0)
+            if callable(answer): answer = answer(requests[-1])
             tool = answer if isinstance(answer, dict) else None
             if provider == 'anthropic':
                 body = {'id': 'fixture', 'type': 'message', 'role': 'assistant', 'model': 'synthetic',

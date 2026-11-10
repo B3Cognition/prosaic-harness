@@ -8,6 +8,7 @@ from ..store import parent_descriptor,locked,read_bytes
 from ..run_store import StoreBusy,StoreIncompatible,StoreUnavailable,StoreCorrupt,validate_id
 
 MARKER=b'{"layout":"context-packs-v1","storageContract":2,"version":2}'
+TOOL_MARKER=b'{"layout":"tool-contracts-v1","storageContract":3,"version":3}'
 INTENT='.workflow-pack-data.json'
 
 
@@ -31,8 +32,8 @@ def _read_marker(parent,name):
         data=os.read(fd,1025)
         named=os.stat(name,dir_fd=parent,follow_symlinks=False)
         if (value.st_dev,value.st_ino)!=(named.st_dev,named.st_ino): raise StoreUnavailable()
-        if data!=MARKER: raise StoreIncompatible()
-        return value.st_dev,value.st_ino
+        if data not in (MARKER,TOOL_MARKER): raise StoreIncompatible()
+        return value.st_dev,value.st_ino,data
     finally: os.close(fd)
 
 
@@ -46,13 +47,17 @@ def inspect_namespace(store):
                 try: os.stat(data.name,dir_fd=parent,follow_symlinks=False)
                 except FileNotFoundError: return False,path
                 raise StoreIncompatible('finish explicit workflow storage migration') from None
-            if stat.S_ISDIR(value.st_mode): return False,path
+            if stat.S_ISDIR(value.st_mode):
+                store._tool_contract_storage=False
+                return False,path
             marker_identity=_read_marker(parent,name)
             fd=os.open(data.name,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=parent)
             try:
                 value=os.fstat(fd)
                 if value.st_uid!=os.getuid() or stat.S_IMODE(value.st_mode)!=0o700: raise StoreUnavailable()
-                _read_marker(fd,INTENT)
+                intent=_read_marker(fd,INTENT)
+                if marker_identity[2]!=intent[2]: raise StoreIncompatible('finish explicit workflow storage migration')
+                store._tool_contract_storage=marker_identity[2]==TOOL_MARKER
                 incarnation=(marker_identity,(value.st_dev,value.st_ino))
                 previous=getattr(store,'_pack_incarnation',None)
                 if previous is not None and previous!=incarnation: raise StoreUnavailable()
@@ -63,12 +68,12 @@ def inspect_namespace(store):
     except OSError: raise StoreUnavailable() from None
 
 
-def _install_marker(parent,name):
+def _install_marker(parent,name,*,tool_contracts=False):
     temporary='.pack-marker-'+secrets.token_hex(16)
     fd=os.open(temporary,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=parent)
     try:
         with os.fdopen(fd,'wb') as handle:
-            handle.write(MARKER);handle.flush();os.fsync(handle.fileno())
+            handle.write(TOOL_MARKER if tool_contracts else MARKER);handle.flush();os.fsync(handle.fileno())
         # A concurrently created old directory must never be overwritten.
         os.link(temporary,name,src_dir_fd=parent,dst_dir_fd=parent,follow_symlinks=False)
     finally:
@@ -76,7 +81,7 @@ def _install_marker(parent,name):
         os.fsync(parent)
 
 
-def migrate_namespace(store,*,fresh=False):
+def migrate_namespace(store,*,fresh=False,tool_contracts=False):
     if store._sessions: raise StoreBusy('drain workflow writers before migration')
     path=address(store);data=data_address(store)
     try:
@@ -90,7 +95,9 @@ def migrate_namespace(store,*,fresh=False):
                 try: value=os.stat(name,dir_fd=parent,follow_symlinks=False)
                 except FileNotFoundError: value=None
                 if value is not None and not stat.S_ISDIR(value.st_mode):
-                    _read_marker(parent,name)
+                    marker=_read_marker(parent,name)
+                    if tool_contracts and marker[2]!=TOOL_MARKER:
+                        raise StoreIncompatible('migrate existing tool contract storage explicitly')
                     return inspect_namespace(store)
                 if value is not None and fresh: raise StoreIncompatible('migrate existing workflow storage explicitly')
                 with ExitStack() as leases:
@@ -108,7 +115,7 @@ def migrate_namespace(store,*,fresh=False):
                                     try: leases.enter_context(locked(path/child))
                                     except ValueError: raise StoreBusy('drain workflow writers before migration') from None
                             try: _read_marker(fd,INTENT)
-                            except FileNotFoundError: _install_marker(fd,INTENT)
+                            except FileNotFoundError: (_install_marker(fd,INTENT,tool_contracts=True) if tool_contracts else _install_marker(fd,INTENT))
                             try: os.stat(data.name,dir_fd=parent,follow_symlinks=False)
                             except FileNotFoundError: pass
                             else: raise StoreIncompatible('workflow migration destination already exists')
@@ -123,9 +130,9 @@ def migrate_namespace(store,*,fresh=False):
                             try: _read_marker(fd,INTENT)
                             except FileNotFoundError:
                                 if os.listdir(fd): raise StoreIncompatible()
-                                _install_marker(fd,INTENT)
+                                (_install_marker(fd,INTENT,tool_contracts=True) if tool_contracts else _install_marker(fd,INTENT))
                         finally: os.close(fd)
-                    _install_marker(parent,name)
+                    (_install_marker(parent,name,tool_contracts=True) if tool_contracts else _install_marker(parent,name))
                 return inspect_namespace(store)
             finally: os.close(lock_fd)
     except StoreBusy: raise

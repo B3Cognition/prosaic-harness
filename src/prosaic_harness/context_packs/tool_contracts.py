@@ -57,6 +57,12 @@ class PackEvidenceBindings:
         if grants.scope.to_dict() != bindings.scope.to_dict():
             raise ContextPackError('contextScopeMismatch')
         self.grants = grants
+        generic = contracts.evidence_authorizer
+        if generic is None:
+            # Event-only adoption does not require evidence registration or
+            # change legacy reader return types.
+            self.runtime_bindings=contracts.bind(scope)
+            return
         imports = []
         for item in pack.envelope['items']:
             grant = next(entry for entry in grants.entries if entry['citationId'] == item['citationId'] and entry['disclosure'] == 'inline')
@@ -66,9 +72,6 @@ class PackEvidenceBindings:
                 content_pointer='/content', reference_pointer='/citationId')
             self.entries[(source.source_key, source.selector, imported.to_dict()['contentSha256'])] = grant
             imports.append(imported)
-        generic = contracts.evidence_authorizer
-        if generic is None:
-            raise ContextPackError('contextCapabilityMissing')
         identity = 'pack_' + digest(dict(host=generic.to_dict(), pack=bindings.authorizer.descriptor()))
         self.runtime_bindings = ToolContractBindingsV1(contracts.identity, contracts.version, scope,
             evidence_authorizer=EvidenceAuthorizerV1(identity, '1', self.authorize),
@@ -142,3 +145,89 @@ def pack_evidence_bindings(frame, runtime_evidence, bindings, *, tool_contracts,
                 result.capture_read({**grant, **data, 'snapshotDigest': pack.snapshot.identity, 'packReference': pack.reference,
                     'contentSha256': hashlib.sha256(_content_bytes(data['content'])).hexdigest()})
     return result
+
+
+def prepare_pack_contract(runtime, artifact, candidates, roots, *, bindings, contracts, scope, options,
+                          context_policy=None, token_counters=None, deadline=None, session_id=None):
+    from .selection import ContextPacker
+    if contracts.evidence_authorizer is not None and any(root['contextPack']['index'] for root in roots):
+        from .reader import NAME
+        if runtime.tool_descriptors.get(NAME,{}).get('result_contract') is None:
+            raise ContextPackError('contextCapabilityMissing')
+    public_roots=[public_pack_input(root) for root in roots]
+    selected=len(public_roots)-1
+    prepared=None
+    if context_policy is not None:
+        prepared=runtime.prepare_turn_variants(artifact,input_data_variants=public_roots,
+            context_policy=context_policy,token_counters=token_counters,
+            tool_contract_bindings=contracts.bind(scope),**options)
+        selected=prepared.input_variant_selection.to_dict()['selectedIndex']
+    pack=ContextPacker().select(candidates,selected,digest(candidates.variants[selected]))
+    adapter=pack_evidence_bindings(pack,None,bindings,tool_contracts=contracts,scope=scope,
+        deadline=deadline,session_id=session_id)
+    restore={}
+    if prepared is not None:
+        restore=dict(context_policy=context_policy,token_counters=token_counters,
+            context_selection=prepared.context_selection,context_report=prepared.context_report,
+            context_work=prepared.context_work,_warn_rules=False)
+    prepared=runtime.prepare_turn(artifact,input_data=public_roots[selected],
+        tool_contract_bindings=adapter.runtime_bindings,**restore,**options)
+    return prepared,pack,[selected],adapter
+
+
+def resume_contract_pack(controller,state,frame,*,fresh_attempt=False):
+    from dataclasses import replace
+    import uuid
+    from prosaic_runtime import TurnLimits,ContextPolicy,ContextSelection,ContextAssemblyReport,ContextWorkState,AuthoritativeInputLimits
+    from ..tool_contracts import invocation_scope
+    from .records import ContextPackInvocation
+    from .projection import StepPackProjection
+    from .workflow_records import reserve_workflow_pack_attempt
+    from .workflow_execution import execute_prepared,reader_for_pack
+    workflow=controller.workflow;pending=state['pending'];name=pending['step'];step=workflow.definition['steps'][name]
+    if frame.stage not in ({'prepared','dispatched'} if fresh_attempt else {'prepared'}):
+        raise ContextPackError('contextBindingMismatch')
+    frozen=frame.frozen_input.to_dict();pack=frame.prepared_pack
+    if not fresh_attempt and frame.context_work is not None and frame.context_work.reserved_active_micros:
+        return controller._block(state,'interrupted_call')
+    policy=replace(controller._invocation_policy(state,name,step),timeout_s=frozen['bindings']['policy']['timeout_s'])
+    aid=uuid.uuid4().hex if fresh_attempt else frame.invocation_id
+    scope=invocation_scope(state,aid,name,workflow)
+    deadline=time.monotonic()+policy.timeout_s
+    adapter=pack_evidence_bindings(pack,None,workflow._context_packs,tool_contracts=workflow._tool_contracts,
+        scope=scope,deadline=deadline)
+    from .workflow_execution import pack_workspace
+    options=dict(policy=policy,limits=TurnLimits(**frozen['bindings']['limits']),workspace=pack_workspace(controller),
+        tool_contract_bindings=adapter.runtime_bindings)
+    if fresh_attempt:
+        options.update(message=frozen['message'],input_data=frozen['selectedInputData'],input_profile=frozen['inputProfile'],
+            authoritative_input_data=frozen['authoritativeInputData'],authoritative_input_profile=frozen['authoritativeInputProfile'])
+        if frozen['authoritativeInputLimits'] is not None:
+            options['authoritative_input_limits']=AuthoritativeInputLimits(**frozen['authoritativeInputLimits'])
+        if 'contextPolicy' in frozen['bindings']:
+            options.update(context_policy=ContextPolicy.from_dict(frozen['bindings']['contextPolicy']),token_counters=controller.token_counters,
+                context_selection=ContextSelection.from_dict(frozen['contextSelection']),
+                context_report=ContextAssemblyReport.from_dict(frozen['contextReport']),
+                context_work=ContextWorkState.from_dict(frozen['initialContextWork']))
+        prepared=controller.runtime.prepare_turn(workflow.artifacts[name],**options)
+        old=frame.to_dict();old['stage']='abandoned'
+        state['contextPacks']['attempts'][frame.invocation_id]=ContextPackInvocation.from_dict(old).to_dict()
+        state['invocations'][-1]['status']='abandoned';state['pending']=None;state['attempt']-=1
+        state.update(status='running',reason=None)
+        controller._event(state,'interrupted_retry',abandoned=frame.invocation_id);controller._save(state)
+        reason=controller._resource_reason(state,before_call=True)
+        if reason: return controller._block(state,reason)
+        if state['calls']>=workflow.definition['limits']['max_calls']: return controller._block(state,'call_limit')
+        frame=ContextPackInvocation.from_prepared(aid,frame.candidates,pack,prepared,
+            projection=StepPackProjection.from_dict(frame.projection),runtime_input_mapping=frame.runtime_input_mapping,
+            validation_bindings=ExposureBindings.from_dict(frame.validation_bindings),execution_epoch=frame.execution_epoch+1)
+        old_bound=state['contextPacks']['reservations'][old['invocationId']]
+        updated=reserve_workflow_pack_attempt(state,workflow,name,pending['arguments'],frame,
+            tool_result_bytes=old_bound['toolResultBytes'])
+        state.clear();state.update(updated)
+        controller._event(state,'invocation',attempt_id=aid,call=state['calls']);controller._save(state)
+    else:
+        prepared=controller.runtime.restore_turn(workflow.artifacts[name],frozen_input=frame.frozen_input,
+            context_policy=controller.context_policy,token_counters=controller.token_counters,
+            context_work=frame.context_work,**options)
+    return execute_prepared(controller,state,prepared,frame,pack,reader_for_pack(controller,pack,policy),deadline)

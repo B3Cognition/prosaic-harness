@@ -18,6 +18,7 @@ from .run_store import (LeaseLost, StoreError, StoreBusy, StoreCorrupt, Revision
                         validate_id, validate_revision)
 from .workflow import digest
 from .contracts import seal, validate_state, validate_receipt, output_json
+from .tool_contracts import has_packs
 from .validation import Validator, CheckContext
 from .admission_data import snapshot_json, parse_bounded_json
 from .errors import WorkflowAdmissionError, HumanResponseError, response_schema_issues
@@ -138,8 +139,8 @@ class Harness:
         policy = storage_policy(self.workflow)
         if policy.max_json_nodes <= reserve_nodes:
             raise WorkflowAdmissionError('limit_exceeded')
-        if type(value) is dict and (value.get('recordType')=='workflow' and value.get('version')==3 or
-                value.get('recordType')=='workflowReceipt' and value.get('version')==2):
+        if type(value) is dict and (value.get('recordType')=='workflow' and value.get('version') in (3,4) or
+                value.get('recordType')=='workflowReceipt' and value.get('version') in (2,3)):
             from .session_codec import encode,decode
             try:
                 return decode(encode(value,maximum=maximum-reserve,depth=policy.max_json_depth,
@@ -252,7 +253,7 @@ class Harness:
     def _save(self, state):
         self._check_ownership()
         from .context_packs.workflow_records import storage_policy
-        bounded=self._admission is not None or state.get('version')==3
+        bounded=self._admission is not None or has_packs(state)
         caps=storage_policy(self.workflow)
         if bounded:
             try:
@@ -268,7 +269,7 @@ class Harness:
                 if (previous['pending'] is not None and state['pending'] is None
                         and state['invocations'][-1]['status'] == 'complete'):
                     previous['invocations'][-1] = deepcopy(state['invocations'][-1])
-                    if state.get('version')==3:
+                    if has_packs(state):
                         aid=state['invocations'][-1]['id']
                         previous['contextPacks']['attempts'][aid]=deepcopy(state['contextPacks']['attempts'][aid])
                     previous['pending'] = None
@@ -306,6 +307,9 @@ class Harness:
             else:
                 self._cwd = self.workflow.path.parent
             self.store.check_ready()
+            if getattr(self.workflow,'_tool_contracts',None) is not None and 'tool_contracts_v1' not in getattr(self.store,'capabilities',()):
+                from .run_store import StoreIncompatible
+                raise StoreIncompatible('initialize tool contract storage explicitly')
             if self._pack_nodes and 'context_packs_v1' not in getattr(self.store,'capabilities',frozenset()):
                 from .run_store import StoreIncompatible
                 raise StoreIncompatible('initialize or migrate context pack storage explicitly')
@@ -413,7 +417,7 @@ class Harness:
             self.on_event(deepcopy(event) if self._admission else event)
 
     def _block(self, state, reason):
-        if state.get('version')==3 and reason=='gate_input_missing':
+        if has_packs(state) and reason=='gate_input_missing':
             from .context_packs.feedback import safe_feedback
             state['feedback']=safe_feedback('gateInputInvalid',None,1,{}).to_dict()
         state.update(status='blocked', reason=reason)
@@ -449,6 +453,9 @@ class Harness:
             if self._pack_nodes:
                 from .context_packs.workflow_records import upgrade_pack_workflow
                 state=upgrade_pack_workflow(seal(state),self.workflow,assembly_bindings=self._pack_assembly_material)
+            if getattr(self.workflow,'_tool_contracts',None) is not None:
+                from .tool_contracts import upgrade_workflow
+                state=upgrade_workflow(state,self.workflow)
             self._save(state)
             return self._drive(state)
 
@@ -464,7 +471,7 @@ class Harness:
         with self._execution():
             snapshot = self.store.load_run(self._storage_run_id)
             state, self._revision = snapshot.state, snapshot.revision
-            if self._admission or state.get('version')==3:
+            if self._admission or has_packs(state):
                 from .context_packs.workflow_records import storage_policy
                 self._bounded_document(state, storage_policy(self.workflow).max_state_bytes)
                 self._last_saved_state = deepcopy(state)
@@ -553,7 +560,12 @@ class Harness:
                     validate_receipt(receipt, state, pending, self.workflow)
                     with self._observations.recovery():
                         self._accept(state, receipt)
-                elif (state.get('version')==3 and state['contextPacks']['attempts'][pending['id']] is not None
+                elif (state.get('version')==4 and state['toolContractV1']['attempts'][pending['id']] is not None
+                        and not state['toolContractV1']['attempts'][pending['id']]['dispatched']):
+                    from .tool_contract_execution import resume_prepared
+                    resume_prepared(self,state)
+                    if state['status']=='blocked': return state
+                elif (has_packs(state) and state['contextPacks']['attempts'][pending['id']] is not None
                         and state['contextPacks']['attempts'][pending['id']]['stage']=='prepared'):
                     from .context_packs.workflow_execution import resume_prepared
                     work=state['contextPacks']['attempts'][pending['id']]['contextWork']
@@ -561,7 +573,7 @@ class Harness:
                     if state['status']=='blocked': return state
                 elif not retry_interrupted or self.workflow.definition['steps'][pending['step']]['kind'] == 'tool':
                     return self._block(state, 'interrupted_call')
-                elif state.get('version')==3 and state['contextPacks']['attempts'][pending['id']] is not None:
+                elif has_packs(state) and state['contextPacks']['attempts'][pending['id']] is not None:
                     from .context_packs.workflow_execution import resume_prepared
                     resume_prepared(self,state,fresh_attempt=True)
                 else:
@@ -631,7 +643,7 @@ class Harness:
         context = CheckContext(name, deepcopy(state['inputs']), deepcopy(state['outputs']),
                                deepcopy(state['evidence']), deepcopy(state['bindings']), self._human_responses(state))
         issues = []
-        packed=state.get('version')==3
+        packed=has_packs(state)
         first_failed=None
         if packed:
             from .context_packs.projection import FrozenCheckContext
@@ -783,7 +795,7 @@ class Harness:
         self._check_ownership()
         validate_receipt(receipt, state, state['pending'], self.workflow)
         self._evidence_unchanged(state)
-        if state.get('version')==3 and receipt['contextPack'] is not None:
+        if has_packs(state) and receipt['contextPack'] is not None:
             from .context_packs.records import ContextPackInvocation
             state['contextPacks']['attempts'][receipt['id']]=ContextPackInvocation.from_dict(receipt['contextPack']).adopt(receipt['sha256']).to_dict()
         state['invocations'][-1].update(status='complete', token_usage=receipt['result']['token_usage'], receipt_sha256=receipt['sha256'])
@@ -830,7 +842,7 @@ class Harness:
                 errors = evaluate_schema(self.workflow.schemas[state['current']], output,
                                          profile=self._schema_profile())
                 if errors:
-                    if state.get('version')==3:
+                    if has_packs(state):
                         from .context_packs.feedback import safe_feedback
                         self._private_check_diagnostics(state,errors)
                         error=safe_feedback('schemaViolation',None,min(len(errors),65536),{}).to_dict()
@@ -887,7 +899,7 @@ class Harness:
                 for ref, binding in dependencies.items()):
             return self._block(state, 'stale_artifact')
         if error:
-            if state.get('version')==3 and type(error) is not dict:
+            if has_packs(state) and type(error) is not dict:
                 from .context_packs.feedback import safe_feedback
                 self._private_check_diagnostics(state,[error])
                 error=safe_feedback('validationFailed',None,1,{}).to_dict()
@@ -901,7 +913,7 @@ class Harness:
             state['outputs'][state['current']] = output
             state['bindings'][state['current']] = {'id': receipt['id'], 'sha256': digest(output),
                 'dependencies': dependencies}
-            if state.get('version')==3:
+            if has_packs(state):
                 from .context_packs.workflow_records import output_pack_binding
                 state['bindings'][state['current']].update(output_pack_binding(receipt['contextPack']))
             self._event(state, 'accepted', attempt_id=receipt['id'], token_usage=result['token_usage'])
@@ -1011,6 +1023,10 @@ class Harness:
                         if state['pending'] is not None: raise
                         self._block(state,getattr(exc,'code','contextPackLimit'))
                     continue
+                if getattr(self.workflow,'_tool_contracts',None) is not None:
+                    from .tool_contract_execution import execute_step
+                    execute_step(self,state,name,step,arguments)
+                    continue
                 attempt_id = uuid.uuid4().hex
                 accounting_options = self._invocation_accounting(state, attempt_id, name)
                 if self._admission:
@@ -1073,7 +1089,7 @@ class Harness:
                 state['pending'] = {'id': attempt_id, 'step': name, 'arguments_sha256': digest(arguments), 'arguments': arguments}
                 state['invocations'].append({'id': attempt_id, 'step': name, 'arguments_sha256': digest(arguments),
                                              'status': 'pending', 'token_usage': None, 'receipt_sha256': None})
-                if state.get('version')==3:
+                if has_packs(state):
                     state['contextPacks']['attempts'][attempt_id]=None
                     state['contextPacks']['reservations'][attempt_id]=None
                 self._event(state, 'invocation', attempt_id=attempt_id, call=state['calls'])
@@ -1215,7 +1231,7 @@ class Harness:
         receipt = seal({'version': 1, 'run_id': state['run_id'], 'id': attempt_id, 'step': name,
                         'arguments_sha256': digest(arguments), 'arguments': arguments,
                         'result': payload, 'events': events})
-        if state.get('version')==3:
+        if has_packs(state):
             receipt=seal({**receipt,'version':2,'recordType':'workflowReceipt','contextPack':None,'contextPackResult':None})
         if self._admission:
             try:

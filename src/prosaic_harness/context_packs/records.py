@@ -109,7 +109,7 @@ def reader_exposures(frame,evidence):
 class ContextPackInvocation(_Record):
     @classmethod
     def from_prepared(cls,invocation_id,candidates,selected_pack,prepared,*,projection=None,
-                      runtime_input_mapping=None,history_exposures=None,validation_bindings=None):
+                      runtime_input_mapping=None,history_exposures=None,validation_bindings=None,execution_epoch=None):
         if type(candidates) is not ContextPackCandidates or type(selected_pack) is not PreparedContextPack:
             raise ContextPackError()
         if projection is not None and type(projection) is not StepPackProjection: raise ContextPackError()
@@ -135,7 +135,7 @@ class ContextPackInvocation(_Record):
             initialExposureBindings=initial.to_dict(),exposureBindings=initial.to_dict(),
             validationBindings=validation_bindings.to_dict() if type(validation_bindings) is ExposureBindings else None,
             contextWork=prepared.context_work.to_dict() if prepared.context_work is not None else None,
-            executionEpoch=frozen['executionAttempt'],stage='prepared',receiptIdentity=None,resultEvidenceDigest=None,
+            executionEpoch=frozen['executionAttempt'] if execution_epoch is None else execution_epoch,stage='prepared',receiptIdentity=None,resultEvidenceDigest=None,
             ruleReceiptDigest=None,finalContextReportDigest=None)
         document['frozenIdentity']=_frozen_identity(document)
         return cls.from_dict(document)
@@ -221,7 +221,7 @@ class ContextPackInvocation(_Record):
                 for key in ('candidateChecks','candidateBytes','activeAssemblyMicros','checkpointSequence'):
                     if work[key]<initial_work[key]: raise ContextPackError('contextBindingMismatch')
             integer(data['executionEpoch'],1,2**31-1)
-            if data['executionEpoch']!=frozen['executionAttempt']: raise ContextPackError('contextBindingMismatch')
+            if data['version']==1 and data['executionEpoch']!=frozen['executionAttempt']: raise ContextPackError('contextBindingMismatch')
             if type(data['stage']) is not str or data['stage'] not in STAGES: raise ContextPackError()
             complete=data['stage'] in {'completed','adopted'}
             if complete: _hash(data['resultEvidenceDigest'])
@@ -294,7 +294,7 @@ class ContextPackInvocation(_Record):
                 raise ContextPackError('contextBindingMismatch')
             evidence=TurnEvidence.from_dict(result.evidence.to_dict()).to_dict()
             frozen=self.frozen_input.to_dict()
-            if evidence.get('version')!=2 or evidence.get('inputViews')!=frozen['inputViews']:
+            if evidence.get('version')!=(3 if self.to_dict()['version']==2 else 2) or evidence.get('inputViews')!=frozen['inputViews']:
                 raise ContextPackError('contextBindingMismatch')
             if self.stage!='dispatched' and (evidence['providerAttempts'] or evidence['toolAttempts'] or evidence['failureCode'] is None):
                 raise ContextPackError('contextBindingMismatch')
