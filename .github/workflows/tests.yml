@@ -11,7 +11,7 @@ env:
   # the same immutable upstream artifacts used for release qualification.
   CORE_RUN: '42014531336'
   CORE_COMMIT: '67b3807281ed0cdfd345fff84c56b236ec82cfb1'
-  RUNTIME_COMMIT: 'b2daac52276dc4a70455b80d2dd6ea6894ad1e73'
+  RUNTIME_COMMIT: 'a7d7365196997e75ecea372cfe395df6fef4bfd9'
 jobs:
   test:
     runs-on: '${{ matrix.os }}'
@@ -137,6 +137,7 @@ jobs:
           "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/conversation_smoke.py
           "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/conversation_smoke.py --context-assembly
           "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/context_pack_smoke.py
+          "$RUNNER_TEMP/harness-wheel/bin/python" -I -m pytest -o pythonpath=tests tests/test_parallel_tool_workflow.py tests/test_parallel_tool_conversation.py tests/test_parallel_tool_recovery.py -q
           "$RUNNER_TEMP/harness-wheel/bin/python" -I -m pytest -o pythonpath=tests tests/test_conversation_input_caps.py -q
           "$RUNNER_TEMP/harness-wheel/bin/python" -I -m pytest -o pythonpath=tests tests/test_conversation_rules.py tests/test_revision_review_blueprint.py tests/test_workflow_rules_admission.py tests/test_workflow_rules_execution.py tests/test_workflow_rules_recovery.py tests/test_workflow_enforcement_blueprint.py -q
   postgres:
