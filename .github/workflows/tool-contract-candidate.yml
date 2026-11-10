@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      RUNTIME_COMMIT: 51929edf5d9de0a37a9e5de2b5eb5547880995c9
+      RUNTIME_COMMIT: 2c8327b0b418bad5ed4121fce9b42803c404ae7f
     steps:
       - uses: actions/checkout@v4
         with:
