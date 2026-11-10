@@ -77,7 +77,7 @@ def main(argv=None):
         namespace = 'prosaic-diagnostic-' + uuid.uuid4().hex
         with PostgresRunStore.from_env(args.dsn_env, namespace=namespace, durability_profile=args.durability_profile) as store:
             if args.command == 'init':
-                store.initialize(parallel_tools=args.parallel_tools)
+                store.initialize(**({'parallel_tools':True} if args.parallel_tools else {}))
                 result = {'initialized': True, 'schema_version': 4 if args.parallel_tools else 1}
             else:
                 store.check_ready()

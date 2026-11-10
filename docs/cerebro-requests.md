@@ -10,17 +10,17 @@ and Runtime PostgreSQL 0.3.0. See the
 [shared contract design](superpowers/specs/2026-11-10-tool-result-event-evidence-design.md)
 and [usage contract](tool-events-citations.md).
 
-The next requested increment is parallel tool calls. Its
+Parallel tool calls are implemented as a local development candidate. Its
 [proposed design](superpowers/specs/2026-11-10-parallel-tool-calls-design.md) and
 [detailed implementation plan](superpowers/plans/2026-11-10-parallel-tool-calls.md)
-are prepared for review; implementation and publication have not started. MCP
+are implemented natively across Runtime, Harness and Lab; independent review and qualification are being completed. No release train has started. MCP
 and sub-agents remain separate follow-ups.
 
 | Request | Existing foundation | Status and acceptance direction |
 | --- | --- | --- |
 | Tool arguments in step events | Runtime tool lifecycle events, call identity, typed outcomes and private conversation history | Released first increment: explicit host-approved argument/result display projections, bounded versioned events, separate permission to display, and no raw argument/result fields in general telemetry. Events describe observed execution and journal replay accurately. |
 | Citation contract | Harness context packs retain citation IDs, source revisions/locators, representation hashes and actual deferred-read evidence | Released first increment: shared evidence references and final-answer citations that resolve only to authorized model-exposed content. Persist accepted citations with the answer and replay receipts without executing tools again. Provenance validation and semantic claim support remain separate checks. |
-| Parallel tool calls | Provider batches, shared budget admission and per-call execution records; dispatch is sequential today | Design/plan ready for review: explicitly registered independent reads, fixed bounded windows and serial barriers, atomic pending-attempt reservations, coordinator-owned events/journals/guards, joined cancellation and versioned recovery. Default sequential behavior stays exact; no implementation or release yet. |
+| Parallel tool calls | Explicit independent reads in fixed bounded windows; omitted policy remains sequential | Implemented development candidate: explicit safe-read registrations, per-node host ceilings, atomic attempt reservations, serial barriers, owner-thread events/journals/guards, joined cancellation and versioned receipts. Native and installed checks cover both wires; publication remains a separate step. |
 | MCP client | Local `CustomTool` registry with schema validation, explicit grants and bounded results | Separate follow-up: optional SDK-backed adapter, explicit protocol/transport coverage, admitted schemas and stable tool aliases, catalog changes, authentication and per-call authorization. Remote annotations do not grant execution or parallelism. |
 | Sub-agents | Nested execution budgets, child accounting context, specialist prompts and context packs | Separate follow-up: named host-registered delegates with narrowed context/tools, parent/child budget accounting, depth/call bounds, cancellation and durable result adoption. Do not introduce unrestricted recursive delegation in the first increment. |
 
