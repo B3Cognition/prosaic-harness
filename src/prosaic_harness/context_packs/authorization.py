@@ -6,7 +6,7 @@ from .types import ContextScope,ContextSnapshot,_Record,_hash
 from .selection import PreparedContextPack
 from .bindings import ContextPackBindings
 
-PURPOSES=frozenset({'invocation','deferredRead','historyReuse','validation','retainedRead'})
+PURPOSES=frozenset({'invocation','deferredRead','historyReuse','validation','retainedRead','citation'})
 DISCLOSURES=frozenset({'inline','discoverable','read','status','validation'})
 ENTRY_KEYS={'sourceAlias','sourceIdentity','sourceRevision','sourceOutcome','itemId','sourceLocator',
     'representation','contentSha256','citationId','disclosure','contentBytes','contentKind'}
@@ -139,7 +139,7 @@ class ContextUse(_Record):
             raise ContextPackError()
         if scope.to_dict()!=exposures.scope.to_dict(): raise ContextPackError('contextScopeMismatch')
         private=any(e['disclosure']=='validation' for e in exposures.entries)
-        if (private and purpose in {'invocation','deferredRead','historyReuse'}) or (purpose=='validation' and any(e['disclosure']!='validation' for e in exposures.entries)):
+        if (private and purpose in {'invocation','deferredRead','historyReuse','citation'}) or (purpose=='validation' and any(e['disclosure']!='validation' for e in exposures.entries)):
             raise ContextPackError('contextBindingMismatch')
         document=dict(version=1,purpose=purpose,scopeBinding=scope.to_dict(),operationId=operation_id,
             sessionId=session_id,runId=run_id,deadline=deadline,exposures=exposures.to_dict())

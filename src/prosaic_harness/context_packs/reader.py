@@ -34,16 +34,24 @@ class _Active:
     deadline: float
     cancelled: object
     session_id: str | None
+    evidence_capture: object = None
 
 
 class ContextPackReader:
-    def __init__(self,*,max_body_bytes=16384,max_result_bytes=24576):
+    def __init__(self,*,max_body_bytes=16384,max_result_bytes=24576,tool_contracts=False):
+        if type(tool_contracts) is not bool: raise ContextPackError()
+        self._tool_contracts=tool_contracts
         integer(max_body_bytes,1,16384);integer(max_result_bytes,1024,24576)
         self._max_body_bytes=max_body_bytes;self._max_result_bytes=max_result_bytes
         self._active={};self._lock=threading.RLock()
         from prosaic_runtime import CustomTool
+        contract={}
+        if tool_contracts:
+            from prosaic_runtime import ToolResultContractV1
+            contract['result_contract']=ToolResultContractV1('context-pack-read-v1')
         self._tool=CustomTool(NAME,'Read an admitted captured context item. Text offsets are UTF-8 bytes; pointers are absolute within the captured JSON item.',
-            SCHEMA,self._dispatch,VERSION,with_context=True,max_argument_bytes=12288,max_result_bytes=max_result_bytes)
+            SCHEMA,self._dispatch,VERSION if not tool_contracts else 'context-pack-reader-v2-tool-contract-v1',
+            with_context=True,max_argument_bytes=12288,max_result_bytes=max_result_bytes,**contract)
 
     def as_tool(self): return self._tool
 
@@ -58,7 +66,7 @@ class ContextPackReader:
         with self._lock: return len(self._active)
 
     @contextmanager
-    def activate(self,scope,pack,bindings,*,deadline,cancelled=lambda:False,session_id=None):
+    def activate(self,scope,pack,bindings,*,deadline,cancelled=lambda:False,session_id=None,evidence_capture=None):
         key=_key(scope)
         if type(pack) is not PreparedContextPack or type(bindings) is not ContextPackBindings or not callable(cancelled):
             raise ContextPackError()
@@ -68,7 +76,9 @@ class ContextPackReader:
         if session_id is not None:
             from .codec import reference
             reference(session_id)
-        active=_Active(pack,bindings.frozen_copy(),deadline,cancelled,session_id)
+        if evidence_capture is not None and not callable(evidence_capture): raise ContextPackError()
+        if self._tool_contracts and evidence_capture is None: raise ContextPackError('contextCapabilityMissing')
+        active=_Active(pack,bindings.frozen_copy(),deadline,cancelled,session_id,evidence_capture)
         with self._lock:
             if key in self._active: raise ContextPackError('contextBindingMismatch')
             self._active[key]=active
@@ -81,7 +91,7 @@ class ContextPackReader:
         with self._lock:
             if self._active.get(key) is not active: return False
         try:
-            return (context.tool_name==NAME and context.tool_version==VERSION
+            return (context.tool_name==NAME and context.tool_version==self._tool.version
                 and context.deadline is not None and time.monotonic()<min(context.deadline,active.deadline)
                 and not active.cancelled() and not context.cancelled())
         except Exception: return False
@@ -89,7 +99,13 @@ class ContextPackReader:
     def _size(self,result):
         # Runtime's bounded_result uses this exact JSON framing (including
         # default ASCII escaping). Canonical storage size alone is insufficient.
+        if self._tool_contracts: result=self._typed_result(result).to_dict()
         return len(json.dumps({'status':'ok','result':result},allow_nan=False).encode('utf-8'))
+
+    def _typed_result(self,result):
+        from prosaic_runtime import ToolResultV1
+        from .tool_contracts import read_data,read_source
+        return ToolResultV1(data=read_data(result),evidence=(read_source(result),))
 
     def _dispatch(self,arguments,context):
         result=self._read(arguments,context)
@@ -98,6 +114,14 @@ class ContextPackReader:
             codes={'contextUseDenied':'context_use_denied','contextReadLimit':'context_read_limit',
                 'contextSnapshotUnavailable':'context_snapshot_unavailable'}
             return ToolFailure(codes[result['error']])
+        if self._tool_contracts:
+            key=_key(context.scope)
+            with self._lock: active=self._active.get(key)
+            if active is None or not self._current(key,active,context):
+                from prosaic_runtime import ToolFailure
+                return ToolFailure('context_snapshot_unavailable')
+            active.evidence_capture(json.loads(json.dumps(result,allow_nan=False)))
+            return self._typed_result(result)
         return result
 
     def _read(self,arguments,context):

@@ -72,6 +72,20 @@ def reader_exposures(frame,evidence):
         value=outcome.get('outcome',{})
         if outcome.get('name')!=NAME or value.get('status')!='ok': continue
         body=value.get('result')
+        if frame.frozen_input.to_dict()['bindings']['tools'].get(NAME,{}).get('result_contract') is not None:
+            from .tool_contracts import source_locator
+            if (type(body) is not dict or set(body)!={'version','data','sources'} or body['version']!=1
+                    or type(body['sources']) is not list or len(body['sources'])!=1 or type(body['data']) is not dict):
+                raise ContextPackError('contextBindingMismatch')
+            content=body['data'];source=body['sources'][0]
+            origin=next((entry for entry in grants.entries if entry['disclosure']=='discoverable' and
+                entry['citationId']==content.get('citationId')),None)
+            if origin is None or any(source.get(key)!=expected for key,expected in (
+                    ('sourceKey',origin['citationId']),('sourceRevision',origin['sourceRevision']),
+                    ('locator',source_locator(origin)),('selector','/content'))):
+                raise ContextPackError('contextBindingMismatch')
+            body={**origin,**content,'snapshotDigest':pack.snapshot.identity,'packReference':pack.reference,
+                'contentSha256':hashlib.sha256(_content_bytes(content['content'])).hexdigest()}
         if type(body) is not dict or body.get('snapshotDigest')!=pack.snapshot.identity or body.get('packReference')!=pack.reference:
             raise ContextPackError('contextBindingMismatch')
         grant=next((entry for entry in grants.entries if entry['disclosure']=='discoverable'
@@ -114,7 +128,7 @@ class ContextPackInvocation(_Record):
         if history_exposures is not None: initial=initial.union(history_exposures)
         if validation_bindings is None and frozen['authoritativeInputData'] is not None:
             validation_bindings=ExposureBindings.from_snapshot(candidates.snapshot)
-        document=dict(version=1,invocationId=invocation_id,candidatePlan=candidates.to_dict(),
+        document=dict(version=2 if prepared.encoding_version=='conversation-turn-v4' else 1,invocationId=invocation_id,candidatePlan=candidates.to_dict(),
             candidateIdentity=candidates.candidate_identity,selectedPackReference=selected_pack.reference,
             frozenInput=frozen,runtimeInputMapping=list(runtime_input_mapping),
             projection=_store_projection(projection,frozen) if type(projection) is StepPackProjection else None,
@@ -131,7 +145,7 @@ class ContextPackInvocation(_Record):
         try:
             closed(value,FRAME_FIELDS)
             data=decode(encode(value,maximum=8388608))
-            if type(data['version']) is not int or data['version']!=1: raise ContextPackError()
+            if type(data['version']) is not int or data['version'] not in (1,2): raise ContextPackError()
             from ..run_store import validate_id
             validate_id(data['invocationId'])
             candidates=ContextPackCandidates.from_dict(data['candidatePlan'])
@@ -142,6 +156,8 @@ class ContextPackInvocation(_Record):
             if selected.reference!=ref: raise ContextPackError('contextBindingMismatch')
             from prosaic_runtime import FrozenTurnInput,ContextWorkState
             frozen=FrozenTurnInput.from_dict(data['frozenInput']).to_dict()
+            if frozen['encodingVersion']!=('conversation-turn-v4' if data['version']==2 else 'conversation-turn-v3'):
+                raise ContextPackError('contextBindingMismatch')
             mapping=data['runtimeInputMapping']
             if type(mapping) is not list or not 1<=len(mapping)<=8: raise ContextPackError()
             for index in mapping: integer(index,0,len(candidates.variants)-1)
@@ -150,8 +166,13 @@ class ContextPackInvocation(_Record):
             if len(mapping)!=len(runtime_selection['candidateDigests']): raise ContextPackError('contextBindingMismatch')
             selected_index=mapping[runtime_selection['selectedIndex']]
             if selected_index!=ref['selectedVariantIndex']: raise ContextPackError('contextBindingMismatch')
+            model_profile=MODEL_PROFILE;conversation_profile='context-pack-input-v1'
+            if data['version']==2:
+                from .tool_contracts import MODEL_PROFILE as model_profile,CONVERSATION_PROFILE as conversation_profile
+                if frozen['bindings']['toolContractV1']['scope']['invocation_id']!=data['invocationId']:
+                    raise ContextPackError('contextBindingMismatch')
             if data['projection'] is None:
-                if frozen['inputProfile']!='context-pack-input-v1': raise ContextPackError('contextBindingMismatch')
+                if frozen['inputProfile']!=conversation_profile: raise ContextPackError('contextBindingMismatch')
                 roots=[{'contextPack':envelope} for envelope in candidates.variants]
                 authoritative=frozen['authoritativeInputData']
                 if authoritative is not None and (frozen['authoritativeInputProfile']!='context-pack-snapshot-v1' or encode(authoritative)!=encode(candidates.snapshot.to_dict())):
@@ -159,7 +180,7 @@ class ContextPackInvocation(_Record):
             else:
                 projection=StepPackProjection.from_dict(_restore_projection(data['projection'],frozen))
                 if (projection.candidate_identity!=candidates.candidate_identity or encode(projection.spec)!=encode(candidates.spec.to_dict())
-                        or projection.profile!=MODEL_PROFILE or frozen['inputProfile']!=MODEL_PROFILE):
+                        or projection.profile!=MODEL_PROFILE or frozen['inputProfile']!=model_profile):
                     raise ContextPackError('contextBindingMismatch')
                 roots=projection.variants
                 if len(roots)!=len(candidates.variants) or any(encode(root['contextPack'])!=encode(envelope) for root,envelope in zip(roots,candidates.variants)):
@@ -167,6 +188,9 @@ class ContextPackInvocation(_Record):
                 authoritative=frozen['authoritativeInputData']
                 if authoritative is not None and (frozen['authoritativeInputProfile']!=AUTHORITATIVE_PROFILE or encode(authoritative)!=encode(projection.authoritative_input_data)):
                     raise ContextPackError('contextBindingMismatch')
+            if data['version']==2:
+                from .tool_contracts import public_pack_input
+                roots=[public_pack_input(root) for root in roots]
             if ([digest(roots[index]) for index in mapping]!=runtime_selection['candidateDigests']
                     or encode(frozen['selectedInputData'])!=encode(roots[selected_index])):
                 raise ContextPackError('contextBindingMismatch')
