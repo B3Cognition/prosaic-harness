@@ -1,5 +1,9 @@
 # Prosaic Harness
 
+Harness **0.9.14** adds [safe tool events and durable citations](docs/tool-events-citations.md)
+with Runtime **0.9.20** and optional PostgreSQL store **0.4.3**.
+See [release notes](docs/release-0.9.14.md) and [migration notes](docs/release-postgres-0.4.3.md).
+
 Harness **0.9.13** adds [context packs](docs/context-packs.md): named
 agent defaults, workflow-node overrides, Markdown and accepted-record evidence,
 bounded deferred reads and separately retained private validation facts.
@@ -439,3 +443,5 @@ See [model-free tool steps](docs/direct-tool-step.md) for literal host-admitted
 `kind: tool` execution and the separate `allowed_direct_tools` permission.
 
 [Cerebro requests and deferred work](docs/cerebro-requests.md) track workflow enforcement tags and the remaining consumer feedback.
+
+Safe tool events and captured citations are available through explicit opt-in bindings. See [the opt-in bindings, storage migration and receipt contract](docs/tool-events-citations.md).

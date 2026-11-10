@@ -157,6 +157,8 @@ def pack_proof(frame,rules):
     from .context_packs.codec import digest as input_digest
     from .context_packs.projection import MODEL_PROFILE,AUTHORITATIVE_PROFILE
     frozen=frame.frozen_input.to_dict();projection=frame.projection
+    if frame.to_dict()['version']==2:
+        from .context_packs.tool_contracts import MODEL_PROFILE
     if projection is None: raise ValueError('workflow pack projection missing')
     views=frozen['inputViews']
     if (views['model']!={'profile':MODEL_PROFILE,'digest':input_digest(frozen['selectedInputData'])}

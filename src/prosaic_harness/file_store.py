@@ -50,7 +50,8 @@ class FileRunStore:
     def capabilities(self):
         self.check_ready()
         from .context_packs.file_namespace import inspect_namespace
-        return frozenset({'context_packs_v1'}) if inspect_namespace(self)[0] else frozenset()
+        packed=inspect_namespace(self)[0]
+        return frozenset({'context_packs_v1',*({'tool_contracts_v1'} if getattr(self,'_tool_contract_storage',False) else ())}) if packed else frozenset()
 
     def check_ready(self):
         if self._pid != os.getpid() or self._closed:
@@ -58,12 +59,18 @@ class FileRunStore:
         from .context_packs.file_namespace import inspect_namespace
         inspect_namespace(self)
 
-    def initialize(self,*,context_packs=False):
+    def initialize(self,*,context_packs=False,tool_contracts=False):
+        if type(tool_contracts) is not bool: raise ValueError('tool_contracts must be boolean')
         if type(context_packs) is not bool: raise ValueError('context_packs must be boolean')
         self.check_ready()
-        if context_packs:
+        if context_packs or tool_contracts:
             from .context_packs.file_namespace import migrate_namespace
-            with self._mutex: migrate_namespace(self,fresh=True)
+            with self._mutex: migrate_namespace(self,fresh=True,tool_contracts=tool_contracts)
+
+    def migrate_tool_contract_storage(self):
+        if self._pid!=os.getpid() or self._closed:raise StoreBusy()
+        from .context_packs.file_namespace import migrate_namespace
+        with self._mutex: migrate_namespace(self,tool_contracts=True)
 
     def migrate_context_pack_storage(self):
         if self._pid!=os.getpid() or self._closed: raise StoreBusy()
@@ -71,6 +78,9 @@ class FileRunStore:
         with self._mutex: migrate_namespace(self)
 
     def _admit_document(self,value):
+        if ((value.get('version')==4 and value.get('recordType')=='workflow') or
+                value.get('version')==3 and value.get('recordType')=='workflowReceipt'):
+            if 'tool_contracts_v1' not in self.capabilities: raise StoreIncompatible('initialize tool contract storage explicitly')
         if value.get('version')==3 and value.get('recordType')=='workflow':
             if 'context_packs_v1' not in self.capabilities: raise StoreIncompatible('migrate context pack storage explicitly')
             from .context_packs.records import validate_pack_storage_admission
@@ -80,8 +90,8 @@ class FileRunStore:
 
     def _write_document(self,path,value):
         self._admit_document(value)
-        canonical=(value.get('recordType')=='workflow' and value.get('version')==3 or
-            value.get('recordType')=='workflowReceipt' and value.get('version')==2)
+        canonical=(value.get('recordType')=='workflow' and value.get('version') in (3,4) or
+            value.get('recordType')=='workflowReceipt' and value.get('version') in (2,3))
         write_json(path,value,canonical=canonical)
 
     @contextmanager

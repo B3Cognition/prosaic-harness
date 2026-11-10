@@ -3,6 +3,7 @@ import re
 from .store import parse_json
 from .workflow import digest
 from .schema_validation import evaluate_schema
+from .tool_contracts import has_packs
 
 IDENTIFIER = re.compile(r'^[0-9a-f]{32}$')
 HASH = re.compile(r'^[0-9a-f]{64}$')
@@ -30,10 +31,15 @@ def output_json(text):
 def validate_receipt(receipt, state, pending, workflow=None):
     verify_seal(receipt)
     required = {'version', 'run_id', 'id', 'step', 'arguments_sha256', 'arguments', 'result', 'events', 'sha256'}
-    packed=state.get('version')==3
-    if packed: required |= {'recordType','contextPack','contextPackResult'}
-    if set(receipt) != required or type(receipt['version']) is not int or receipt['version'] != (2 if packed else 1):
+    enabled=state.get('version')==4
+    packed=has_packs(state)
+    if packed or enabled: required |= {'recordType','contextPack','contextPackResult'}
+    if enabled: required.add('toolContractV1')
+    if set(receipt) != required or type(receipt['version']) is not int or receipt['version'] != (3 if enabled else 2 if packed else 1):
         raise ValueError('invalid invocation receipt schema')
+    if enabled:
+        from .tool_contracts import validate_tool_contract_receipt
+        validate_tool_contract_receipt(receipt,state,pending,workflow)
     if packed:
         from .context_packs.workflow_records import validate_workflow_pack_receipt
         validate_workflow_pack_receipt(receipt,state,pending,workflow)
@@ -75,9 +81,11 @@ def validate_state(state, workflow):
     required = {'version', 'run_id', 'fingerprint', 'validators', 'inputs', 'status', 'reason', 'current',
                 'calls', 'visits', 'outputs', 'bindings', 'history', 'pending', 'entered', 'attempt',
                 'feedback', 'invocations', 'evidence', 'started_at', 'deadline', 'sha256'}
-    packed=state.get('version')==3
-    if packed: required |= {'recordType','contextPacks'}
-    if set(state) - (required | {'question', 'choices', 'pause_bindings', 'accounting_context', 'accounting_migration', 'accounting_scope'}) or required - set(state) or type(state['version']) is not int or state['version'] != (3 if packed else 2):
+    enabled=state.get('version')==4
+    packed=has_packs(state)
+    if packed or enabled: required |= {'recordType','contextPacks'}
+    if enabled: required.add('toolContractV1')
+    if set(state) - (required | {'question', 'choices', 'pause_bindings', 'accounting_context', 'accounting_migration', 'accounting_scope'}) or required - set(state) or type(state['version']) is not int or state['version'] != (4 if enabled else 3 if packed else 2):
         raise ValueError('invalid checkpoint schema; start a new run')
     if 'accounting_context' in state:
         from prosaic_runtime.accounting import ResolvedContext
@@ -172,6 +180,9 @@ def validate_state(state, workflow):
         if (step['kind'] != 'pause' or pending is not None or state.get('question') != step['question']
                 or state.get('choices') != list(step['choices']) or state.get('pause_bindings') != state['bindings']):
             raise ValueError('invalid human pause binding')
+    if enabled:
+        from .tool_contracts import validate_workflow_state
+        validate_workflow_state(state,workflow)
     if packed:
         from .context_packs.workflow_records import validate_workflow_pack_state
         validate_workflow_pack_state(state,workflow)

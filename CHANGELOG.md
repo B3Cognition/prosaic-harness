@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.14 / PostgreSQL 0.4.3 — 2026-11-10
+
+- Add host-bound safe tool events, captured evidence and citations across workflows/conversations.
+- Persist proof with accepted answers; adopt receipts without repeating completed work.
+- Recheck current source/history grants and keep private guard facts independent.
+- Add explicit capable storage markers with owner-only migration; preserve disabled records.
+- See [release notes](docs/release-0.9.14.md) and [store notes](docs/release-postgres-0.4.3.md).
+
 ## 0.9.13 / PostgreSQL 0.4.2 — 2026-11-09
 
 - Add host-bound named context packs, agent defaults and per-node overrides for Markdown and accepted records.

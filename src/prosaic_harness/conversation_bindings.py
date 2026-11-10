@@ -265,9 +265,13 @@ class ConversationBindings:
                  workspace=None, workspace_identity=None, interpreter=None,
                  interpretation_policy=None, interpretation_schema=None, workflows=None,
                  context_policy=None, interpretation_context_policy=None, token_counters=None,
-                 guards=(), rule_project=None, rule_project_identity=None,context_packs=None):
+                 guards=(), rule_project=None, rule_project_identity=None,context_packs=None,tool_contracts=None):
         try:
             reference(version)
+            from .tool_contracts import ToolContracts, conversation_material
+            if tool_contracts is not None:
+                if type(tool_contracts) is not ToolContracts: raise ConversationError('bindingMismatch')
+                tool_contracts=tool_contracts.frozen_copy()
             if type(policy) is not ConversationPolicy:
                 raise ConversationError('bindingMismatch')
             policy.__post_init__()
@@ -321,6 +325,9 @@ class ConversationBindings:
             if context_packs is not None:
                 shared['max_metadata_bytes']=8192
                 shared['max_event_bytes']=16384
+            if tool_contracts is not None:
+                shared['max_event_bytes']=max(shared.get('max_event_bytes', TurnLimits().max_event_bytes),tool_contracts.limits.max_event_bytes)
+                if tool_contracts.citations is not None: shared['max_metadata_bytes']=65536
             evidence_room=policy.max_receipt_bytes-policy.max_turn_bytes-encoded_answer_bound(
                 policy.max_assistant_bytes,policy.max_turn_bytes)-8192
             evidence_room -= rule_room
@@ -337,7 +344,8 @@ class ConversationBindings:
                 from .context_packs.capacity import TOOL_ENVELOPE_BYTES
                 result_bound=max([custom_descriptors(tools)[name]['max_result_bytes'] if name in tools
                     else policy.max_input_bytes for name in run_policy.allowed_tools] or [0])
-                evidence_room=min(evidence_room,8192+run_policy.max_tool_calls*(result_bound+TOOL_ENVELOPE_BYTES))
+                evidence_room=min(evidence_room,8192+run_policy.max_tool_calls*(result_bound+TOOL_ENVELOPE_BYTES)+
+                    (tool_contracts.limits.max_evidence_bytes+tool_contracts.limits.max_citation_bytes+2048 if tool_contracts is not None else 0))
             limits = TurnLimits(**shared,max_evidence_bytes=min(TurnLimits().max_evidence_bytes,evidence_room)) if turn_limits is None else turn_limits
             if type(limits) is not TurnLimits:
                 raise ConversationError('bindingMismatch')
@@ -346,7 +354,9 @@ class ConversationBindings:
                 raise ConversationError('bindingMismatch')
             if limits.max_evidence_bytes>evidence_room: raise ConversationError('bindingMismatch')
             invocation = _policy(run_policy)
-            runtime.prepare_turn(approved, message='a', policy=run_policy, limits=limits, workspace=workspace,**_pack_probe(context_packs))
+            contract_material=conversation_material(runtime, custom_descriptors(tools), tool_contracts, policy, run_policy, limits)
+            runtime.prepare_turn(approved, message='a', policy=run_policy, limits=limits, workspace=workspace,**_pack_probe(context_packs),
+                **({'tool_contract_bindings':tool_contracts.bind(InvocationScope('admission', operation_namespace=operation_namespace))} if tool_contracts is not None else {}))
             interpreting = None
             if interpreter is not None:
                 if policy.max_assistant_bytes<64: raise ConversationError('bindingMismatch')
@@ -388,11 +398,12 @@ class ConversationBindings:
                 context_policy, interpretation_context_policy, token_counters)
             data.update(context_data)
             if context_packs is not None: data['contextPacks']=context_packs.to_dict()
+            if tool_contracts is not None: data['toolContractV1']=contract_material
             for key, value in {'_encoded': encode(data), '_config': encode(config_data),
                 '_tools': MappingProxyType(tools), '_journal': tool_journal, '_workspace': workspace,
                 '_workflows': MappingProxyType(registered), '_admitted': _ADMITTED,
                 '_token_counters': owned_counters, '_guards': registered_guards,
-                '_rule_project': rule_project,'_context_packs':context_packs}.items():
+                '_rule_project': rule_project,'_context_packs':context_packs,'_tool_contracts':tool_contracts}.items():
                 object.__setattr__(self, key, value)
         except ConversationError:
             raise
@@ -448,6 +459,8 @@ class ConversationBindings:
     @property
     def context_packs(self): return self._context_packs
     @property
+    def tool_contracts(self): return self._tool_contracts
+    @property
     def context_policy(self):
         document = decode(self._encoded).get('contextPolicy')
         if document is None: return None
@@ -489,8 +502,12 @@ class ConversationBindings:
             expected = {key: value for key, value in data.items() if key in {
                 'contextPolicy', 'contextCounter', 'interpretationContextPolicy', 'interpretationContextCounter'}}
             if context_data != expected: raise ValueError('context descriptor drift')
+            from .tool_contracts import conversation_material
+            contract_material=conversation_material(runtime, data['tools'], self._tool_contracts, self.policy, self.run_policy, self.turn_limits)
+            if data.get('toolContractV1') != (contract_material or None): raise ValueError('tool contract drift')
             runtime.prepare_turn(self.agent, message='a', policy=self.run_policy,
-                                 limits=self.turn_limits, workspace=self._workspace,**_pack_probe(self._context_packs))
+                                 limits=self.turn_limits, workspace=self._workspace,**_pack_probe(self._context_packs),
+                **({'tool_contract_bindings':self._tool_contracts.bind(InvocationScope('admission', operation_namespace=data['operationNamespace']))} if self._tool_contracts is not None else {}))
             if data['interpreter']:
                 runtime.prepare_turn(ProsaicArtifact.from_inspection(data['interpreter']['artifact']),
                     message='a', policy=self.interpretation_policy, limits=self.turn_limits)
