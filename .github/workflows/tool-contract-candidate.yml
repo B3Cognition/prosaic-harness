@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      RUNTIME_COMMIT: 2c8327b0b418bad5ed4121fce9b42803c404ae7f
+      RUNTIME_COMMIT: 5df11bf6cb9951d619764c42e8f3b5ced57f1dda
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,7 +34,7 @@ jobs:
           python scripts/release_artifacts.py verify --directory upstream --commit "$RUNTIME_COMMIT"
           python -c "import json,os; q=json.load(open('upstream/qualification-tool-contract-consumer.json')); r=json.load(open('upstream/release-receipt.json')); assert q['source_commit']==os.environ['RUNTIME_COMMIT'] and q['exit_code']==0 and q['label']=='tool-contract-consumer' and q['artifacts']==r['artifacts']"
       - name: Build exact Harness source once
-        run: python scripts/release_artifacts.py build --ref '${{ github.sha }}' --output candidate --project . --project adapters/postgres --expect b3-prosaic-harness=0.9.14.dev2 --expect b3-prosaic-harness-postgres=0.4.3.dev2
+        run: python scripts/release_artifacts.py build --ref '${{ github.sha }}' --output candidate --project . --project adapters/postgres --expect b3-prosaic-harness=0.9.14 --expect b3-prosaic-harness-postgres=0.4.3
       - name: Preserve exact upstream evidence
         run: |
           cp /tmp/runtime-run.json candidate/artifacts/tool-contract-runtime-run.json

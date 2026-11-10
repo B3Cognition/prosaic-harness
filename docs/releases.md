@@ -1,5 +1,9 @@
 # Releases and compatibility
 
+Harness 0.9.14 / store 0.4.3 add [safe tool events and durable citations](release-0.9.14.md)
+with Runtime >=0.9.20,<0.10. The tools train retains Core 0.5.0 and recorder 0.3.0.
+Versioned release pages and original archives remain publication authority.
+
 Context-pack release train prepared on 2026-11-09; release pages remain the
 publication authority. Harness 0.9.13 targets Runtime >=0.9.19,<0.10 and Core
 >=0.5.0,<0.6. Lab 0.9.12 pins the complete public train. Earlier Lab manifests
