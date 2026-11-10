@@ -11,7 +11,7 @@ env:
   # the same immutable upstream artifacts used for release qualification.
   CORE_RUN: '42014531336'
   CORE_COMMIT: '67b3807281ed0cdfd345fff84c56b236ec82cfb1'
-  RUNTIME_COMMIT: 'a7d7365196997e75ecea372cfe395df6fef4bfd9'
+  RUNTIME_COMMIT: '89c9bd67a8f54830daa37794399e065fca5f30d8'
 jobs:
   test:
     runs-on: '${{ matrix.os }}'
