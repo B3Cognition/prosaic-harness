@@ -1,7 +1,7 @@
 # Safe tool events and captured citations
 
-This is an opt-in development candidate. It requires Runtime 0.9.20.dev1,
-Harness 0.9.14.dev1, and Harness PostgreSQL 0.4.3.dev1 when using PostgreSQL.
+This is an opt-in development candidate. It requires Runtime 0.9.20.dev2,
+Harness 0.9.14.dev2, and Harness PostgreSQL 0.4.3.dev2 when using PostgreSQL.
 No stable release or published dependency manifest is changed by this branch.
 
 Runtime owns `ToolResultV1`, producer declarations, safe scalar event projections,
@@ -65,3 +65,9 @@ API surfaces with actual delivery evidence. Native/Unified and external structur
 execution refuse unsupported automatic citation combinations before dispatch.
 Parallel tool execution, MCP clients and sub-agent orchestration remain separate
 follow-ups in [Cerebro requests](cerebro-requests.md).
+
+The reviewed dev2 candidate also applies current `retainedRead` grants before
+returning generic tool history, and current `modelUse` grants before submitting
+its actually retained historical turns. Context omitted by fitting is not
+authorized or submitted. A denied reuse becomes a durable no-effect
+`evidenceUseDenied` receipt before dispatch; accepted earlier answers remain intact.

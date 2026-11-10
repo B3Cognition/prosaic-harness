@@ -13,7 +13,7 @@ from .session_codec import encode, decode, digest, reference
 from .session_contracts import (new_session, reserve_attempt, mark_dispatch, make_receipt,
     adopt_receipt, history_of, public_node_limit, mark_interrupted, match_receipt)
 from .conversation_workflow import ConversationWorkflow
-from .session_tool_contracts import has_packs
+from .session_tool_contracts import has_packs,HistoricalEvidenceDenied
 from .conversation_packs import (pack_errors,admit_candidates,authorize_history,authorize_private_view,
     prepare_pack,frame_for,tool_reservations,reader_for,authorize_pack)
 
@@ -178,6 +178,9 @@ class Conversation(ConversationWorkflow):
     def history(self, session_id):
         state=self._load(session_id).state
         authorize_history(self,state,session_id,purpose='retainedRead')
+        from .session_tool_contracts import authorize_tool_history,HistoricalEvidenceDenied
+        try:authorize_tool_history(self,state,'retainedRead')
+        except HistoricalEvidenceDenied:raise ConversationError('evidenceUseDenied') from None
         return tuple(ConversationMessage.from_dict(m) for m in history_of(state))
 
     def _save(self,snapshot,state,lease):
@@ -318,7 +321,7 @@ class Conversation(ConversationWorkflow):
         aid=snapshot.state['pending']['invocationId']
         attempt=snapshot.state['attempts'][aid]
         if attempt['dispatchMarker']: raise ConversationError('messageConflict')
-        context_enabled=prepared.encoding_version in ('conversation-turn-v2','conversation-turn-v3','conversation-turn-v4')
+        context_enabled=snapshot.state['version']==4 or prepared.encoding_version in ('conversation-turn-v2','conversation-turn-v3','conversation-turn-v4')
         if not context_enabled:
             authorize_history(self,snapshot.state,aid)
             snapshot=self._save(snapshot,mark_dispatch(snapshot.state,aid),lease)
@@ -352,6 +355,11 @@ class Conversation(ConversationWorkflow):
                 self._phase(on_event,'contextCheckpointSaved',snapshot,aid)
             def admitted():
                 nonlocal snapshot
+                if snapshot.state['version']==4:
+                    from .session_tool_contracts import authorize_tool_history,scope_for
+                    authorize_tool_history(self,snapshot.state,'modelUse',before_sequence=attempt['turnSequence'],
+                        report=prepared.context_report,scope=scope_for(snapshot.state,aid,purpose=attempt['purpose'],
+                            namespace=self.bindings.readmit()['operationNamespace'] if attempt['purpose']=='ordinary' else None))
                 if has_packs(snapshot.state):
                     import time
                     authorize_history(self,snapshot.state,aid)
@@ -393,6 +401,8 @@ class Conversation(ConversationWorkflow):
                 operation_context=operation,
                 tool_journal=self.bindings.tool_journal if attempt['purpose']=='ordinary' else None,
                 **context_args)
+        except HistoricalEvidenceDenied:
+            result=self._failed_context_readmission(snapshot.state,aid,'evidenceUseDenied')
         except TurnAdmissionError as exc:
             if not context_enabled or snapshot.state['attempts'][aid]['dispatchMarker']: raise
             result=self._failed_context_readmission(snapshot.state,aid,
@@ -417,11 +427,11 @@ class Conversation(ConversationWorkflow):
         if state['version']==4 and attempt['purpose']=='ordinary':
             from .session_tool_contracts import attempt_frozen
             frozen=attempt_frozen(state,aid);views=frozen['inputViews']
-            contract={'toolContractV1':{'version':1,'bindings':frozen['bindings']['toolContractV1'],
+            contract={'toolContractV1':{'bindings':frozen['bindings']['toolContractV1'],
                 'evidence':{'version':1,'records':[],'calls':[],'deliveries':{}},'citations':None}}
         evidence=TurnEvidence.from_dict({'version':3 if contract else 2 if views else 1,'providerAttempts':0,'toolAttempts':0,
             'knownUsage':{},'usageComplete':True,'toolOutcomes':[],'failureCode':code,'accounting':attribution,
-            **({'inputViews':views} if views else {}),**contract})
+            **({'inputViews':views} if views is not None or contract else {}),**contract})
         work=ContextWorkState.from_dict(attempt['contextWork']) if attempt['contextWork'] is not None else None
         report=(ContextAssemblyReport.from_dict({**attempt['initialContextReport'],
             'candidateChecks':work.candidate_checks,'candidateBytes':work.candidate_bytes}) if work is not None else None)

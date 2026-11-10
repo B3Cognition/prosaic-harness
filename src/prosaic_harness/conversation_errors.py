@@ -8,7 +8,7 @@ class ConversationError(ValueError):
         'confirmationRequired', 'interactionStale', 'invalidInterpretation',
         'invalidContextPack','contextScopeMismatch','contextBindingMismatch','requiredContextMissing',
         'selectionLimit','contextSnapshotLimit','contextPackLimit','contextCapabilityMissing',
-        'contextUseDenied','contextSnapshotUnavailable'})
+        'contextUseDenied','contextSnapshotUnavailable','evidenceUseDenied'})
     def __init__(self, code, limit=None):
         if type(code) is not str or code not in self.CODES:
             raise ValueError('invalid conversation error')

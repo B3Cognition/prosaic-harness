@@ -269,3 +269,32 @@ def same_retry_input(old,new,prior_aid,next_aid):
         if type(value) is dict:return {k:rename(v) for k,v in value.items()}
         return value
     return rename(left['selectedInputData'])==right['selectedInputData']
+
+
+class HistoricalEvidenceDenied(RuntimeError):
+    def __init__(self):super().__init__('evidenceUseDenied')
+
+
+def authorize_tool_history(chat,state,purpose,*,scope=None,before_sequence=None,report=None):
+    """Check only history actually retained for this read/model submission.
+
+    Textual IDs confer no new registry authority. These checks protect the
+    captured source bodies already present in portable historical messages.
+    """
+    if state.get('version')!=4:return
+    from .tool_contract_views import ToolContractViewBindings,authorize_source
+    turns=[turn for turn in state['turns'] if turn['history'] and (before_sequence is None or turn['sequence']<before_sequence)]
+    if report is not None:turns=turns[report.omitted_turn_count:]
+    for turn in turns:
+        if turn['status']!='completed' or not turn['attempts']:continue
+        aid=turn['attempts'][-1]
+        if state['toolContractV1']['attempts'][aid] is None:continue
+        try:
+            receipt=verified(chat,state['sessionId'],aid);packet=receipt.to_dict()
+            origins=origin_receipts(chat,state['sessionId'],packet['toolContractV1']['retainedReferences'])
+            views=ToolContractViewBindings(chat.scope,evidence_authorizer=chat.bindings.tool_contracts.evidence_authorizer,
+                context_packs=chat.bindings.context_packs,origins=origins)
+            for eid in packet['evidence']['toolContractV1']['evidence']['deliveries']:
+                authorize_source(receipt,eid,views,purpose,scope=scope)
+        except Exception:
+            raise HistoricalEvidenceDenied() from None

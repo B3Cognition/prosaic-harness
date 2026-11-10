@@ -172,3 +172,61 @@ def test_deferred_read_cites_exact_read_and_keeps_parent_private(rule_endpoint,t
     assert result.document['status']=='completed' and len(requests)==2 and reader.active_count==0
     assert 'OPTIONAL-FACT-719' not in json.dumps(requests[0]) and 'OPTIONAL-FACT-719' in json.dumps(requests[1])
     eid=result.document['citations']['markers'][0]['evidenceId'];assert eid!=parent
+
+
+def test_revoked_generic_history_cannot_be_viewed_or_submitted(rule_endpoint):
+    cfg,requests,replies=rule_endpoint;allowed=[True];uses=[];calls=[]
+    def grant(use):uses.append(use);return allowed[0]
+    chat,_,store,scope=chat_case(cfg,calls=calls,grant=grant);session=chat.create();queue_answer(replies)
+    first=chat.send(session.session_id,message_id='one',message='Review',expected_revision=session.revision)
+    allowed[0]=False;uses.clear()
+    with pytest.raises(api.ConversationError,match='evidenceUseDenied'):chat.history(session.session_id)
+    assert any(use.purpose=='retainedRead' for use in uses)
+    replies.append('Must never be submitted')
+    second=chat.send(session.session_id,message_id='two',message='Continue',expected_revision=first.document['revision'])
+    assert second.document['failureCode']=='evidenceUseDenied' and len(requests)==2 and calls==[1]
+    assert any(use.purpose=='modelUse' and use.scope.invocation_id!=uses[0].scope.invocation_id for use in uses)
+    assert store.load_session(session.session_id,scope=scope).state['pending'] is None
+
+
+def test_enabled_readmission_failure_is_a_closed_durable_receipt(rule_endpoint,monkeypatch):
+    cfg,requests,replies=rule_endpoint;chat,_,store,scope=chat_case(cfg,calls=[]);session=chat.create()
+    monkeypatch.setattr(runtime_api.ProsaicRuntime,'turn',lambda *args,**kwargs:(_ for _ in ()).throw(runtime_api.TurnAdmissionError('bindingMismatch')))
+    failed=chat.send(session.session_id,message_id='one',message='Review',expected_revision=session.revision)
+    assert failed.document['failureCode']=='bindingMismatch' and requests==[]
+    assert store.load_session(session.session_id,scope=scope).state['pending'] is None
+
+
+@pytest.mark.parametrize('revoked',['modelUse','retainedRead'])
+def test_history_read_and_model_reuse_have_independent_grants(rule_endpoint,revoked):
+    cfg,requests,replies=rule_endpoint;denied=[None]
+    chat,_,_,_=chat_case(cfg,calls=[],grant=lambda use:use.purpose!=denied[0]);session=chat.create();queue_answer(replies)
+    first=chat.send(session.session_id,message_id='one',message='Review',expected_revision=session.revision)
+    denied[0]=revoked
+    if revoked=='retainedRead':
+        with pytest.raises(api.ConversationError):chat.history(session.session_id)
+    else:assert chat.history(session.session_id)
+    replies.append('No current citation')
+    second=chat.send(session.session_id,message_id='two',message='Continue',expected_revision=first.document['revision'])
+    assert second.document['failureCode']==('evidenceUseDenied' if revoked=='modelUse' else 'citationViolation')
+    assert len(requests)==(2 if revoked=='modelUse' else 3)
+
+
+def test_omitted_history_does_not_require_unused_source_grants(rule_endpoint):
+    from support.context_counter import fixture_context
+    cfg,requests,replies=rule_endpoint;allowed=[True]
+    original,bindings,_,scope=chat_case(cfg,calls=[],grant=lambda use:allowed[0])
+    def count(request):
+        encoded=json.dumps(request)
+        return 5000 if 'Continue' in encoded and ('"tool"' in encoded or '"tool_result"' in encoded) else 100
+    policy,counters=fixture_context(cfg.profiles['local'].provider,mode='omitOldestTurns',capacity=1000,count=count)
+    configured=api.ConversationBindings(bindings.agent,version='counted-contract',config=bindings.config,policy=api.ConversationPolicy(),
+        run_policy=bindings.run_policy,custom_tools=bindings._tools,tool_contracts=bindings.tool_contracts,
+        operation_namespace='tenant',context_policy=policy,token_counters=counters)
+    store=api.MemorySessionStore(namespace='test');store.initialize(tool_contracts=True)
+    chat=api.Conversation(configured,store=store,scope=scope);session=chat.create();queue_answer(replies)
+    first=chat.send(session.session_id,message_id='one',message='Review',expected_revision=session.revision)
+    allowed[0]=False;replies.append('No retained source')
+    second=chat.send(session.session_id,message_id='two',message='Continue',expected_revision=first.document['revision'])
+    assert second.document['failureCode']=='citationViolation' and len(requests)==3
+    assert 'ev_' not in json.dumps(requests[-1]) and second.document['contextAssembly']['omittedTurnCount']==1
