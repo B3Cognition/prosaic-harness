@@ -67,6 +67,11 @@ class FileRunStore:
             from .context_packs.file_namespace import migrate_namespace
             with self._mutex: migrate_namespace(self,fresh=True,tool_contracts=tool_contracts)
 
+    def migrate_tool_contract_storage(self):
+        if self._pid!=os.getpid() or self._closed:raise StoreBusy()
+        from .context_packs.file_namespace import migrate_namespace
+        with self._mutex: migrate_namespace(self,tool_contracts=True)
+
     def migrate_context_pack_storage(self):
         if self._pid!=os.getpid() or self._closed: raise StoreBusy()
         from .context_packs.file_namespace import migrate_namespace

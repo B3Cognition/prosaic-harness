@@ -8,7 +8,7 @@ import threading
 import time
 
 from prosaic_harness import (ConversationScope, SessionSnapshot, SessionNotFound,
-    SessionAlreadyExists, SessionBusy, StoreBusy, StoreCorrupt, StoreUnavailable,
+    SessionAlreadyExists, SessionBusy, StoreBusy, StoreCorrupt, StoreUnavailable, StoreIncompatible,
     LeaseLost, RevisionConflict, ReceiptConflict)
 from prosaic_harness.run_store import validate_namespace, validate_id, validate_revision
 from prosaic_harness.session_codec import encode, decode, digest
@@ -55,15 +55,18 @@ class PostgresSessionStore:
     def namespace(self):
         return self._namespace
 
-    def initialize(self,*,context_packs=False):
-        session_schema.initialize(self._transport,context_packs=context_packs)
+    def initialize(self,*,context_packs=False,tool_contracts=False):
+        session_schema.initialize(self._transport,context_packs=context_packs,tool_contracts=tool_contracts)
 
     def check_ready(self):
         session_schema.check_ready(self._transport)
     @property
     def capabilities(self):
         version=session_schema.check_ready(self._transport)
-        return frozenset({'context_assembly_v1',*({'context_packs_v1'} if version==(3,3) else ())})
+        return frozenset({'context_assembly_v1',*({'context_packs_v1'} if version>=(3,3) else ()),*({'tool_contracts_v1'} if version==(4,4) else ())})
+
+    def migrate_tool_contract_storage(self):
+        session_schema.migrate_tool_contract_storage(self._transport)
 
     def migrate_context_pack_storage(self):
         session_schema.migrate_context_pack_storage(self._transport)
@@ -209,8 +212,8 @@ class PostgresSessionStore:
     def _document(self, session_id, state, scope):
         content = encode_session(state)
         value = decode_session(content)
-        if value['version']==3:
-            from prosaic_harness import StoreIncompatible
+        if value['version']==4 and 'tool_contracts_v1' not in self.capabilities:raise StoreIncompatible('migrate tool contract storage explicitly')
+        if value.get('contextPacks') is not None:
             from prosaic_harness.context_packs.records import validate_pack_storage_admission
             if 'context_packs_v1' not in self.capabilities: raise StoreIncompatible('migrate context pack storage explicitly')
             validate_pack_storage_admission(value)

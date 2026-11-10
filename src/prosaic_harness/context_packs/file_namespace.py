@@ -81,6 +81,19 @@ def _install_marker(parent,name,*,tool_contracts=False):
         os.fsync(parent)
 
 
+def _replace_marker(parent,name):
+    _read_marker(parent,name)
+    temporary='.pack-upgrade-'+secrets.token_hex(16)
+    fd=os.open(temporary,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=parent)
+    try:
+        with os.fdopen(fd,'wb') as handle:
+            handle.write(TOOL_MARKER);handle.flush();os.fsync(handle.fileno())
+        os.replace(temporary,name,src_dir_fd=parent,dst_dir_fd=parent);os.fsync(parent)
+    finally:
+        try:os.unlink(temporary,dir_fd=parent)
+        except FileNotFoundError:pass
+
+
 def migrate_namespace(store,*,fresh=False,tool_contracts=False):
     if store._sessions: raise StoreBusy('drain workflow writers before migration')
     path=address(store);data=data_address(store)
@@ -96,8 +109,24 @@ def migrate_namespace(store,*,fresh=False,tool_contracts=False):
                 except FileNotFoundError: value=None
                 if value is not None and not stat.S_ISDIR(value.st_mode):
                     marker=_read_marker(parent,name)
-                    if tool_contracts and marker[2]!=TOOL_MARKER:
-                        raise StoreIncompatible('migrate existing tool contract storage explicitly')
+                    if tool_contracts:
+                        if fresh and marker[2]!=TOOL_MARKER:raise StoreIncompatible('migrate existing tool contract storage explicitly')
+                        with ExitStack() as leases:
+                            fd=os.open(data.name,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=parent)
+                            try:
+                                info=os.fstat(fd)
+                                if info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)!=0o700:raise StoreUnavailable()
+                                intent=_read_marker(fd,INTENT)
+                                for child in os.listdir(fd):
+                                    if child==INTENT:continue
+                                    validate_id(child)
+                                    leases.enter_context(locked(data/child))
+                                # Complete an interrupted two-marker migration only
+                                # under the owner lock and all existing run leases.
+                                if intent[2]!=TOOL_MARKER:_replace_marker(fd,INTENT)
+                                if marker[2]!=TOOL_MARKER:_replace_marker(parent,name)
+                                store._pack_incarnation=None
+                            finally:os.close(fd)
                     return inspect_namespace(store)
                 if value is not None and fresh: raise StoreIncompatible('migrate existing workflow storage explicitly')
                 with ExitStack() as leases:
