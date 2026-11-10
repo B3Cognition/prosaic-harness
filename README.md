@@ -439,3 +439,6 @@ See [model-free tool steps](docs/direct-tool-step.md) for literal host-admitted
 `kind: tool` execution and the separate `allowed_direct_tools` permission.
 
 [Cerebro requests and deferred work](docs/cerebro-requests.md) track workflow enforcement tags and the remaining consumer feedback.
+
+Safe tool events and captured citations are available as an explicit development
+candidate. See [the opt-in bindings, storage migration and receipt contract](docs/tool-events-citations.md).

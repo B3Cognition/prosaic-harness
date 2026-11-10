@@ -8,10 +8,10 @@ The maintainer requested a shared tool result/event/evidence design. **Safe tool
 events and citations are the first implementation increment.** Parallel tool
 execution, an MCP client and sub-agents remain separate follow-ups. The
 [shared contract design](superpowers/specs/2026-11-10-tool-result-event-evidence-design.md)
-is approved for implementation planning. The
+has been implemented on focused candidate branches. The
 [Runtime/Harness/Lab implementation plan](superpowers/plans/2026-11-10-safe-tool-events-citations.md)
 preserves native execution and an independent final review; these capabilities
-are not shipped by this documentation update.
+remain unpublished until a separate release is authorized. See [candidate usage](tool-events-citations.md).
 
 | Request | Existing foundation | Status and acceptance direction |
 | --- | --- | --- |

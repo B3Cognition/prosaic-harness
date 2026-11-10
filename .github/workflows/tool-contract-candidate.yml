@@ -1,0 +1,54 @@
+name: Tool contract candidate
+on:
+  workflow_dispatch:
+    inputs:
+      runtime_run:
+        description: Successful exact-source Tool contract candidate Runtime run
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RUNTIME_COMMIT: 524758001da0d768e398aa51b1a97812adf09032
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install build 'setuptools>=77' wheel packaging pytest
+      - name: Verify upstream candidate run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_RUN: ${{ inputs.runtime_run }}
+        run: |
+          [[ "$UPSTREAM_RUN" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/B3Cognition/prosaic-runtime/actions/runs/$UPSTREAM_RUN" > /tmp/runtime-run.json
+          python -c "import json,os; r=json.load(open('/tmp/runtime-run.json')); assert r['name']=='Tool contract candidate' and r['path']=='.github/workflows/tool-contract-candidate.yml' and r['head_sha']==os.environ['RUNTIME_COMMIT'] and r['conclusion']=='success'"
+          gh run download "$UPSTREAM_RUN" --repo B3Cognition/prosaic-runtime --name qualified-release --dir upstream
+          python scripts/release_artifacts.py verify --directory upstream --commit "$RUNTIME_COMMIT"
+          python -c "import json,os; q=json.load(open('upstream/qualification-tool-contract-consumer.json')); r=json.load(open('upstream/release-receipt.json')); assert q['source_commit']==os.environ['RUNTIME_COMMIT'] and q['exit_code']==0 and q['label']=='tool-contract-consumer' and q['artifacts']==r['artifacts']"
+      - name: Build exact Harness source once
+        run: python scripts/release_artifacts.py build --ref '${{ github.sha }}' --output candidate --project . --project adapters/postgres --expect b3-prosaic-harness=0.9.14.dev1 --expect b3-prosaic-harness-postgres=0.4.3.dev1
+      - name: Preserve exact upstream evidence
+        run: |
+          cp /tmp/runtime-run.json candidate/artifacts/tool-contract-runtime-run.json
+          cp upstream/release-receipt.json candidate/artifacts/tool-contract-runtime-receipt.json
+          cp upstream/qualification-tool-contract-consumer.json candidate/artifacts/tool-contract-runtime-qualification.json
+      - name: Install original candidate bytes
+        run: |
+          python -m venv /tmp/tool-contract-harness
+          /tmp/tool-contract-harness/bin/python -m pip install upstream/*.whl candidate/artifacts/*.whl
+          /tmp/tool-contract-harness/bin/python -m pip check
+      - name: Qualify installed consumer
+        run: python scripts/release_artifacts.py qualify --directory candidate/artifacts --commit '${{ github.sha }}' --label tool-contract-consumer -- /tmp/tool-contract-harness/bin/python -I scripts/tool_contract_smoke.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qualified-release
+          path: candidate/artifacts/
+          if-no-files-found: error

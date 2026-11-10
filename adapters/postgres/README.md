@@ -382,3 +382,8 @@ and the conversation codec remain unchanged. Private snapshots and validation
 facts remain inside the bounded checkpoint/receipt, subject to host scope and
 retained-read authorization. No new database, blob table or automatic retention
 policy is introduced.
+
+Tool-contract development candidates use the existing JSON tables and explicit
+owner-only `initialize(tool_contracts=True)` / `migrate_tool_contract_storage()`.
+Workflow storage marker 3 and conversation marker 4 require capable readers.
+Ordinary workers only check readiness; they never migrate storage.
