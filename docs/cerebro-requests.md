@@ -1,8 +1,8 @@
 # Cerebro consumer requests
 
-Updated 2026-11-10. The original requests and their delivery history remain below.
+Updated 2026-11-11. The original requests and their delivery history remain below.
 
-## Current tools work — 2026-11-10
+## Current tools work — 2026-11-11
 
 Safe tool events and citations are published in Runtime 0.9.20, Harness 0.9.14,
 Harness PostgreSQL 0.4.3 and Lab 0.9.13. The released family preserves Core 0.5.0
@@ -10,26 +10,28 @@ and Runtime PostgreSQL 0.3.0. See the
 [shared contract design](superpowers/specs/2026-11-10-tool-result-event-evidence-design.md)
 and [usage contract](tool-events-citations.md).
 
-Parallel tool calls are implemented as a local development candidate. Its
-[proposed design](superpowers/specs/2026-11-10-parallel-tool-calls-design.md) and
-[detailed implementation plan](superpowers/plans/2026-11-10-parallel-tool-calls.md)
-are implemented natively across Runtime, Harness and Lab; independent review and qualification are being completed. No release train has started. MCP
-and sub-agents remain separate follow-ups.
+Parallel tool calls are published in Runtime 0.9.21, Harness 0.9.15,
+Harness PostgreSQL 0.4.4 and Lab 0.9.14. See the
+[parallel tool guide](parallel-tools.md).
+
+The proposed MCP client uses host-approved aliases in existing agent node and
+conversation tool lists. See the [MCP design](superpowers/specs/2026-11-11-mcp-client-design.md)
+and [implementation plan](superpowers/plans/2026-11-11-mcp-client.md).
+Sub-agents remain a separate follow-up.
 
 | Request | Existing foundation | Status and acceptance direction |
 | --- | --- | --- |
 | Tool arguments in step events | Runtime tool lifecycle events, call identity, typed outcomes and private conversation history | Released first increment: explicit host-approved argument/result display projections, bounded versioned events, separate permission to display, and no raw argument/result fields in general telemetry. Events describe observed execution and journal replay accurately. |
 | Citation contract | Harness context packs retain citation IDs, source revisions/locators, representation hashes and actual deferred-read evidence | Released first increment: shared evidence references and final-answer citations that resolve only to authorized model-exposed content. Persist accepted citations with the answer and replay receipts without executing tools again. Provenance validation and semantic claim support remain separate checks. |
-| Parallel tool calls | Explicit independent reads in fixed bounded windows; omitted policy remains sequential | Implemented development candidate: explicit safe-read registrations, per-node host ceilings, atomic attempt reservations, serial barriers, owner-thread events/journals/guards, joined cancellation and versioned receipts. Native and installed checks cover both wires; publication remains a separate step. |
-| MCP client | Local `CustomTool` registry with schema validation, explicit grants and bounded results | Separate follow-up: optional SDK-backed adapter, explicit protocol/transport coverage, admitted schemas and stable tool aliases, catalog changes, authentication and per-call authorization. Remote annotations do not grant execution or parallelism. |
+| Parallel tool calls | Explicit independent reads in fixed bounded windows; omitted policy remains sequential | Released: host-reviewed read registrations, per-node limits, serial barriers, ordered evidence and joined cancellation. Native and installed checks cover both wires. |
+| MCP client | Local `CustomTool` registry with schema validation, explicit grants and bounded results | Design proposed: optional SDK-backed Streamable HTTP adapter, host-selected aliases, scoped catalogues, per-call authorization and journaled serial dispatch. |
 | Sub-agents | Nested execution budgets, child accounting context, specialist prompts and context packs | Separate follow-up: named host-registered delegates with narrowed context/tools, parent/child budget accounting, depth/call bounds, cancellation and durable result adoption. Do not introduce unrestricted recursive delegation in the first increment. |
 
-The first increment belongs primarily in Runtime, with Harness adapters for
+The MCP increment belongs primarily in Runtime, with Harness adapters for
 context-pack provenance, durable adoption and authorized views, and focused Lab
 consumer scenarios. Preserve legacy tool wire values, guard bindings and saved
 records when the new contracts are absent. Capability checks must reject
-unsupported enabled combinations before dispatch. No stable release versions are
-assigned to the parallel-tool increment in this planning task.
+unsupported enabled combinations before dispatch. MCP remains at the design stage.
 
 ## Earlier requests — recorded 2026-11-07
 
