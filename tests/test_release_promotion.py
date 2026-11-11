@@ -86,3 +86,17 @@ def test_resolved_source_uses_the_checked_out_tag_not_the_workflow_revision(tmp_
     output=tmp_path/'environment'
     subprocess.run(['/bin/bash','-e','-c',step['run']],cwd=tmp_path,env={**os.environ,'GITHUB_ENV':str(output),'GITHUB_SHA':workflow},check=True)
     assert output.read_text()=='PROSAIC_RELEASE_SOURCE='+source+'\n'
+
+
+def test_parallel_wheel_qualification_installs_the_qualified_postgres_adapter():
+    root = Path(__file__).resolve().parents[1]
+    workflow = yaml.safe_load((root / '.github/workflows/publish.yml').read_text())
+    adapter_version = tomllib.loads((root / 'adapters/postgres/pyproject.toml').read_text())['project']['version']
+    adapter_wheel = f'release/artifacts/b3_prosaic_harness_postgres-{adapter_version}-py3-none-any.whl'
+    for name in ('linux', 'macos'):
+        command = next(step['run'] for step in workflow['jobs'][name]['steps']
+                       if 'tests/test_parallel_tool_installed.py' in step.get('run', '')
+                       and '.wheel-test/bin/python -m pip install' in step['run'])
+        install = next(line for line in command.splitlines()
+                       if '.wheel-test/bin/python -m pip install' in line)
+        assert adapter_wheel in install, name
