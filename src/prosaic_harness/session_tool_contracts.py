@@ -10,7 +10,7 @@ from .conversation_errors import ConversationError
 
 
 def has_packs(state):
-    return state.get('version') in (3,4) and type(state.get('contextPacks')) is dict
+    return state.get('version') in (3,4,5) and type(state.get('contextPacks')) is dict
 
 
 def scope_for(state,aid,purpose='ordinary',namespace=None):
@@ -21,8 +21,10 @@ def scope_for(state,aid,purpose='ordinary',namespace=None):
 
 def upgrade_session(state,bindings):
     from .session_context import binding_context
-    return state|dict(version=4,contextBindings=binding_context(bindings),contextPacks=None,
+    result=state|dict(version=4,contextBindings=binding_context(bindings),contextPacks=None,
         toolContractV1=dict(version=1,bindings=bindings.readmit()['toolContractV1'],attempts={}))
+    if bindings.run_policy.parallel_tools is not None:result.update(version=5,parallelToolsV1=bindings.readmit()['parallelToolsV1'])
+    return result
 
 
 def reserve_contract(state,attempt,frozen,frame,refs):
@@ -76,10 +78,11 @@ def validate_state(state):
             raise ValueError('invalid tool attempt')
         validate_refs(record['retainedReferences'])
         frozen=FrozenTurnInput.from_dict(attempt_frozen(state,aid)).to_dict()
+        if state['version']==5 and frozen['bindings'].get('parallelToolsV1')!=state['parallelToolsV1']:raise ValueError('parallel frozen binding drift')
         binding=frozen['bindings']['toolContractV1'];scope=binding['scope']
         expected=asdict(scope_for(state,aid,namespace=scope['operation_namespace']))
         turn=state['turns'][attempt['turnSequence']-1]
-        if (frozen['encodingVersion']!='conversation-turn-v4' or scope!=expected or
+        if (frozen['encodingVersion']!=('conversation-turn-v5' if state['version']==5 else 'conversation-turn-v4') or scope!=expected or
                 any(frozen[key]!=attempt[key] for key in ('contextIdentity','encodingVersion','inputBytes')) or
                 frozen['message']!=turn['message'] or frozen['sourceHistoryDigest']!=digest(
                     history_of(state,before_sequence=turn['sequence']))):
@@ -107,7 +110,7 @@ def complete_receipt(state,packet,result,events,events_truncated):
 def validate_receipt(packet):
     side=packet['toolContractV1']
     if side is None:
-        if packet['encodingVersion']=='conversation-turn-v4':raise ValueError('missing ordinary authority')
+        if packet['encodingVersion']in ('conversation-turn-v4','conversation-turn-v5'):raise ValueError('missing ordinary authority')
         return
     if type(side) is not dict or set(side)!={'version','bindings','frozenInput','retainedReferences','citations','events','eventsTruncated'} or side['version']!=1:
         raise ValueError('invalid session receipt tool contract')
@@ -118,7 +121,7 @@ def validate_receipt(packet):
     for event in side['events']:
         if event.get('event') not in {'tool_started','tool_completed'} or 'toolEventV1' not in event:raise ValueError('invalid retained event')
     evidence=TurnEvidence.from_dict(packet['evidence']).to_dict()
-    if evidence['version']!=3 or frozen['bindings']['toolContractV1']!=evidence['toolContractV1']['bindings'] or side['citations']!=evidence['toolContractV1']['citations']:
+    if evidence['version']!=(4 if frozen['encodingVersion']=='conversation-turn-v5' else 3) or frozen['bindings']['toolContractV1']!=evidence['toolContractV1']['bindings'] or side['citations']!=evidence['toolContractV1']['citations']:
         raise ValueError('tool evidence binding mismatch')
     if side['citations'] is not None and not CitationsV1.from_dict(side['citations']).verify_answer(packet['result']['answer']):
         raise ValueError('accepted answer differs from citations')
@@ -281,7 +284,7 @@ def authorize_tool_history(chat,state,purpose,*,scope=None,before_sequence=None,
     Textual IDs confer no new registry authority. These checks protect the
     captured source bodies already present in portable historical messages.
     """
-    if state.get('version')!=4:return
+    if state.get('version') not in (4,5):return
     from .tool_contract_views import ToolContractViewBindings,authorize_source
     turns=[turn for turn in state['turns'] if turn['history'] and (before_sequence is None or turn['sequence']<before_sequence)]
     if report is not None:turns=turns[report.omitted_turn_count:]

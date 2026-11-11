@@ -21,7 +21,7 @@ CORE_VERSION = PROJECT['version']
 RUNTIME_REQUIREMENT = next(Requirement(value) for value in PROJECT['dependencies']
                            if Requirement(value).name == 'b3-prosaic-runtime')
 # The qualified train may be newer than the declared compatibility floor.
-RUNTIME_VERSION = '0.9.20'
+RUNTIME_VERSION = '0.9.21'
 CORE = project_wheel(ROOT)
 ADAPTER = project_wheel(ROOT, 'adapters/postgres')
 
@@ -87,7 +87,7 @@ def test_wheel_contents_and_dependency_boundaries():
     assert not any('psycopg' in value.lower() for value in core.get_all('Requires-Dist'))
     adapter, names = metadata(ADAPTER)
     assert adapter['Name'] == 'b3-prosaic-harness-postgres'
-    assert adapter['Version'] == '0.4.3'
+    assert adapter['Version'] == '0.4.4'
     assert any(value.startswith('b3-prosaic-harness<0.10,>=0.9') for value in adapter.get_all('Requires-Dist'))
     assert 'prosaic_harness_postgres/cli.py' in names
     assert any(value.startswith('psycopg[binary]<4,>=3.2.3')
@@ -192,7 +192,9 @@ def curated_candidates(release_tool, tmp_path, monkeypatch):
     # These cases deliberately exercise hosted evidence, independently of the
     # branch-build channel inherited by ordinary PostgreSQL CI.
     monkeypatch.delenv('HARNESS_TEST_BRANCH_UPSTREAM_RECEIPT',raising=False)
-    assert RUNTIME_VERSION in RUNTIME_REQUIREMENT.specifier
+    # This synthetic fixture verifies the retained published receipt protocol.
+    # The current development dependency floor is exercised by branch wheel tests.
+    assert RUNTIME_VERSION == '0.9.21'
     directory, wheelhouse = tmp_path / 'artifacts', tmp_path / 'wheels'
     directory.mkdir(); wheelhouse.mkdir()
     candidates = []

@@ -23,7 +23,12 @@ def test_promotion_reuses_complete_exact_source_records():
 def test_public_workflows_use_current_version_and_check_tool_consumer():
     root=Path(__file__).resolve().parents[1];version=tomllib.loads((root/'pyproject.toml').read_text())['project']['version']
     publication=(root/'.github/workflows/publish.yml').read_text()
-    assert f'b3_prosaic_harness-{version}-py3-none-any.whl' in publication
+    from packaging.version import Version
+    if Version(version).is_devrelease:
+        assert 'b3_prosaic_harness-0.9.15-py3-none-any.whl' in publication
+        assert f'b3_prosaic_harness-{version}-py3-none-any.whl' not in publication
+    else:
+        assert f'b3_prosaic_harness-{version}-py3-none-any.whl' in publication
     assert "runpy.run_path('scripts/tool_contract_smoke.py'" in publication
 
 

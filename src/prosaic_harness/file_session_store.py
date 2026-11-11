@@ -27,6 +27,7 @@ _MAX_BYTES = 8 * 1024 * 1024
 _LEGACY_MARKER = b'{"storageContract":1,"version":1}'
 _MARKER = b'{"storageContract":2,"version":2}'
 _PACK_MARKER = b'{"storageContract":3,"version":3}'
+_PARALLEL_MARKER = b'{"storageContract":5,"version":5}'
 _TOOL_MARKER = b'{"storageContract":4,"version":4}'
 
 
@@ -174,7 +175,7 @@ class FileSessionStore:
     def capabilities(self):
         self.check_ready()
         return frozenset({*({'context_assembly_v1'} if self._storage_contract>=2 else ()),
-            *({'context_packs_v1'} if self._storage_contract>=3 else ()),*({'tool_contracts_v1'} if self._storage_contract==4 else ())})
+            *({'context_packs_v1'} if self._storage_contract>=3 else ()),*({'tool_contracts_v1'} if self._storage_contract in (4,5) else ()),*({'parallel_tool_calls_v1'} if self._storage_contract==5 else ())})
     def _available(self):
         if self._closed or self._pid!=os.getpid(): raise StoreUnavailable()
     def _scope(self,scope):
@@ -199,24 +200,28 @@ class FileSessionStore:
     def _ready(self,paths,incarnation):
         try: marker=_read(paths.fd,'.conversation-store.json',maximum=1024)
         except FileNotFoundError: raise StoreUninitialized() from None
-        if marker not in (_LEGACY_MARKER,_MARKER,_PACK_MARKER,_TOOL_MARKER): raise StoreIncompatible()
-        self._storage_contract = 4 if marker==_TOOL_MARKER else 3 if marker==_PACK_MARKER else 2 if marker == _MARKER else 1
+        if marker not in (_LEGACY_MARKER,_MARKER,_PACK_MARKER,_TOOL_MARKER,_PARALLEL_MARKER): raise StoreIncompatible()
+        self._storage_contract = 5 if marker==_PARALLEL_MARKER else 4 if marker==_TOOL_MARKER else 3 if marker==_PACK_MARKER else 2 if marker == _MARKER else 1
         paths.check()
         with self._mutex:
             if self._incarnation is not None and self._incarnation!=incarnation:
                 raise StoreUnavailable()
             self._incarnation=incarnation
-    def initialize(self,*,context_packs=False,tool_contracts=False):
+    def initialize(self,*,context_packs=False,tool_contracts=False,parallel_tools=False):
+        if type(parallel_tools) is not bool:raise ValueError("parallel_tools must be boolean")
+        if type(tool_contracts) is not bool:raise ValueError("tool_contracts must be boolean")
+        tool_contracts=tool_contracts or parallel_tools
         self._available()
         if type(tool_contracts) is not bool: raise ValueError('tool_contracts must be boolean')
         if type(context_packs) is not bool: raise ValueError('context_packs must be boolean')
         paths=None
         try:
             paths,incarnation=self._directories(create=True)
-            try: _exclusive_write(paths.fd,'.conversation-store.json',_TOOL_MARKER if tool_contracts else _PACK_MARKER if context_packs else _MARKER)
+            try: _exclusive_write(paths.fd,'.conversation-store.json',_PARALLEL_MARKER if parallel_tools else _TOOL_MARKER if tool_contracts else _PACK_MARKER if context_packs else _MARKER)
             except FileExistsError: pass
             self._ready(paths,incarnation)
-            if tool_contracts and self._storage_contract!=4: raise StoreIncompatible('migrate tool contract storage explicitly')
+            if parallel_tools and self._storage_contract!=5:raise StoreIncompatible("migrate parallel storage explicitly")
+            if tool_contracts and self._storage_contract not in (4,5): raise StoreIncompatible('migrate tool contract storage explicitly')
             if context_packs and self._storage_contract<3: raise StoreIncompatible('migrate context pack storage explicitly')
         except OSError:
             raise StoreUnavailable() from None
@@ -234,6 +239,8 @@ class FileSessionStore:
             raise StoreUnavailable() from None
         finally:
             if paths is not None: paths.close()
+    def migrate_parallel_tool_storage(self):
+        return self._migrate_storage(5)
     def migrate_tool_contract_storage(self):
         return self._migrate_storage(4)
     def migrate_context_storage(self):
@@ -257,7 +264,7 @@ class FileSessionStore:
             except BlockingIOError: raise StoreBusy('conversation migration is active') from None
             self._ready(paths, incarnation)
             if self._storage_contract < target:
-                _replace_write(paths.fd, '.conversation-store.json', _TOOL_MARKER if target==4 else _PACK_MARKER if target==3 else _MARKER)
+                _replace_write(paths.fd, '.conversation-store.json', _PARALLEL_MARKER if target==5 else _TOOL_MARKER if target==4 else _PACK_MARKER if target==3 else _MARKER)
             self._ready(paths, incarnation)
         except FileNotFoundError:
             raise StoreUninitialized() from None
@@ -362,7 +369,8 @@ class FileSessionStore:
         return owner
     def _content(self,session_id,state,owner):
         value=verify_session(state)
-        if value['version']==4 and 'tool_contracts_v1' not in self.capabilities:raise StoreIncompatible('migrate tool contract storage explicitly')
+        if value['version']==5 and 'parallel_tool_calls_v1' not in self.capabilities:raise StoreIncompatible('enable parallel storage explicitly')
+        if value['version'] in (4,5) and 'tool_contracts_v1' not in self.capabilities:raise StoreIncompatible('migrate tool contract storage explicitly')
         if value.get('contextPacks') is not None:
             from .context_packs.records import validate_pack_storage_admission
             if 'context_packs_v1' not in self.capabilities: raise StoreIncompatible('migrate context pack storage explicitly')

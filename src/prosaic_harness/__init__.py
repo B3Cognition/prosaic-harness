@@ -1,5 +1,5 @@
 """Durable, validated execution around Prosaic Runtime."""
-__version__ = '0.9.14'
+__version__ = '0.9.15'
 
 from .engine import Harness
 from .workflow import Workflow
@@ -57,3 +57,5 @@ __all__ += ['ToolContracts']
 from .tool_contract_views import VerifiedToolReceipt,ToolContractViewBindings,resolve_citation_view,project_retained_tool_event
 from .session_tool_contracts import RetainedCitationReference
 __all__ += ['VerifiedToolReceipt','ToolContractViewBindings','resolve_citation_view','project_retained_tool_event','RetainedCitationReference']
+
+from .parallel_tools import ParallelToolPolicyV1

@@ -1,5 +1,7 @@
 # Releases and compatibility
 
+Harness 0.9.15 / store 0.4.4 add [opt-in parallel reads](release-0.9.15.md) with Runtime 0.9.21. See [owner migration](release-postgres-0.4.4.md).
+
 Harness 0.9.14 / store 0.4.3 add [safe tool events and durable citations](release-0.9.14.md)
 with Runtime >=0.9.20,<0.10. The tools train retains Core 0.5.0 and recorder 0.3.0.
 Versioned release pages and original archives remain publication authority.

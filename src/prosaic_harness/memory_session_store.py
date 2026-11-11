@@ -30,6 +30,7 @@ class MemorySessionStore:
         self._initialized=False
         self._context_packs=False
         self._tool_contracts=False
+        self._parallel_tools=False
         self._records={}
         self._receipts={}
         self._locks={}
@@ -40,8 +41,15 @@ class MemorySessionStore:
     @property
     def capabilities(self):
         self.check_ready()
-        return frozenset({'context_assembly_v1',*({'context_packs_v1'} if self._context_packs else ()),*({'tool_contracts_v1'} if self._tool_contracts else ())})
-    def initialize(self,*,context_packs=False,tool_contracts=False):
+        return frozenset({'context_assembly_v1',*({'context_packs_v1'} if self._context_packs else ()),*({'tool_contracts_v1'} if self._tool_contracts else ()),*({'parallel_tool_calls_v1'} if self._parallel_tools else ())})
+    def initialize(self,*,context_packs=False,tool_contracts=False,parallel_tools=False):
+        if type(parallel_tools) is not bool:raise ValueError("parallel_tools must be boolean")
+        if self._initialized and parallel_tools and not self._parallel_tools:raise StoreIncompatible()
+        if not self._initialized:self._parallel_tools=parallel_tools
+        if type(context_packs) is not bool:raise ValueError("context_packs must be boolean")
+        context_packs=context_packs or parallel_tools
+        if type(tool_contracts) is not bool:raise ValueError("tool_contracts must be boolean")
+        tool_contracts=tool_contracts or parallel_tools
         if self._closed or self._pid!=os.getpid(): raise StoreUnavailable()
         if type(tool_contracts) is not bool: raise ValueError('tool_contracts must be boolean')
         if self._initialized and tool_contracts and not self._tool_contracts: raise StoreIncompatible()
@@ -50,6 +58,11 @@ class MemorySessionStore:
         if self._initialized and context_packs and not self._context_packs: raise StoreIncompatible()
         if not self._initialized: self._context_packs=context_packs
         self._initialized=True
+    def migrate_parallel_tool_storage(self):
+        with self._mutex:
+            self.check_ready()
+            if self._leases:raise StoreBusy()
+            self._parallel_tools=self._tool_contracts=self._context_packs=True
     def migrate_tool_contract_storage(self):
         with self._mutex:
             self.check_ready()
@@ -106,7 +119,8 @@ class MemorySessionStore:
     def _content(self,session_id,state,scope):
         content=encode_session(state)
         admitted=decode_session(content)
-        if admitted['version']==4 and not self._tool_contracts: raise StoreIncompatible()
+        if admitted['version']==5 and not self._parallel_tools:raise StoreIncompatible()
+        if admitted['version'] in (4,5) and not self._tool_contracts: raise StoreIncompatible()
         if admitted.get('contextPacks') is not None:
             from .context_packs.records import validate_pack_storage_admission
             if not self._context_packs: raise StoreIncompatible()

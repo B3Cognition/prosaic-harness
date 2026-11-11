@@ -111,8 +111,9 @@ class Workflow:
     def current_fingerprint(self):
         from .context_packs.bindings import material as context_material
         from .tool_contracts import material as tool_contract_material
+        from .parallel_tools import parallel_material
         return digest({'workflow': self.definition, 'runtime': runtime_identity(self.config),
-                       **rule_material(self), **context_material(self), **tool_contract_material(self), 'schemas': self.schemas, 'prose': {name: a.digest for name, a in self.artifacts.items()},
+                       **rule_material(self), **context_material(self), **tool_contract_material(self), **parallel_material(self), 'schemas': self.schemas, 'prose': {name: a.digest for name, a in self.artifacts.items()},
                        **({'acquisitions': {name: a.digest for name, a in self.acquisitions.items()}} if self.acquisitions else {}),
                        **({'custom_tools': self.tool_descriptors} if self._tool_descriptors else {}),
                        **({'allowed_direct_tools': sorted(self.allowed_direct_tools)} if self.allowed_direct_tools else {})})
@@ -128,10 +129,10 @@ class Workflow:
 
     @classmethod
     def load(cls, path, *, executable='prosaic', custom_tools=None, allowed_direct_tools=frozenset(), guards=(),
-             context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None):
+             context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None,parallel_tools=None):
         try:
             return cls._load(path, executable=executable, custom_tools=custom_tools, allowed_direct_tools=allowed_direct_tools, guards=guards,
-                context_packs=context_packs,feedback_catalog=feedback_catalog,repeatable_validators=repeatable_validators,tool_contracts=tool_contracts)
+                context_packs=context_packs,feedback_catalog=feedback_catalog,repeatable_validators=repeatable_validators,tool_contracts=tool_contracts,parallel_tools=parallel_tools)
         except WorkflowAdmissionError as exc:
             if exc.code == 'invalid_schema':
                 raise ValueError('invalid workflow definition: schema must be valid and support internal references only') from None
@@ -141,7 +142,7 @@ class Workflow:
 
     @classmethod
     def _load(cls, path, *, executable, custom_tools, allowed_direct_tools, guards,
-              context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None):
+              context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None,parallel_tools=None):
         path = Path(path).resolve()
         if path.suffix not in {'.yml', '.yaml'}:
             raise ValueError('workflow must use YAML/YML')
@@ -194,7 +195,7 @@ class Workflow:
                 raise ValueError(f'invalid step: {name}')
             kind = step.get('kind')
             allowed = {
-                'agent': {'kind', 'agent', 'acquisition', 'schema', 'inputs', 'optional_inputs', 'next', 'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators', 'initial_tool', 'contextPack'},
+                'agent': {'kind', 'agent', 'acquisition', 'schema', 'inputs', 'optional_inputs', 'next', 'max_attempts', 'max_visits', 'tools', 'read_roots', 'require_tools', 'require_reads', 'validators', 'initial_tool', 'contextPack', 'parallel_tools'},
                 'tool': {'kind', 'tool', 'arguments', 'schema', 'next', 'inputs', 'optional_inputs', 'validators', 'max_visits'},
                 'gate': {'kind', 'from', 'field', 'equals', 'pass', 'fail', 'max_visits'},
                 'check': {'kind', 'from', 'validators', 'pass', 'fail', 'max_visits'},
@@ -307,6 +308,7 @@ class Workflow:
         workflow._rule_bindings = RuleBindings.create(guards, root, 'workflow-directory-v1')
         from .tool_contracts import ToolContracts,material as tool_contract_material
         if tool_contracts is not None and type(tool_contracts) is not ToolContracts: raise ValueError('invalid tool contracts')
+        workflow._parallel_tool_policy=parallel_tools
         workflow._tool_contracts=tool_contracts.frozen_copy() if tool_contracts is not None else None
         from .context_packs.bindings import attach,material as context_material
         attach(workflow,context_packs,feedback_catalog=feedback_catalog,repeatable_validators=repeatable_validators)
@@ -314,7 +316,7 @@ class Workflow:
         descriptors = validate_resolved_workflow(workflow, descriptors=registered,
                                                  profile=None, native=False)
         workflow._tool_descriptors = deepcopy(descriptors)
-        fingerprint = digest({**rule_material(workflow), **context_material(workflow), **tool_contract_material(workflow), 'workflow': raw, 'runtime': runtime_identity(config),
+        fingerprint = digest({**rule_material(workflow), **context_material(workflow), **tool_contract_material(workflow), **__import__('prosaic_harness.parallel_tools',fromlist=['parallel_material']).parallel_material(workflow), 'workflow': raw, 'runtime': runtime_identity(config),
                               'schemas': schemas, 'prose': {name: a.digest for name, a in artifacts.items()},
                               **({'acquisitions': {name: a.digest for name, a in acquisitions.items()}} if acquisitions else {}),
                               **({'custom_tools': descriptors} if descriptors else {}),

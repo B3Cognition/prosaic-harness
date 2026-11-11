@@ -265,10 +265,17 @@ class WorkflowPolicy:
     bounded_tool_recovery: bool = False
     allowed_direct_tools: frozenset = frozenset()
     allowed_terminal_tools: frozenset = frozenset()
+    parallel_tools: object = None
 
     def __post_init__(self):
         for item in fields(self):
             value = getattr(self, item.name)
+            if item.name == 'parallel_tools':
+                if value is not None:
+                    from prosaic_runtime import ParallelToolPolicyV1
+                    if type(value) is not ParallelToolPolicyV1:_fail('invalid_definition')
+                    value.__post_init__()
+                continue
             if item.name in _INVOCATION_CAPS:
                 if value is not None and (type(value) is not int or value < 0):
                     _fail('invalid_definition')
@@ -301,8 +308,9 @@ class WorkflowPolicy:
 
     def _identity(self):
         return {item.name: sorted(getattr(self, item.name)) if item.name.startswith('allowed_')
-                else getattr(self, item.name) for item in fields(self)
-                if (item.name not in _INVOCATION_CAPS or getattr(self, item.name) is not None)
+                else (getattr(self,item.name).to_dict() if item.name=='parallel_tools' else getattr(self, item.name)) for item in fields(self)
+                if (item.name!='parallel_tools' or self.parallel_tools is not None)
+                and (item.name not in _INVOCATION_CAPS or getattr(self, item.name) is not None)
                 and (item.name != 'bounded_tool_recovery' or getattr(self, item.name))
                 and (item.name not in {'allowed_direct_tools', 'allowed_terminal_tools', 'allowed_guards'} or getattr(self, item.name))}
 
@@ -379,7 +387,8 @@ def _identity_payload(workflow, policy, *, operation=None, adapter=None):
         adapter = declared.descriptor if declared is not None else None
     from .context_packs.bindings import material as context_material
     from .tool_contracts import material as tool_contract_material
-    return {**rule_material(workflow), **context_material(workflow), **tool_contract_material(workflow), 'workflow': definition, 'runtime': runtime_identity(config),
+    from .parallel_tools import parallel_material
+    return {**rule_material(workflow), **context_material(workflow), **tool_contract_material(workflow), **parallel_material(workflow), 'workflow': definition, 'runtime': runtime_identity(config),
             'schemas': schemas, 'prose': artifacts,
             **({'custom_tools': descriptors} if descriptors else {}),
             **({'operation_bindings': operation} if operation else {}),
@@ -741,6 +750,7 @@ class WorkflowFactory:
                             logical_alias(name), 'validators', index))
         workflow = _NativeWorkflow(None, definition, config, artifacts, schemas, '',
                                    custom_tools=self._tools, allowed_direct_tools=policy.allowed_direct_tools)
+        workflow._parallel_tool_policy=policy.parallel_tools
         workflow._tool_contracts=self._tool_contracts.frozen_copy() if self._tool_contracts is not None else None
         workflow._rule_bindings = RuleBindings(self._rule_bindings.guards, self._rule_bindings.project,
             self._rule_bindings.identity, policy.allowed_guards)
@@ -784,6 +794,8 @@ def _check_adapter(workflow, runtime, descriptors, *, native):
     if runtime is not None:
         from .tool_contracts import material as tool_contract_material
         tool_contract_material(workflow, runtime)
+        from .parallel_tools import parallel_material
+        parallel_material(workflow,runtime)
     if runtime is None:
         return
     if any(step.get('kind') == 'tool' for step in workflow.definition['steps'].values()):

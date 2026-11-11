@@ -48,13 +48,16 @@ class PostgresRunStore:
             lock_timeout_s=lock_timeout_s, statement_timeout_s=statement_timeout_s,
             pool_size=pool_size, max_active_leases=max_active_leases, durability_profile=durability_profile)
 
-    def initialize(self,*,context_packs=False,tool_contracts=False):
-        schema.initialize(self._transport,context_packs=context_packs,tool_contracts=tool_contracts)
+    def initialize(self,*,context_packs=False,tool_contracts=False,parallel_tools=False):
+        schema.initialize(self._transport,context_packs=context_packs,tool_contracts=tool_contracts,parallel_tools=parallel_tools)
 
     @property
     def capabilities(self):
         version=schema.check_ready(self._transport)
-        return frozenset({*({'context_packs_v1'} if version>=(2,2) else ()),*({'tool_contracts_v1'} if version==(3,3) else ())})
+        return frozenset({*({'context_packs_v1'} if version>=(2,2) else ()),*({'tool_contracts_v1'} if version in ((3,3),(4,4)) else ()),*({'parallel_tool_calls_v1'} if version==(4,4) else ())})
+
+    def migrate_parallel_tool_storage(self):
+        schema.migrate_parallel_tool_storage(self._transport)
 
     def migrate_tool_contract_storage(self):
         schema.migrate_tool_contract_storage(self._transport)
@@ -188,7 +191,8 @@ class PostgresRunStore:
         return self._transport.call(read)
 
     def _document(self, run_id, state):
-        if state.get('version')==4 and 'tool_contracts_v1' not in self.capabilities:raise StoreIncompatible('migrate tool contract storage explicitly')
+        if state.get('version')==5 and 'parallel_tool_calls_v1' not in self.capabilities:raise StoreIncompatible('enable parallel storage explicitly')
+        if state.get('version') in (4,5) and 'tool_contracts_v1' not in self.capabilities:raise StoreIncompatible('migrate tool contract storage explicitly')
         if state.get('version') in (3,4) and type(state.get('contextPacks')) is dict:
             from prosaic_harness.context_packs.records import validate_pack_storage_admission
             if 'context_packs_v1' not in self.capabilities: raise StoreIncompatible('migrate context pack storage explicitly')
@@ -260,7 +264,8 @@ class PostgresRunStore:
         self._local(run_id, lease)
         validate_id(invocation_id)
         content = encode_document(receipt)
-        if receipt.get('version')==3 and receipt.get('recordType')=='workflowReceipt' and 'tool_contracts_v1' not in self.capabilities:raise StoreIncompatible('migrate tool contract storage explicitly')
+        if receipt.get('version')==4 and receipt.get('recordType')=='workflowReceipt' and 'parallel_tool_calls_v1' not in self.capabilities:raise StoreIncompatible('enable parallel storage explicitly')
+        if receipt.get('version') in (3,4) and receipt.get('recordType')=='workflowReceipt' and 'tool_contracts_v1' not in self.capabilities:raise StoreIncompatible('migrate tool contract storage explicitly')
         if receipt.get('version') in (2,3) and receipt.get('contextPack') is not None:
             if 'context_packs_v1' not in self.capabilities: raise StoreIncompatible('migrate context pack storage explicitly')
         if receipt.get('id') != invocation_id or receipt.get('run_id') != run_id:

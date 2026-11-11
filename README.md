@@ -1,5 +1,7 @@
 # Prosaic Harness
 
+Harness **0.9.15** adds [opt-in parallel read tools](docs/parallel-tools.md) for individual workflow nodes and conversations. Requires Runtime **0.9.21**. See [release notes](docs/release-0.9.15.md) and [PostgreSQL 0.4.4 migration notes](docs/release-postgres-0.4.4.md).
+
 Harness **0.9.14** adds [safe tool events and durable citations](docs/tool-events-citations.md)
 with Runtime **0.9.20** and optional PostgreSQL store **0.4.3**.
 See [release notes](docs/release-0.9.14.md) and [migration notes](docs/release-postgres-0.4.3.md).
@@ -53,12 +55,12 @@ conversation and run caps wins; explicit tighter run caps stay intact. See
 [input request caps](docs/conversations.md#input-request-caps) to configure both
 policies from one value for new sessions.
 
-The `b3-prosaic-harness` 0.9.13 distribution selects
-`b3-prosaic-runtime>=0.9.19,<0.10` and directly requires `b3-prosaic>=0.5.0,<0.6`. The optional `b3-prosaic-harness-postgres`
-**0.4.2** package supports shared workflow and conversation storage.
+The `b3-prosaic-harness` 0.9.15 distribution selects
+`b3-prosaic-runtime>=0.9.21,<0.10` and directly requires `b3-prosaic>=0.5.0,<0.6`. The optional `b3-prosaic-harness-postgres`
+**0.4.4** package supports shared workflow and conversation storage.
 Imports (`prosaic_harness`) and CLI commands (`prosaic-harness`) remain unchanged.
 Runtime **0.9.19** retains per-invocation headers, canonical `effort: none` and Gemma thinking controls.
-Install with `python -m pip install 'b3-prosaic-harness==0.9.13'`.
+Install with `python -m pip install 'b3-prosaic-harness==0.9.15'`.
 See [reasoning in workflows](docs/reasoning-effort.md), the
 [conversation installation guide](docs/conversations.md#install-the-compatible-candidate-train)
 and [package migration](docs/package-migration.md) for fresh environments.
@@ -159,9 +161,9 @@ environment so another application's older runtime cannot be picked up by accide
 ```sh
 git clone https://github.com/B3Cognition/prosaic-harness.git
 cd prosaic-harness
-git checkout v0.9.13
+git checkout v0.9.15
 python3 -m venv .venv
-.venv/bin/python -m pip install 'b3-prosaic-harness==0.9.13' 'b3-prosaic-runtime==0.9.19'
+.venv/bin/python -m pip install 'b3-prosaic-harness==0.9.15' 'b3-prosaic-runtime==0.9.21'
 
 export PATH="$PWD/.venv/bin:$PATH"
 prosaic --help
@@ -171,7 +173,7 @@ prosaic --help
 ALWAYS use a fresh clone/environment for migration; NEVER reuse an environment
 containing legacy distributions. In a future terminal, return to the repository and add its `.venv/bin` to PATH
 again. Node.js and npm are not required. Current dependency metadata selects
-`b3-prosaic-runtime>=0.9.19,<0.10`, `b3-prosaic>=0.5.0,<0.6`, PyYAML, jsonschema and referencing.
+`b3-prosaic-runtime>=0.9.21,<0.10`, `b3-prosaic>=0.5.0,<0.6`, PyYAML, jsonschema and referencing.
 Published packages resolve through PyPI. Reproducible deployments should use
 checksum-pinned complete manifests, such as the Integration Lab's separate
 [reasoning lane](https://github.com/B3Cognition/prosaic-integration-lab/blob/main/docs/reasoning-effort.md).
@@ -445,3 +447,6 @@ See [model-free tool steps](docs/direct-tool-step.md) for literal host-admitted
 [Cerebro requests and deferred work](docs/cerebro-requests.md) track workflow enforcement tags and the remaining consumer feedback.
 
 Safe tool events and captured citations are available through explicit opt-in bindings. See [the opt-in bindings, storage migration and receipt contract](docs/tool-events-citations.md).
+
+The development candidate adds host-bounded, per-agent **parallel read tools**
+and explicit store enablement. See [authority, recovery and compatibility](docs/parallel-tools.md).

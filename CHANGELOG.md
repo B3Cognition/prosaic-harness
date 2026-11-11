@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.15 / PostgreSQL 0.4.4 — 2026-11-11
+
+- Enable opt-in bounded parallel reads per workflow node or conversation using Runtime 0.9.21.
+- Add owner-managed storage support for parallel policies, ordered evidence, and receipt recovery.
+- See [Harness notes](docs/release-0.9.15.md) and [store notes](docs/release-postgres-0.4.4.md).
+
 ## 0.9.14 / PostgreSQL 0.4.3 — 2026-11-10
 
 - Add host-bound safe tool events, captured evidence and citations across workflows/conversations.
