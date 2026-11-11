@@ -1,4 +1,4 @@
-# Parallel read tools (development candidate)
+# Parallel read tools (Harness 0.9.15)
 
 `WorkflowPolicy(parallel_tools=ParallelToolPolicyV1(max_concurrency=4))` grants
 an upper bound. Each agent node explicitly selects
@@ -50,8 +50,8 @@ settlement uses existing claim tokens independently of stale controller saves.
 
 Build both archives once from a committed head with
 `scripts/release_artifacts.py build --ref COMMIT --output NEW_DIRECTORY --expect
-b3-prosaic-harness=0.9.15.dev1 --expect
-b3-prosaic-harness-postgres=0.4.4.dev1 --project . --project adapters/postgres`.
+b3-prosaic-harness=0.9.15 --expect
+b3-prosaic-harness-postgres=0.4.4 --project . --project adapters/postgres`.
 Install the original candidate wheels plus the exact Runtime candidate and
 retained Core bytes in an isolated environment. Run
 `python -I -m pytest -o pythonpath=tests tests/test_parallel_tool_installed.py`

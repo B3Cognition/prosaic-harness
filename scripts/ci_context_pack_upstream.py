@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 CORE_SHA='e858a853595746c6930fbe062e84bd8ece1a366aa3b126f2fe11bfb7cb2ceb81'
-WHEELS=('b3_prosaic-0.5.0-py3-none-any.whl','b3_prosaic_runtime-0.9.21.dev1-py3-none-any.whl')
+WHEELS=('b3_prosaic-0.5.0-py3-none-any.whl','b3_prosaic_runtime-0.9.21-py3-none-any.whl')
 
 
 def verify_branch_upstream(wheels,receipt,expected_commit):
@@ -54,7 +54,7 @@ def main():
     if hashlib.sha256(core.read_bytes()).hexdigest()!=CORE_SHA:
         raise RuntimeError('Core witness bytes mismatch')
     subprocess.run([sys.executable,'-m','build',str(checkout),'--outdir',str(wheels.resolve())],check=True)
-    if not (wheels/'b3_prosaic_runtime-0.9.21.dev1-py3-none-any.whl').is_file():
+    if not (wheels/'b3_prosaic_runtime-0.9.21-py3-none-any.whl').is_file():
         raise RuntimeError('unexpected Runtime candidate version')
     write_branch_receipt(wheels,Path('.ci-upstream/artifacts/branch-build.json'),expected)
 

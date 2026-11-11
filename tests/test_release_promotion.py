@@ -25,7 +25,7 @@ def test_public_workflows_use_current_version_and_check_tool_consumer():
     publication=(root/'.github/workflows/publish.yml').read_text()
     from packaging.version import Version
     if Version(version).is_devrelease:
-        assert 'b3_prosaic_harness-0.9.14-py3-none-any.whl' in publication
+        assert 'b3_prosaic_harness-0.9.15-py3-none-any.whl' in publication
         assert f'b3_prosaic_harness-{version}-py3-none-any.whl' not in publication
     else:
         assert f'b3_prosaic_harness-{version}-py3-none-any.whl' in publication
