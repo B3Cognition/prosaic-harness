@@ -299,6 +299,7 @@ class ConversationBindings:
             if tool_journal is not None and operation_namespace is None:
                 raise ConversationError('bindingMismatch')
             tools = validate_custom_tools(custom_tools)
+            from .mcp_tools import conversation_contract_descriptors, validate_conversation_mcp
             registered_guards = registrations(guards)
             if context_packs is not None:
                 from .context_packs.bindings import ContextPackBindings
@@ -318,6 +319,7 @@ class ConversationBindings:
                 **source_options(rule_project))
             approved = _artifact_snapshot(agent, maximum_depth=policy.max_json_depth,
                 maximum_nodes=policy.max_json_nodes)
+            validate_conversation_mcp(ProsaicRuntime, approved, tools, operation_namespace, tool_journal)
             interpreting_agent = _artifact_snapshot(interpreter) if interpreter is not None else None
             rule_room = max(receipt_bound(runtime, approved),
                 receipt_bound(runtime, interpreting_agent) if interpreting_agent is not None else 0)
@@ -359,7 +361,8 @@ class ConversationBindings:
                 raise ConversationError('bindingMismatch')
             if limits.max_evidence_bytes>evidence_room: raise ConversationError('bindingMismatch')
             invocation = _policy(run_policy)
-            contract_material=conversation_material(runtime, custom_descriptors(tools), tool_contracts, policy, run_policy, limits)
+            contract_descriptors = conversation_contract_descriptors(approved, tools, custom_descriptors(tools))
+            contract_material=conversation_material(runtime, contract_descriptors, tool_contracts, policy, run_policy, limits)
             runtime.prepare_turn(approved, message='a', policy=run_policy, limits=limits, workspace=workspace,**_pack_probe(context_packs),
                 **({'tool_contract_bindings':tool_contracts.bind(InvocationScope('admission', operation_namespace=operation_namespace))} if tool_contracts is not None else {}))
             interpreting = None
@@ -503,6 +506,8 @@ class ConversationBindings:
             runtime = ProsaicRuntime(self.config, custom_tools=self._tools,
                 **({'guards': self._guards} if self._guards else {}),
                 **source_options(self._rule_project))
+            from .mcp_tools import conversation_contract_descriptors, validate_conversation_mcp
+            validate_conversation_mcp(runtime, self.agent, self._tools, data['operationNamespace'], self._journal)
             context_data, _ = _context_material(self.config, self.agent,
                 ProsaicArtifact.from_inspection(data['interpreter']['artifact']) if data['interpreter'] else None,
                 self.context_policy, self.interpretation_context_policy, self._token_counters)
@@ -510,7 +515,8 @@ class ConversationBindings:
                 'contextPolicy', 'contextCounter', 'interpretationContextPolicy', 'interpretationContextCounter'}}
             if context_data != expected: raise ValueError('context descriptor drift')
             from .tool_contracts import conversation_material
-            contract_material=conversation_material(runtime, data['tools'], self._tool_contracts, self.policy, self.run_policy, self.turn_limits)
+            contract_descriptors = conversation_contract_descriptors(self.agent, self._tools, data['tools'])
+            contract_material=conversation_material(runtime, contract_descriptors, self._tool_contracts, self.policy, self.run_policy, self.turn_limits)
             from .parallel_tools import conversation_parallel
             if data.get('parallelToolsV1')!=conversation_parallel(runtime,self.run_policy,self._tool_contracts).get('parallelToolsV1'):raise ValueError('parallel binding drift')
             if data.get('toolContractV1') != (contract_material or None): raise ValueError('tool contract drift')

@@ -138,9 +138,10 @@ def upgrade_workflow(state, workflow):
 
 def invocation_scope(state, invocation_id, step, workflow):
     from prosaic_runtime import InvocationScope
-    admission = getattr(workflow, '_admission', None)
+    from .mcp_tools import workflow_operation
+    namespace, _ = workflow_operation(workflow)
     return InvocationScope(invocation_id, run_id=state['run_id'], step_id=step,
-        operation_namespace=admission.operation_namespace if admission else None)
+        operation_namespace=namespace)
 
 
 def validate_workflow_state(state, workflow):

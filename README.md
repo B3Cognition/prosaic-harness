@@ -450,3 +450,18 @@ Safe tool events and captured citations are available through explicit opt-in bi
 
 The development candidate adds host-bounded, per-agent **parallel read tools**
 and explicit store enablement. See [authority, recovery and compatibility](docs/parallel-tools.md).
+
+### MCP tools in workflows and conversations
+
+Pass host-reviewed `prosaic_runtime.mcp` registrations and `ToolContracts`
+to `WorkflowBindings`, `Workflow.load` or `ConversationBindings`. Supply an
+explicit operation namespace and owned tool journal. Select the local alias in
+the agent artifact, Runtime grants and each workflow node's `tools` list.
+MCP tools are available on ordinary agent nodes and conversation turns.
+
+Use an owner-initialized tool-contract store. The existing receipt schema
+records the tool descriptor and accepts an already persisted result with the
+same restored catalogue and binding. Offline receipt adoption needs the original
+trusted catalogue digest. Retained source access still uses the current evidence
+authorizer. A different tool binding version requires new work under the new
+binding. Resolve ambiguous dispatch through the existing journal before retrying.
