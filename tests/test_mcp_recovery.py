@@ -5,7 +5,7 @@ from prosaic_runtime.mcp import McpClientV1, McpServerV1
 
 from test_mcp_bindings import make_factory, registry
 from test_parallel_tool_workflow import proposal
-from test_runtime_boundaries import MemoryJournal
+from support.tool_journal import MemoryJournal
 from test_workflow_rules_execution import rule_endpoint
 
 

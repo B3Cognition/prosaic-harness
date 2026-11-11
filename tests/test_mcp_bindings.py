@@ -7,7 +7,7 @@ import prosaic_runtime as rt
 from prosaic_runtime.mcp import McpClientV1, McpServerV1, McpToolSpecV1
 from prosaic_runtime.mcp_catalog import digest
 from test_parallel_tool_workflow import proposal
-from test_runtime_boundaries import MemoryJournal
+from support.tool_journal import MemoryJournal
 from test_workflow_rules_execution import rule_endpoint
 
 
