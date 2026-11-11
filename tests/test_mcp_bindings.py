@@ -11,7 +11,7 @@ from test_runtime_boundaries import MemoryJournal
 from test_workflow_rules_execution import rule_endpoint
 
 
-def registry(host=None, *, version="1"):
+def registry(host=None, *, version="1", alias="lookup", existing=None):
     if host is None:
         def pure(*_):
             pytest.fail("pure admission invoked an MCP callback")
@@ -23,11 +23,11 @@ def registry(host=None, *, version="1"):
                 "server": host._server_binding(),
                 "tools": [{"name": "dependents", "inputSchema": schema, "outputSchema": None}]}
     catalog = host.restore_catalog(document, access_scope="test-scope", expected_sha256=digest(document))
-    spec = McpToolSpecV1(alias="lookup", remote_name="dependents", description="Read graph",
+    spec = McpToolSpecV1(alias=alias, remote_name="dependents", description="Read graph",
                          binding_version=version, result_mode="structured", read_only=True,
                          projector=lambda value, _: rt.ToolResultV1(data=value),
                          result_contract=rt.ToolResultContractV1("1"))
-    return host.bind_tools(catalog, [spec])
+    return host.bind_tools(catalog, [spec], existing=existing)
 
 
 def make_factory(cfg, *, journal=True, tools=None, contracts=True, ledger=None):
