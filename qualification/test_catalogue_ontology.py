@@ -31,7 +31,9 @@ def _factory(ontology=None, *, agents=('reviewer',), tools=('read_receipt', 'rea
         pytest.fail('discovery ran a handler')
 
     schema = {'type': 'object', 'additionalProperties': True}
-    registrations = {alias: runtime.CustomTool(alias, 'Read public evidence', schema,
+    parameters = {'type': 'object', 'properties': {'ontology': {'type': 'string'}},
+                  'additionalProperties': False}
+    registrations = {alias: runtime.CustomTool(alias, 'Read public evidence', parameters,
                                                handler or forbidden, 'v1')
                      for alias in ('read_receipt', 'read_policy')}
     registered_agents = {
@@ -93,7 +95,7 @@ def test_projection_uses_existing_visibility_and_owns_the_result():
     restricted = _factory(original, tools={'read_policy'}, runtime_tools={'read_policy', 'read_receipt'}, direct=())
     assert restricted.describe(include_ontology=True)['ontology']['tools'] == {'read_policy': ['hidden']}
     assert restricted.describe()['allowedDirectTools'] == []
-    size = len(json.dumps(ordinary, ensure_ascii=False, separators=(',', ':'), sort_keys=True).encode())
+    size = len(json.dumps(ordinary, sort_keys=True).encode())
     assert factory.describe(maximum_bytes=size) == ordinary
     with pytest.raises(harness.WorkflowAdmissionError) as caught:
         factory.describe(include_ontology=True, maximum_bytes=size)
@@ -114,7 +116,7 @@ def test_delegate_aliases_keep_the_existing_admission_boundary():
     child = runtime.ProsaicArtifact('delegate', 'subagent', {'tools': []}, 'Review evidence.')
     spec = runtime.SubAgentSpecV1('delegate', 'Delegated review', child, 'v1',
         runtime.RunPolicy(max_provider_requests=1, max_tool_calls=0, max_reported_tokens=5),
-        {'type': 'object'})
+        {'type': 'object', 'additionalProperties': False})
     packs = harness.ContextPackBindings(
         specs={'review': harness.ContextPackSpec('review', '1', [harness.ContextSlot('receipt')])},
         sources={'receipt': harness.EvidenceSource('receipt.md')},
