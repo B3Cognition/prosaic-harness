@@ -9,6 +9,23 @@ from prosaic_harness import (WorkflowCatalog, WorkflowBindings, WorkflowFactory,
 from test_workflow_factory import agent, config, factory, graph, tools
 
 
+def test_ontology_option_preserves_discovery_without_attachment():
+    build = factory()
+    assert build.describe(include_ontology=True) == build.describe()
+    with pytest.raises(ValueError, match='include_ontology must be a boolean'):
+        build.describe(include_ontology=1)
+
+
+def test_ontology_attachment_requires_core_support(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, 'prosaic.ontology', None)
+    assert 'ontology' not in factory().describe(include_ontology=True)
+    with pytest.raises(WorkflowAdmissionError) as caught:
+        WorkflowCatalog(ontology={})
+    assert caught.value.code == 'invalid_definition'
+
+
 def test_describe_intersects_policy_with_bound_assets_and_keeps_prose_private():
     build = factory()
     manifest = build.describe()

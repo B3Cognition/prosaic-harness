@@ -47,6 +47,35 @@ def _bounded(value, maximum_bytes):
                          maximum_depth=512, maximum_nodes=1_048_576)
 
 
+def ontology_metadata(value, *, agents):
+    if value is None:
+        return None
+    try:
+        from prosaic.ontology import validate_ontology
+        document = validate_ontology(value)
+    except (ImportError, ValueError):
+        raise WorkflowAdmissionError('invalid_definition') from None
+    if document['agents'].keys() - agents.keys():
+        raise WorkflowAdmissionError('unknown_reference')
+    return json.dumps(document, sort_keys=True)
+
+
+def _ontology_projection(text, selected):
+    document = json.loads(text)
+    for category in ('agents', 'tools'):
+        annotations = document[category]
+        document[category] = {alias: annotations[alias] for alias in selected[category]
+                              if alias in annotations}
+    visible = {concept for category in ('agents', 'tools')
+               for annotations in document[category].values() for concept in annotations}
+    if not visible:
+        return None
+    document['concepts'] = {key: value for key, value in document['concepts'].items() if key in visible}
+    document['relations'] = [edge for edge in document['relations']
+                             if edge['source'] in visible and edge['target'] in visible]
+    return document
+
+
 def _selection(factory):
     policy = factory._policy
     config = json.loads(factory._config_json)
@@ -64,9 +93,11 @@ def _selection(factory):
     return selected
 
 
-def describe(factory, *, include_schemas=False, maximum_bytes=262_144):
+def describe(factory, *, include_schemas=False, include_ontology=False, maximum_bytes=262_144):
     if type(include_schemas) is not bool:
         raise ValueError('include_schemas must be a boolean')
+    if type(include_ontology) is not bool:
+        raise ValueError('include_ontology must be a boolean')
     policy = factory._policy
     selected = _selection(factory)
     metadata = json.loads(factory._public_metadata_json)
@@ -107,6 +138,10 @@ def describe(factory, *, include_schemas=False, maximum_bytes=262_144):
         if getattr(policy, name) is not None}
     if units:
         document['limitUnits'] = units
+    if include_ontology and factory._ontology_json is not None:
+        ontology = _ontology_projection(factory._ontology_json, selected)
+        if ontology is not None:
+            document['ontology'] = ontology
     return _bounded(document, maximum_bytes)
 
 
