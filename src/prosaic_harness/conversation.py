@@ -142,18 +142,28 @@ class Conversation(ConversationWorkflow):
     def _snapshot_view(self,snapshot):
         authorize_history(self,snapshot.state,snapshot.session_id,purpose='retainedRead')
         authorize_private_view(self,snapshot.state)
+        if not self._delegation_visible(snapshot.state, 'retainedRead'):
+            raise ConversationError('evidenceUseDenied')
         return snapshot
 
-    def _delegation_visible(self, state, purpose, *, before_sequence=None):
+    def _delegation_proofs(self, state, *, before_sequence=None):
         if state['version'] != 6:
-            return True
+            return ()
+        proofs = []
         for aid, attempt in state['attempts'].items():
             if not attempt['receiptAdopted'] or (before_sequence is not None and attempt['turnSequence'] >= before_sequence):
                 continue
             packet = self.store.load_receipt(state['sessionId'], aid, scope=self.scope)
-            if packet is None or not self.bindings.sub_agents.may_reuse(packet['subAgentsV1'], self.scope, purpose):
-                return False
-        return True
+            if packet is None or attempt['receiptIdentity'] != packet['sha256']:
+                return None
+            if packet['subAgentsV1'] is not None:
+                proofs.append(packet['subAgentsV1'])
+        return tuple(proofs)
+
+    def _delegation_visible(self, state, purpose, *, before_sequence=None):
+        proofs = self._delegation_proofs(state, before_sequence=before_sequence)
+        return proofs is not None and all(self.bindings.sub_agents.may_reuse(proof, self.scope, purpose)
+                                          for proof in proofs)
 
     def _reply(self, snapshot, turn=None):
         state=snapshot.state
@@ -196,7 +206,7 @@ class Conversation(ConversationWorkflow):
         from .session_tool_contracts import verified,origin_receipts
         from .tool_contract_views import ToolContractViewBindings,resolve_citation_view
         if not self._delegation_visible(self._load(session_id).state, 'retainedRead'):
-            raise ConversationError('evidenceUseDenied')
+            return dict(version=1,available=False,evidenceId=evidence_id)
         receipt=verified(self,session_id,invocation_id)
         origins=origin_receipts(self,session_id,receipt.to_dict()['toolContractV1']['retainedReferences'])
         return resolve_citation_view(receipt,evidence_id,ToolContractViewBindings(self.scope,
@@ -367,6 +377,10 @@ class Conversation(ConversationWorkflow):
             authorize_history(self,snapshot.state,aid)
             snapshot=self._save(snapshot,mark_dispatch(snapshot.state,aid),lease)
         ownership_error=[]
+        proofs=self._delegation_proofs(snapshot.state,before_sequence=attempt['turnSequence'])
+        def prior_grant():
+            return proofs is not None and all(self.bindings.sub_agents.may_reuse(proof,self.scope,'modelUse')
+                                              for proof in proofs)
         def cancellation():
             try:
                 lease.check_valid()
@@ -374,7 +388,7 @@ class Conversation(ConversationWorkflow):
             except Exception as exc:
                 ownership_error.append(exc)
                 return True
-            return bool(cancelled()) if cancelled is not None else False
+            return not prior_grant() or (cancelled is not None and bool(cancelled()))
         captured_events=[];event_bytes=2;events_truncated=False
         def provisional(event):
             nonlocal event_bytes,events_truncated
@@ -396,8 +410,8 @@ class Conversation(ConversationWorkflow):
                 self._phase(on_event,'contextCheckpointSaved',snapshot,aid)
             def admitted():
                 nonlocal snapshot
-                if not self._delegation_visible(snapshot.state,'modelUse',before_sequence=attempt['turnSequence']):
-                    raise ConversationError('evidenceUseDenied')
+                if not prior_grant():
+                    raise HistoricalEvidenceDenied()
                 if snapshot.state['version'] in (4,5,6):
                     from .session_tool_contracts import authorize_tool_history,scope_for
                     authorize_tool_history(self,snapshot.state,'modelUse',before_sequence=attempt['turnSequence'],

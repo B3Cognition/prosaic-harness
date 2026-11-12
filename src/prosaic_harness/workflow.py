@@ -182,9 +182,8 @@ class Workflow:
         registry = dict(custom_tools or {})
         if sub_agents is not None:
             from .sub_agents import SubAgentBindingsV1
-            if (type(sub_agents) is not SubAgentBindingsV1 or tool_contracts is None
-                    or operation_namespace is None or tool_journal is None):
-                raise ValueError('delegation requires tool contracts and a journal')
+            if type(sub_agents) is not SubAgentBindingsV1:
+                raise ValueError('invalid delegation registration')
             registry = sub_agents.bind_tools(registry)
         # Preserve compatibility with the released Runtime for no-custom flows.
         adapter = ProsaicRuntime(config, custom_tools=registry) if registry else ProsaicRuntime(config)
@@ -328,9 +327,12 @@ class Workflow:
                                                  profile=None, native=False)
         workflow._tool_descriptors = deepcopy(descriptors)
         from .mcp_tools import selected_mcp, yaml_operation_material
-        if selected_mcp(registry, descriptors) or sub_agents is not None and descriptors.keys() & sub_agents._tools.keys():
+        delegates_selected = sub_agents is not None and bool(descriptors.keys() & sub_agents._tools.keys())
+        if not delegates_selected:
+            workflow._sub_agents = None
+        if selected_mcp(registry, descriptors) or delegates_selected:
             if operation_namespace is None or tool_journal is None:
-                raise ValueError('MCP requires an owned scope and tool journal')
+                raise ValueError('selected tools require an owned scope and tool journal')
             workflow._mcp_operation = (operation_namespace, tool_journal)
         elif operation_namespace is not None or tool_journal is not None:
             raise ValueError('workflow operation bindings require selected remote tools or delegates')

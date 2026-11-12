@@ -6,6 +6,13 @@ import time
 from .session_codec import decode, digest, encode, reference
 
 
+@dataclass(frozen=True)
+class SubAgentRetainedUseV1:
+    """Trusted current viewer and the original frozen parent invocation."""
+    viewer: object
+    invocation: object
+
+
 @dataclass(frozen=True, init=False)
 class SubAgentBindingsV1:
     """Register named delegates and independently selected, inline child packs."""
@@ -51,7 +58,7 @@ class SubAgentBindingsV1:
     def frame(self, artifact, scope, *, arguments=None, evidence=None, probe=False, session_id=None, run_id=None, timeout_s=10):
         from prosaic_runtime import SubAgentFrameV1
         from prosaic_runtime.policy import requested_tools
-        from .context_packs import ContextPacker, ContextUse, authorize_context_use
+        from .context_packs import ContextPacker, ContextUse, ExposureBindings, authorize_context_use
         from .context_packs.sources import capture_sources
         from .context_packs.codec import digest as pack_digest
         source = decode(self._encoded)
@@ -74,7 +81,8 @@ class SubAgentBindingsV1:
             envelope = pack.to_dict()['envelope']
             if envelope['index']:
                 raise ValueError('deferred specialist evidence is unsupported')
-            refs = [item['citationId'] for item in envelope['items']]
+            refs = [entry['citationId'] or 'ctxstatus_' + pack_digest(entry)
+                    for entry in ExposureBindings.from_pack(pack).entries]
             projections[name] = {'context': {'contextPack': envelope}, 'sources': refs}
         return SubAgentFrameV1(scope, self.policy, self.revision, projections)
 
@@ -86,7 +94,9 @@ class SubAgentBindingsV1:
         if proof is None:
             return True
         try:
-            return all(self._authorizers[1](entry['alias'], trusted_scope,
+            from prosaic_runtime import InvocationScope
+            use = SubAgentRetainedUseV1(trusted_scope, InvocationScope(**proof['scope']))
+            return all(self._authorizers[1](entry['alias'], use,
                 tuple(entry['sources']), purpose) is True for entry in proof['receipts'])
         except Exception:
             return False
@@ -110,8 +120,7 @@ def proof_for(frozen, result):
         evidence = result.evidence.to_dict()
         if evidence['providerAttempts'] or evidence['toolAttempts'] or result.result.exit_code == 0:
             raise ValueError('delegation evidence is missing')
-        from prosaic_runtime.sub_agents import digest as frame_digest
-        return dict(version=1, frameSha256=frame_digest(frame.to_dict()), launches=0,
+        return dict(version=1, frameSha256=frame.identity, scope=asdict(frame.scope), launches=0,
                     providerRequests=0, toolCalls=0, reportedTokens=0, usageComplete=True, receipts=[])
     return validate_proof(frozen, result.sub_agent_proof, result.evidence.to_dict())
 
@@ -122,9 +131,10 @@ def validate_proof(frozen, proof, evidence=None):
         return None
     from prosaic_runtime.sub_agents import digest as frame_digest
     if (frame is None or type(proof) is not dict or set(proof) != {
-            'version', 'frameSha256', 'launches', 'providerRequests', 'toolCalls', 'reportedTokens',
+            'version', 'frameSha256', 'scope', 'launches', 'providerRequests', 'toolCalls', 'reportedTokens',
             'usageComplete', 'receipts'} or type(proof['version']) is not int or proof['version'] != 1
-            or proof['frameSha256'] != frame_digest(frame.to_dict()) or type(proof['usageComplete']) is not bool):
+            or proof['frameSha256'] != frame.identity or proof['scope'] != asdict(frame.scope)
+            or type(proof['usageComplete']) is not bool):
         raise ValueError('invalid delegation proof')
     for name, maximum in (('launches', frame.policy.max_delegations),
                           ('providerRequests', frame.policy.max_provider_requests), ('toolCalls', frame.policy.max_tool_calls),
@@ -137,6 +147,7 @@ def validate_proof(frozen, proof, evidence=None):
     if type(proof['receipts']) is not list or len(proof['receipts']) > proof['toolCalls']:
         raise ValueError('invalid child receipts')
     seen = set()
+    outcomes = {row['callIndex']: row for row in evidence['toolOutcomes']} if evidence is not None else None
     for row in proof['receipts']:
         if (type(row) is not dict or set(row) != {'alias', 'callIndex', 'childInvocationId', 'sources'}
                 or row['alias'] not in frame.projections or type(row['callIndex']) is not int
@@ -147,7 +158,19 @@ def validate_proof(frozen, proof, evidence=None):
                 or any(type(ref) is not str or not 1 <= len(ref.encode()) <= 256 for ref in row['sources'])
                 or row['sources'] != sorted(set(row['sources']))):
             raise ValueError('invalid child receipt identity')
+        if outcomes is not None:
+            outcome = outcomes.get(row['callIndex'])
+            if (outcome is None or outcome['name'] != row['alias']
+                    or outcome['status'] not in {'completed','replayed'}):
+                raise ValueError('child receipt does not match parent tool evidence')
+            if (outcome.get('outcome', {}).get('status') == 'ok'
+                    and not set(frame.projections[row['alias']]['sources']).issubset(row['sources'])):
+                raise ValueError('child receipt omits a frozen source')
         seen.add(row['callIndex'])
+    if outcomes is not None and any(index not in seen and outcome['name'] in frame.projections
+                                    and outcome.get('outcome', {}).get('status') == 'ok'
+                                    for index, outcome in outcomes.items()):
+        raise ValueError('successful delegate lacks its receipt')
     return decode(encode(proof, maximum=524288))
 
 
@@ -180,7 +203,7 @@ def reserve_workflow_frame(state, aid, frame):
 
 def workflow_usage(state, *, exclude=None):
     reservations = state.get('subAgentsV1', {}).get('reservations', {})
-    return [item['token_usage'] if item['status'] == 'complete' else reservations.get(item['id'], item['token_usage'])
+    return [reservations.get(item['id'], item['token_usage'])
             for item in state['invocations']
             if item['id'] != exclude and (item['status'] != 'pending' or item['id'] in reservations)]
 
@@ -192,14 +215,22 @@ def workflow_receipt_usage(receipt):
     return proof['reportedTokens'] if proof['usageComplete'] else None
 
 
-def workflow_granted(controller, state, purpose):
+def workflow_grant_check(controller, state):
     binding = getattr(controller.workflow, '_sub_agents', None)
     if state['version'] != 6 or binding is None:
-        return True
+        return lambda _purpose: True
+    proofs = []
     for item in state['invocations']:
         if item['status'] != 'complete':
             continue
         packet = controller.store.load_receipt(controller._storage_run_id, item['id'])
-        if packet is None or not binding.may_reuse(packet.get('subAgentsV1'), binding.pack_bindings.scope, purpose):
-            return False
-    return True
+        if packet is None or packet['sha256'] != item['receipt_sha256']:
+            return lambda _purpose: False
+        if packet['subAgentsV1'] is not None:
+            proofs.append(packet['subAgentsV1'])
+    return lambda purpose: all(binding.may_reuse(proof, binding.pack_bindings.scope, purpose)
+                               for proof in proofs)
+
+
+def workflow_granted(controller, state, purpose):
+    return workflow_grant_check(controller, state)(purpose)

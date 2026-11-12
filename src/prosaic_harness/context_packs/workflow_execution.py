@@ -227,12 +227,13 @@ def resume_prepared(controller,state,*,fresh_attempt=False):
 
 
 def execute_prepared(controller,state,prepared,frame,pack,reader,deadline):
-    from prosaic_runtime import InvocationScope
+    from ..tool_contracts import invocation_scope
     from ..workflow_rules import compiled,result_with_pack_proof
     workflow=controller.workflow;bindings=workflow._context_packs;aid=frame.invocation_id
     name=state['pending']['step']
-    scope=InvocationScope(aid,run_id=state['run_id'],step_id=name,
-        operation_namespace=controller._admission.operation_namespace if controller._admission else None)
+    scope=invocation_scope(state,aid,name,workflow)
+    from ..sub_agents import workflow_grant_check
+    prior_grant=workflow_grant_check(controller,state)
     contract_options={};evidence_capture={}
     if getattr(workflow,'_tool_contracts',None) is not None:
         from .tool_contracts import pack_evidence_bindings
@@ -282,7 +283,7 @@ def execute_prepared(controller,state,prepared,frame,pack,reader,deadline):
     _, journal = workflow_operation(workflow)
     with activation:
         turn=controller.runtime.turn(prepared,on_event=record,operation_context=scope,
-            on_admitted=dispatch,context_checkpoint=checkpoint,cancelled=lambda:event_failure or controller._runtime_cancelled(state),
+            on_admitted=dispatch,context_checkpoint=checkpoint,cancelled=lambda:event_failure or controller._runtime_cancelled(state) or not prior_grant('modelUse'),
             **({'token_counters':controller.token_counters,'context_work':frame.context_work} if controller.context_policy is not None else {}),
             **contract_options,**controller._invocation_accounting(state,aid,name),
             **({'tool_journal':journal} if journal is not None else {}),

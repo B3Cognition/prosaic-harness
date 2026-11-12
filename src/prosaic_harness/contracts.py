@@ -198,8 +198,11 @@ def validate_state(state, workflow):
     if enabled:
         from .tool_contracts import validate_workflow_state
         validate_workflow_state(state,workflow)
+    from .sub_agents import workflow_binding
+    if enabled and (state['version']==6) != bool(workflow_binding(workflow)):
+        raise ValueError('delegation workflow version mismatch')
     if state['version'] == 6:
-        from .sub_agents import bound_frame, workflow_binding
+        from .sub_agents import bound_frame
         side = state['subAgentsV1']
         if set(side) != {'binding', 'reservations'} or side['binding'] != workflow_binding(workflow).get('subAgentsV1'):
             raise ValueError('delegation workflow binding mismatch')

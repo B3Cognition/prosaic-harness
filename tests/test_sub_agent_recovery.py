@@ -14,6 +14,8 @@ from test_workflow_rules_execution import rule_endpoint
 
 
 def make_chat(config, store, *, allow=lambda *_: True, parent_packs=None):
+    if 'sub_agents_v1' not in runtime.ProsaicRuntime.capabilities:
+        pytest.skip('delegation tests require the paired Runtime candidate')
     scope = harness.ConversationScope('test', 'sandbox', 'app', 'tenant', 'actor', 'payer')
     child = runtime.ProsaicArtifact('reviewer', 'subagent', {'tools': []}, 'Return a review as JSON.')
     specialist = runtime.SubAgentSpecV1('review', 'Review a dependency', child, 'v1',
@@ -41,7 +43,6 @@ def make_chat(config, store, *, allow=lambda *_: True, parent_packs=None):
 
 
 def test_lost_parent_receipt_ack_adopts_with_endpoints_offline(rule_endpoint, tmp_path):
-    assert hasattr(harness, 'SubAgentBindingsV1'), 'Harness delegate binding is missing'
     config, requests, replies = rule_endpoint
     store = harness.MemorySessionStore(namespace='test')
     store.initialize(sub_agents=True)
@@ -106,7 +107,7 @@ def test_native_workflow_rejects_delegate_proposals_and_adopts_receipt(rule_endp
 
 
 def parent_pack(scope):
-    spec = harness.ContextPackSpec('parent', '1', [harness.ContextSlot('parent', required=True)])
+    spec = harness.ContextPackSpec('parent', '1', [harness.ContextSlot('parent', required=True)], task_source='parent')
     return harness.ContextPackBindings(specs={'parent': spec},
         sources={'parent': harness.InputSource('/parent')},
         scope=harness.ContextScope.from_dict(scope.to_dict()),
@@ -132,3 +133,91 @@ def test_parent_pack_is_not_inherited_by_child(rule_endpoint):
     assert 'Parent pack sentinel' in json.dumps(requests[0])
     assert 'Parent pack sentinel' not in json.dumps(requests[1])
     assert 'Child only dependency' in json.dumps(requests[1])
+
+
+
+def test_unselected_registration_keeps_conversation_binding_identity(rule_endpoint):
+    config, _, _ = rule_endpoint
+    store = harness.MemorySessionStore(namespace='test')
+    chat = make_chat(config, store)
+    artifact = runtime.ProsaicArtifact('parent', 'subagent',
+        {'name':'parent','description':'Coordinator','tools': []}, 'Return a final answer.')
+    options = dict(version='v1', config=config, policy=harness.ConversationPolicy(),
+                   run_policy=runtime.RunPolicy(max_provider_requests=3,max_tool_calls=0))
+    baseline = harness.ConversationBindings(artifact, **options)
+    registered = harness.ConversationBindings(artifact, sub_agents=chat.bindings.sub_agents, **options)
+    assert registered.identity == baseline.identity
+
+
+def test_packed_authored_yaml_binds_the_same_operation_scope(rule_endpoint, tmp_path):
+    import yaml
+    config, requests, replies = rule_endpoint
+    memory = harness.MemorySessionStore(namespace='test')
+    chat = make_chat(config, memory)
+    root = tmp_path / '.prosaic/subagents'
+    root.mkdir(parents=True)
+    parent = chat.bindings.agent
+    (root/'parent.md').write_text('---\n'+yaml.safe_dump(parent.frontmatter)+'---\n'+parent.body)
+    (tmp_path/'schema.json').write_text('{"type":"object"}')
+    endpoint = config.profiles['local']
+    (tmp_path/'runtime.yml').write_text(yaml.safe_dump({'default_profile':'local','allowed_tools':['review'],
+        'profiles':{'local':{'base_url':endpoint.base_url,'model':endpoint.model,'provider':endpoint.provider,
+                             'features':{'streaming':False}}}}))
+    path = tmp_path/'flow.yml'
+    path.write_text(yaml.safe_dump({'version':1,'runtime':'runtime.yml','start':'check',
+        'limits':{'max_tokens':200,'max_provider_requests_per_invocation':3,'max_tool_calls_per_invocation':1},
+        'steps':{'check':{'kind':'agent','agent':'subagents/parent.md','schema':'schema.json','tools':['review'],
+                         'contextPack':'parent','next':'done'},'done':{'kind':'finish'}}}))
+    workflow = harness.Workflow.load(path, context_packs=parent_pack(chat.scope),
+        tool_contracts=chat.bindings.tool_contracts, sub_agents=chat.bindings.sub_agents,
+        operation_namespace='delegation', tool_journal=MemoryJournal())
+    store = harness.FileRunStore(tmp_path/'runs', namespace='test')
+    store.initialize(sub_agents=True)
+    replies.extend([{'name':'review','input':{'task':'Check'}},'{"finding":"Verified"}','{"ok":true}'])
+    result = harness.Harness(workflow, store=store, run_id='a'*32, context=chat.context,
+                             accounting=chat.accounting).run({'parent':'Parent pack sentinel'})
+    assert result['status']=='completed'
+    assert 'Parent pack sentinel' in json.dumps(requests[0])
+    assert 'Parent pack sentinel' not in json.dumps(requests[1])
+    assert 'Child only dependency' in json.dumps(requests[1])
+
+
+
+def test_full_token_reservation_is_charged_after_adoption(rule_endpoint):
+    config, requests, replies = rule_endpoint
+    store = harness.MemorySessionStore(namespace='test')
+    store.initialize(sub_agents=True)
+    chat = make_chat(config, store)
+    session = chat.create()
+    revision = session.revision
+    for index in range(2):
+        replies.append('Done')
+        reply = chat.send(session.session_id, message_id=f'm{index}', message='Question',
+                          expected_revision=revision)
+        assert reply.document['status']=='completed'
+        revision = reply.document['revision']
+    with pytest.raises(harness.ConversationError, match='sessionLimit'):
+        chat.send(session.session_id, message_id='m2', message='Question', expected_revision=revision)
+    assert len(requests)==2
+
+
+def test_revocation_after_dispatch_marker_stops_history_reuse(rule_endpoint):
+    config, requests, replies = rule_endpoint
+    store = harness.MemorySessionStore(namespace='test')
+    store.initialize(sub_agents=True)
+    allowed = True
+    chat = make_chat(config, store, allow=lambda *_: allowed)
+    session = chat.create()
+    replies.extend([{'name':'review','input':{'task':'Check'}},'{"finding":"Protected"}','Accepted'])
+    first = chat.send(session.session_id, message_id='one', message='Parent question',
+                      expected_revision=session.revision)
+
+    def revoke(event):
+        nonlocal allowed
+        if event['event']=='turnAdmitted':
+            allowed = False
+
+    second = chat.send(session.session_id, message_id='two', message='Follow-up',
+                      expected_revision=first.document['revision'], on_event=revoke)
+    assert second.document.get('answer') is None
+    assert len(requests)==3

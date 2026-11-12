@@ -298,13 +298,21 @@ class ConversationBindings:
             operation = tool_journal_descriptor(tool_journal)
             if tool_journal is not None and operation_namespace is None:
                 raise ConversationError('bindingMismatch')
+            approved = _artifact_snapshot(agent, maximum_depth=policy.max_json_depth,
+                maximum_nodes=policy.max_json_nodes)
             if sub_agents is not None:
                 from .sub_agents import SubAgentBindingsV1
-                if (type(sub_agents) is not SubAgentBindingsV1 or tool_contracts is None
-                        or tool_journal is None or operation_namespace is None
-                        or 'sub_agents_v1' not in ProsaicRuntime.capabilities):
-                    raise ConversationError('capabilityMissing')
-                custom_tools = sub_agents.bind_tools(custom_tools)
+                from prosaic_runtime.policy import requested_tools
+                if type(sub_agents) is not SubAgentBindingsV1:
+                    raise ConversationError('bindingMismatch')
+                registered = sub_agents.bind_tools(custom_tools)
+                if requested_tools(approved.frontmatter.get('tools')) & sub_agents._tools.keys():
+                    if (tool_contracts is None or tool_journal is None or operation_namespace is None
+                            or 'sub_agents_v1' not in ProsaicRuntime.capabilities):
+                        raise ConversationError('capabilityMissing')
+                    custom_tools = registered
+                else:
+                    sub_agents = None
             tools = validate_custom_tools(custom_tools)
             from .mcp_tools import conversation_contract_descriptors, validate_conversation_mcp
             registered_guards = registrations(guards)
@@ -324,8 +332,6 @@ class ConversationBindings:
             runtime = ProsaicRuntime(_config_from_json(encode(config_data).decode()), custom_tools=tools,
                 **({'guards': registered_guards} if registered_guards else {}),
                 **source_options(rule_project))
-            approved = _artifact_snapshot(agent, maximum_depth=policy.max_json_depth,
-                maximum_nodes=policy.max_json_nodes)
             validate_conversation_mcp(ProsaicRuntime, approved, tools, operation_namespace, tool_journal)
             interpreting_agent = _artifact_snapshot(interpreter) if interpreter is not None else None
             rule_room = max(receipt_bound(runtime, approved),
@@ -372,8 +378,6 @@ class ConversationBindings:
             contract_material=conversation_material(runtime, contract_descriptors, tool_contracts, policy, run_policy, limits)
             probe_scope = InvocationScope('admission', operation_namespace=operation_namespace)
             frame = sub_agents.frame(approved, probe_scope, probe=True) if sub_agents is not None else None
-            if sub_agents is not None and frame is None:
-                raise ConversationError('bindingMismatch')
             runtime.prepare_turn(approved, message='a', **({'sub_agent_frame': frame} if frame is not None else {}), policy=run_policy, limits=limits, workspace=workspace,**_pack_probe(context_packs),
                 **({'tool_contract_bindings':tool_contracts.bind(InvocationScope('admission', operation_namespace=operation_namespace))} if tool_contracts is not None else {}))
             interpreting = None

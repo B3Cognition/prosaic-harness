@@ -114,8 +114,10 @@ def execute_prepared(controller, state, prepared, binding, policy):
         controller._check_ownership()
         state['toolContractV1']['attempts'][aid]['dispatched'] = True
         controller._save(state)
+    from .sub_agents import workflow_grant_check
+    prior_grant=workflow_grant_check(controller,state)
     options = dict(on_event=record, operation_context=binding.scope, tool_contract_bindings=binding,
-        cancelled=lambda: event_failure or controller._runtime_cancelled(state),
+        cancelled=lambda: event_failure or controller._runtime_cancelled(state) or not prior_grant('modelUse'),
         **controller._invocation_accounting(state, aid, name))
     from .mcp_tools import workflow_operation
     _, journal = workflow_operation(controller.workflow)

@@ -217,8 +217,7 @@ def verify_session(document):
             closed(attempt,{'invocationId','turnSequence','purpose','contextIdentity','encodingVersion','inputBytes',
                 'context','dispatchMarker','receiptAdopted','effectUncertain','receiptIdentity','receiptBytes','receiptReservation',
                 'providerAllowance','toolAllowance','providerAttempts','toolAttempts',
-                'providerReservation','toolReservation',*(ATTEMPT_FIELDS if state['version'] in (2,3,4,5,6) else ()),
-                *({'delegatedTokens'} if state['version']==6 else ())})
+                'providerReservation','toolReservation',*(ATTEMPT_FIELDS if state['version'] in (2,3,4,5,6) else ())})
             if attempt['invocationId']!=aid or attempt['purpose'] not in {'ordinary','interpretation'}:
                 raise ValueError('attempt identity')
             integer(attempt['turnSequence'],1,len(state['turns']))
@@ -242,10 +241,6 @@ def verify_session(document):
             for key in ('receiptBytes','receiptReservation','providerAllowance','toolAllowance',
                         'providerAttempts','toolAttempts','providerReservation','toolReservation'):
                 integer(attempt[key])
-            if state['version']==6 and attempt['delegatedTokens'] is not None:
-                if attempt['encodingVersion'] != 'conversation-turn-v6' or not attempt['receiptAdopted']:
-                    raise ValueError('delegation usage without an adopted receipt')
-                integer(attempt['delegatedTokens'])
             if attempt['providerAttempts']+attempt['providerReservation']>attempt['providerAllowance'] or (
                     attempt['toolAttempts']+attempt['toolReservation']>attempt['toolAllowance']):
                 raise ValueError('allowance ledger')
@@ -318,8 +313,8 @@ def verify_session(document):
                             or frame.policy.max_provider_requests != attempt['providerAllowance']
                             or frame.policy.max_tool_calls != attempt['toolAllowance']):
                         raise ValueError('delegation reservation mismatch')
-                    reserved += delegation_token_charge(attempt, frame.policy.max_reported_tokens)
-            if reserved > delegation['sessionTokenAllowance'] and state['pending'] is not None:
+                    reserved += frame.policy.max_reported_tokens
+            if reserved > delegation['sessionTokenAllowance']:
                 raise ValueError('delegation token allowance')
         if 'parallelToolsV1' in state:
             from prosaic_runtime.tool_parallel_contracts import validate_parallel_binding
@@ -452,11 +447,6 @@ def new_session(session_id, scope, bindings, *, accounting=None, accounting_scop
     return verify_session(state)
 
 
-def delegation_token_charge(attempt, allowance):
-    reported = attempt['delegatedTokens']
-    return reported if reported is not None else allowance
-
-
 def reserve_attempt(document, *, message_id, message, invocation_id, context_identity,
                     encoding_version, input_bytes, provider_allowance, tool_allowance,
                     input_data=None, interaction_ref=None, purpose='ordinary', context=None,
@@ -466,10 +456,8 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
     p=state['policy']
     if encoding_version == 'conversation-turn-v6':
         delegation = state['subAgentsV1']
-        allowance = delegation['policy']['max_reported_tokens']
-        retained = sum(delegation_token_charge(attempt, allowance) for attempt in state['attempts'].values()
-                       if attempt['encodingVersion'] == encoding_version)
-        if retained + allowance > delegation['sessionTokenAllowance']:
+        retained = sum(attempt['encodingVersion'] == encoding_version for attempt in state['attempts'].values())
+        if (retained + 1) * delegation['policy']['max_reported_tokens'] > delegation['sessionTokenAllowance']:
             raise ConversationError('sessionLimit', 'delegationTokenAllowance')
     validate_id(invocation_id)
     reference(message_id)
@@ -525,7 +513,6 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
         'receiptBytes':0,'receiptReservation':p['maxReceiptBytes'],
         'providerAllowance':provider_allowance,'toolAllowance':tool_allowance,
         'providerAttempts':0,'toolAttempts':0,'providerReservation':provider_allowance,'toolReservation':tool_allowance}
-    if state['version']==6: attempt['delegatedTokens']=None
     if state['version'] in (2,3,4,5,6):
         from .session_context import context_reservation_bounds
         extra_bytes,extra_nodes=context_reservation_bounds()
@@ -734,8 +721,6 @@ def adopt_receipt(document, receipt, *, finalize=True):
     attempt['receiptReservation']=0
     evidence=value['evidence']
     proof = value.get('subAgentsV1')
-    if proof is not None and proof['usageComplete']:
-        attempt['delegatedTokens'] = proof['reportedTokens']
     attempt['providerAttempts'] = proof['providerRequests'] if proof is not None else evidence['providerAttempts']
     attempt['toolAttempts'] = proof['toolCalls'] if proof is not None else evidence['toolAttempts']
     if state['version'] in (2,3,4,5,6):

@@ -70,7 +70,7 @@ class Harness:
         self.accounting = accounting
         if getattr(workflow, '_sub_agents', None) is not None:
             scope = workflow._sub_agents.pack_bindings.scope
-            if (context is None or accounting is None or
+            if (context is None or accounting is None or self.store.namespace != scope.namespace or
                     (context.application_id, context.tenant_id, context.actor_id, context.billing_account_id)
                     != (scope.application, scope.tenant, scope.actor, scope.billing_account)):
                 raise ValueError('delegation requires trusted workflow accounting')
@@ -507,6 +507,10 @@ class Harness:
             # Keep identity/conflict admission early, staging its owned state
             # changes until choice/schema/product validation has succeeded.
             human_action = choice is not None or response is not None
+            if human_action and state['version'] == 6:
+                from .sub_agents import workflow_granted
+                if not workflow_granted(self, state, 'modelUse'):
+                    raise HumanResponseError('evidenceUseDenied')
             accounting_changed = self._resume_accounting(state, persist=not human_action)
             if state['status'] in {'completed', 'rejected'}:
                 if choice is not None or response is not None:

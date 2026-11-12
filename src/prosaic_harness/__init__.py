@@ -60,5 +60,5 @@ __all__ += ['VerifiedToolReceipt','ToolContractViewBindings','resolve_citation_v
 
 from .parallel_tools import ParallelToolPolicyV1
 
-from .sub_agents import SubAgentBindingsV1
-__all__ += ['SubAgentBindingsV1']
+from .sub_agents import SubAgentBindingsV1, SubAgentRetainedUseV1
+__all__ += ['SubAgentBindingsV1', 'SubAgentRetainedUseV1']

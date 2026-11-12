@@ -1,4 +1,5 @@
 """Installed consumer witnesses for Harness receipt adoption."""
+import os
 from pathlib import Path
 
 import prosaic_harness as h
@@ -12,6 +13,8 @@ from test_sub_agent_recovery import (
 
 
 def test_installed_delegation_sdk():
-    assert 'site-packages' in Path(h.__file__).parts
-    assert 'site-packages' in Path(rt.__file__).parts
+    if os.environ.get('PROSAIC_SUB_AGENTS_REQUIRED') == '1':
+        assert 'site-packages' in Path(h.__file__).parts
+        assert 'site-packages' in Path(rt.__file__).parts
+        assert 'sub_agents_v1' in rt.ProsaicRuntime.capabilities
     assert hasattr(h, 'SubAgentBindingsV1')

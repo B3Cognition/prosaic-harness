@@ -194,8 +194,7 @@ class WorkflowBindings:
         self._sub_agents = sub_agents
         if sub_agents is not None:
             from .sub_agents import SubAgentBindingsV1
-            if (type(sub_agents) is not SubAgentBindingsV1 or tool_contracts is None or runtime_adapter is not None
-                    or tool_journal is None or operation_namespace is None):
+            if type(sub_agents) is not SubAgentBindingsV1 or runtime_adapter is not None:
                 _fail('binding_mismatch')
             custom_tools = sub_agents.bind_tools(custom_tools)
         if context_packs is not None and type(context_packs) is not ContextPackBindings: _fail('binding_mismatch')
@@ -798,6 +797,8 @@ class WorkflowFactory:
                                                profile=policy.schema_profile(), native=True)
         _policy_graph(workflow, policy, inline_names=frozenset(used_inline))
         workflow._tool_descriptors = demanded
+        if self._sub_agents is not None and not demanded.keys() & self._sub_agents._tools.keys():
+            workflow._sub_agents = None
         if any(item.get('journaled') for item in demanded.values()) and (
                 self._tool_journal is None or self._operation_namespace is None):
             _fail('binding_mismatch')
