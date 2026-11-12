@@ -47,6 +47,67 @@ def test_explicit_public_metadata_is_owned_and_does_not_change_identity():
     assert manifest['modelTiers'] == ['fast']
 
 
+def ontology_factory(ontology, *, allowed_tools=('lookup_entity',), runtime_tools=('lookup_entity',)):
+    pytest.importorskip('prosaic.ontology', reason='Ontology fixtures require the matching Core build')
+    return WorkflowFactory(
+        catalog=WorkflowCatalog(agents={'finder': agent(), 'hidden': agent()},
+                                schemas={'result': True}, ontology=ontology),
+        bindings=WorkflowBindings(config=config(allowed_tools=frozenset(runtime_tools)), custom_tools=tools()),
+        policy=WorkflowPolicy(allowed_agents={'finder'}, allowed_schemas={'result'},
+                              allowed_tools=allowed_tools, allowed_model_tiers={'fast'}))
+
+
+def test_ontology_opt_in_with_no_attachment_uses_ordinary_discovery():
+    build = factory()
+    assert build.describe(include_ontology=True) == build.describe()
+    with pytest.raises(ValueError, match='include_ontology must be a boolean'):
+        build.describe(include_ontology='yes')
+
+
+def test_ontology_is_opt_in_owned_and_filtered_by_existing_discovery():
+    attachment = {'schemaVersion': 1, 'ontologyId': 'entities',
+                  'concepts': {'visible': 'Public entity', 'hidden': 'Restricted entity',
+                               'lookup': 'Lookup evidence'},
+                  'agents': {'finder': ['visible'], 'hidden': ['hidden']},
+                  'tools': {'lookup_entity': ['lookup']},
+                  'relations': [{'source': 'visible', 'predicate': 'uses', 'target': 'lookup'},
+                                {'source': 'visible', 'predicate': 'uses', 'target': 'hidden'}]}
+    plain = ontology_factory(None)
+    build = ontology_factory(attachment)
+    assert build.describe() == plain.describe() == plain.describe(include_ontology=True)
+    assert build.proposal_schema() == plain.proposal_schema()
+    assert build.build(graph()).fingerprint == plain.build(graph()).fingerprint
+    projected = build.describe(include_ontology=True)['ontology']
+    assert projected == {'schemaVersion': 1, 'ontologyId': 'entities',
+                         'concepts': {'visible': 'Public entity', 'lookup': 'Lookup evidence'},
+                         'agents': {'finder': ['visible']}, 'tools': {'lookup_entity': ['lookup']},
+                         'relations': [{'source': 'visible', 'predicate': 'uses', 'target': 'lookup'}]}
+    attachment['agents'].clear()
+    projected['concepts'].clear()
+    assert build.describe(include_ontology=True)['ontology']['agents'] == {'finder': ['visible']}
+    cap = len(json.dumps(build.describe()).encode())
+    with pytest.raises(WorkflowAdmissionError, match='limit_exceeded'):
+        build.describe(include_ontology=True, maximum_bytes=cap)
+
+
+@pytest.mark.parametrize('restriction', [{'allowed_tools': ()}, {'runtime_tools': ()}])
+def test_tool_annotations_require_visibility_in_the_native_projection(restriction):
+    attachment = {'schemaVersion': 1, 'ontologyId': 'entities',
+                  'concepts': {'entity': 'Public entity'}, 'relations': [], 'agents': {},
+                  'tools': {'lookup_entity': ['entity']}}
+    build = ontology_factory(attachment, **restriction)
+    assert build.describe(include_ontology=True) == build.describe()
+
+
+@pytest.mark.parametrize('category', ['agents', 'tools'])
+def test_ontology_rejects_stale_registrations(category):
+    attachment = {'schemaVersion': 1, 'ontologyId': 'entities',
+                  'concepts': {'entity': 'Public entity'}, 'relations': [], 'agents': {}, 'tools': {}}
+    attachment[category]['unregistered'] = ['entity']
+    with pytest.raises(WorkflowAdmissionError, match='unknown_reference'):
+        ontology_factory(attachment)
+
+
 @pytest.mark.parametrize('metadata', [
     {'agents': {'unknown': {'description': 'No'}}},
     {'schemas': {'result': {'private': 'No'}}}, {'unknown': {}},

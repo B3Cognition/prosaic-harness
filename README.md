@@ -411,6 +411,14 @@ forgery. New checkpoints are version 2; old runs need a new directory.
 CLI exit codes: 0 completed/waiting, 1 blocked/rejected, 2 configuration
 or usage error, 130 interrupted. Waiting is explicit, not final acceptance.
 
+## Experimental ontology discovery
+
+Load a public attachment with `prosaic.ontology.load_ontology(path)` from
+Core 0.5.1rc1 and pass it to `WorkflowCatalog(ontology=attachment, ...)`.
+Use `WorkflowFactory.describe(include_ontology=True)` to see the metadata
+for existing agent and tool aliases visible under the factory's policy.
+Ordinary discovery keeps its existing response shape.
+
 ## Development
 
 ```sh

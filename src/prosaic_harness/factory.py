@@ -162,7 +162,7 @@ def _artifact_snapshot(artifact, *, maximum_bytes=_STORAGE_BYTES, maximum_depth=
 
 class WorkflowCatalog:
     """Host-approved content, captured independently of caller-owned containers."""
-    def __init__(self, *, agents=None, schemas=None, public_metadata=None):
+    def __init__(self, *, agents=None, schemas=None, public_metadata=None, ontology=None):
         agents = {} if agents is None else agents
         schemas = {} if schemas is None else schemas
         if not isinstance(agents, Mapping) or not isinstance(schemas, Mapping):
@@ -176,9 +176,10 @@ class WorkflowCatalog:
             schema_values[alias] = _encode(_host_snapshot(schema))
         self._agents = MappingProxyType(agent_values)
         self._schemas = MappingProxyType(schema_values)
-        from .discovery import public_metadata as snapshot_public_metadata
+        from .discovery import public_metadata as snapshot_public_metadata, ontology_metadata
         self._public_metadata_json = snapshot_public_metadata(public_metadata,
                                                              agents=agent_values, schemas=schema_values)
+        self._ontology_json = ontology_metadata(ontology, agents=agent_values)
 
 
 class WorkflowBindings:
@@ -485,6 +486,9 @@ class WorkflowFactory:
         self._check_operation_bindings()
         self._policy = policy
         self._public_metadata_json = catalog._public_metadata_json
+        self._ontology_json = catalog._ontology_json
+        if self._ontology_json is not None and json.loads(self._ontology_json)['tools'].keys() - self._tools.keys():
+            _fail('unknown_reference')
         metadata = json.loads(self._public_metadata_json)
         public_packs=metadata.get('contextPacks',{})
         if public_packs and (self._context_packs is None or set(public_packs)-self._context_packs.specs.keys()):
@@ -602,10 +606,11 @@ class WorkflowFactory:
             _fail('invalid_definition')
         return workflow
 
-    def describe(self, *, include_schemas=False, maximum_bytes=262_144):
-        """Return an owned policy projection with opt-in host-approved schemas."""
+    def describe(self, *, include_schemas=False, include_ontology=False, maximum_bytes=262_144):
+        """Return an owned policy projection with optional schemas and ontology."""
         from .discovery import describe
-        return describe(self, include_schemas=include_schemas, maximum_bytes=maximum_bytes)
+        return describe(self, include_schemas=include_schemas, include_ontology=include_ontology,
+                        maximum_bytes=maximum_bytes)
 
     def proposal_schema(self, *, maximum_bytes=262_144):
         """Return structural authoring guidance; build_json remains authoritative."""

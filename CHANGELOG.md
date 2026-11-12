@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.17rc1 — 2026-11-12
+
+- Add experimental ontology attachments to the existing workflow catalogue.
+- Expose policy-filtered metadata through explicit discovery opt-in.
+- See [candidate release notes](docs/release-0.9.17rc1.md).
+
 ## 0.9.16 — 2026-11-11
 
 - Admit host-approved MCP aliases in workflow nodes and conversations.
