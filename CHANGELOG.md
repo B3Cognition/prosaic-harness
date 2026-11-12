@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.17 / PostgreSQL 0.4.5 — 2026-11-12
+
+- Add host-bound specialist aliases, per-specialist context packs and shared execution limits.
+- Recover parent receipts offline and apply current grants to retained results.
+- Add owner-managed workflow and conversation storage markers for delegation.
+- See [Harness release notes](docs/release-0.9.17.md) and [store notes](docs/release-postgres-0.4.5.md).
+
 ## 0.9.16 — 2026-11-11
 
 - Admit host-approved MCP aliases in workflow nodes and conversations.

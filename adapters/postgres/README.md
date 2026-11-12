@@ -1,5 +1,7 @@
 # PostgreSQL persistence for Prosaic Harness
 
+PostgreSQL adapter **0.4.5** adds explicit [delegation storage migration](../../docs/release-postgres-0.4.5.md) for Harness **0.9.17**.
+
 PostgreSQL adapter **0.4.2** requires Harness **0.9.13** or later
 in the compatible family. Explicit owner migration enables
 workflow storage contract2 or conversation contract3; readiness performs no DDL.

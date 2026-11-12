@@ -1,5 +1,5 @@
 """Separate PostgreSQL adapter for Prosaic Harness."""
-__version__ = '0.4.4'
+__version__ = '0.4.5'
 
 from .store import PostgresRunStore
 from .session_store import PostgresSessionStore

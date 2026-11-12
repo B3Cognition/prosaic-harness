@@ -1,5 +1,7 @@
 # Releases and compatibility
 
+Harness 0.9.17 and PostgreSQL store 0.4.5 add [bounded sub-agents](release-0.9.17.md) with Runtime 0.9.23. See [owner migration](release-postgres-0.4.5.md).
+
 Harness 0.9.16 adds [MCP read-tool bindings](release-0.9.16.md) with Runtime 0.9.22.
 
 Harness 0.9.15 / store 0.4.4 add [opt-in parallel reads](release-0.9.15.md) with Runtime 0.9.21. See [owner migration](release-postgres-0.4.4.md).

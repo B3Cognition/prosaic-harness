@@ -1,5 +1,7 @@
 # Prosaic Harness
 
+Harness **0.9.17** adds [bounded sub-agents](docs/sub-agents.md) to authored workflow nodes and conversations using Runtime **0.9.23**. See the [release notes](docs/release-0.9.17.md) and [PostgreSQL 0.4.5 migration notes](docs/release-postgres-0.4.5.md).
+
 Harness **0.9.16** admits [MCP read-tool bindings](docs/release-0.9.16.md) for workflow nodes and conversations with Runtime 0.9.22 and its optional MCP extra.
 
 Harness **0.9.15** adds [opt-in parallel read tools](docs/parallel-tools.md) for individual workflow nodes and conversations. Requires Runtime **0.9.21**. See [release notes](docs/release-0.9.15.md) and [PostgreSQL 0.4.4 migration notes](docs/release-postgres-0.4.4.md).
