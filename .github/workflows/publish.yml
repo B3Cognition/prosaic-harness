@@ -420,6 +420,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+      - name: Resolve immutable release source
+        run: echo "PROSAIC_RELEASE_SOURCE=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
@@ -447,7 +449,7 @@ jobs:
           CORE_COMMIT: ${{ inputs.ontology_core_commit }}
         run: |
           python scripts/catalogue_ontology_qualify.py qualify \
-            --directory release/artifacts --commit "$(git rev-parse HEAD)" \
+            --directory release/artifacts --commit "$PROSAIC_RELEASE_SOURCE" \
             --core-directory release/ontology-core --core-run "$CORE_RUN" --core-commit "$CORE_COMMIT" \
             --runtime-wheel release/upstream-wheels/b3_prosaic_runtime-0.9.23-py3-none-any.whl
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
