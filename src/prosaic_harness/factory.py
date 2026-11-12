@@ -186,11 +186,17 @@ class WorkflowBindings:
     def __init__(self, *, config, custom_tools=None, validators=None,
                  operation_namespace=None, tool_journal=None, runtime_adapter=None,
                  guards=(), rule_project=None, rule_project_identity=None,
-                 context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None):
+                 context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None,sub_agents=None):
         from .context_packs.bindings import ContextPackBindings,admit_options
         from .tool_contracts import ToolContracts
         if tool_contracts is not None and type(tool_contracts) is not ToolContracts: _fail('binding_mismatch')
         self._tool_contracts=tool_contracts.frozen_copy() if tool_contracts is not None else None
+        self._sub_agents = sub_agents
+        if sub_agents is not None:
+            from .sub_agents import SubAgentBindingsV1
+            if type(sub_agents) is not SubAgentBindingsV1 or runtime_adapter is not None:
+                _fail('binding_mismatch')
+            custom_tools = sub_agents.bind_tools(custom_tools)
         if context_packs is not None and type(context_packs) is not ContextPackBindings: _fail('binding_mismatch')
         self._context_packs=context_packs.frozen_copy() if context_packs is not None else None
         self._feedback_catalog,self._repeatable_validators=admit_options(feedback_catalog,repeatable_validators)
@@ -471,6 +477,7 @@ class WorkflowFactory:
         self._schemas = MappingProxyType(dict(catalog._schemas))
         self._rule_bindings = bindings._rule_bindings
         self._tool_contracts=bindings._tool_contracts
+        self._sub_agents=bindings._sub_agents
         self._context_packs=bindings._context_packs
         self._feedback_catalog=dict(bindings._feedback_catalog)
         self._repeatable_validators=bindings._repeatable_validators
@@ -515,8 +522,10 @@ class WorkflowFactory:
             from .mcp_tools import selected_mcp
             tools = {}
             registered = validate_custom_tools(self._tools)
-            preserve_contracts = bool(selected_mcp(registered, registered))
+            preserve_contracts = bool(selected_mcp(registered, registered)) or self._sub_agents is not None
             for name, tool in registered.items():
+                if self._sub_agents is not None and name in self._sub_agents._tools:
+                    continue
                 contracts = (dict(result_contract=tool.result_contract, event_policy=tool.event_policy,
                                   parallel_read=tool.parallel_read) if preserve_contracts else {})
                 tools[name] = CustomTool(tool.name, tool.description, decoded(tool._schema_json),
@@ -536,7 +545,7 @@ class WorkflowFactory:
                                         custom_tools=tools, validators=validators,
                                         guards=self._rule_bindings.guards, rule_project=self._rule_bindings.project,
                                         rule_project_identity=self._rule_bindings.identity,
-                                        tool_contracts=self._tool_contracts,
+                                        tool_contracts=self._tool_contracts,sub_agents=self._sub_agents,
                                         context_packs=self._context_packs.frozen_copy() if self._context_packs is not None else None,
                                         feedback_catalog=self._feedback_catalog,repeatable_validators=self._repeatable_validators,
                                         operation_namespace=self._operation_namespace,
@@ -559,6 +568,7 @@ class WorkflowFactory:
         operation = self._check_operation_bindings()
         return _host_snapshot({'version': 1,
             **({'toolContractV1': self._tool_contracts.descriptor()} if self._tool_contracts is not None else {}),
+            **({'subAgentsV1': self._sub_agents.descriptor()} if self._sub_agents is not None else {}),
             **({'context_pack_bindings':self._context_packs.readmit(),
                 'context_feedback':self._feedback_catalog,'repeatable_validators':list(self._repeatable_validators),
                 'public_context_packs':sorted(json.loads(self._public_metadata_json).get('contextPacks',{}))} if self._context_packs is not None else {}),
@@ -630,6 +640,11 @@ class WorkflowFactory:
         if type(steps) is not dict: _fail('invalid_definition')
         for name,step in steps.items():
             if type(step) is not dict: _fail('invalid_definition')
+            if self._sub_agents is not None:
+                aliases = self._sub_agents._tools.keys()
+                if (set(step.get('tools', ())) & aliases or step.get('tool') in aliases
+                        or step.get('initial_tool') in aliases):
+                    _fail('unknown_reference')
             if 'contextPack' in step and (type(step['contextPack']) is not str or step['contextPack'] not in public):
                 _fail('unknown_reference',logical_location('definition','steps',logical_alias(name),'contextPack'))
 
@@ -758,6 +773,7 @@ class WorkflowFactory:
                                    custom_tools=self._tools, allowed_direct_tools=policy.allowed_direct_tools)
         workflow._parallel_tool_policy=policy.parallel_tools
         workflow._tool_contracts=self._tool_contracts.frozen_copy() if self._tool_contracts is not None else None
+        workflow._sub_agents = self._sub_agents
         workflow._rule_bindings = RuleBindings(self._rule_bindings.guards, self._rule_bindings.project,
             self._rule_bindings.identity, policy.allowed_guards)
         # Only enforced-rule graphs gain explicit host defaults, preserving old seals.
@@ -781,6 +797,8 @@ class WorkflowFactory:
                                                profile=policy.schema_profile(), native=True)
         _policy_graph(workflow, policy, inline_names=frozenset(used_inline))
         workflow._tool_descriptors = demanded
+        if self._sub_agents is not None and not demanded.keys() & self._sub_agents._tools.keys():
+            workflow._sub_agents = None
         if any(item.get('journaled') for item in demanded.values()) and (
                 self._tool_journal is None or self._operation_namespace is None):
             _fail('binding_mismatch')

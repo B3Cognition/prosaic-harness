@@ -11,7 +11,7 @@ env:
   # the same immutable upstream artifacts used for release qualification.
   CORE_RUN: '42014531336'
   CORE_COMMIT: '67b3807281ed0cdfd345fff84c56b236ec82cfb1'
-  RUNTIME_COMMIT: 'd589b91b823e4f6159af7727e5d600f8c337b12d'
+  RUNTIME_COMMIT: '48c10ac9aeb18bd06f53015df0624b35d5254646'
 jobs:
   test:
     runs-on: '${{ matrix.os }}'
@@ -38,7 +38,7 @@ jobs:
         run: |
           python -m pip install packaging build
           python scripts/ci_context_pack_upstream.py
-          python -m pip install .ci-upstream/wheels/b3_prosaic-0.5.0-py3-none-any.whl '.ci-upstream/wheels/b3_prosaic_runtime-0.9.22-py3-none-any.whl[mcp]' 'mcp==2.3.0'
+          python -m pip install .ci-upstream/wheels/b3_prosaic-0.5.0-py3-none-any.whl '.ci-upstream/wheels/b3_prosaic_runtime-0.9.23-py3-none-any.whl[mcp]' 'mcp==2.3.0'
       - name: Install Harness with its verified upstream candidates
         run: python -m pip install -e '.[test]'
       - name: Require rule admission from the verified Runtime release
@@ -132,12 +132,12 @@ jobs:
           PIP_FIND_LINKS: ${{ github.workspace }}/.ci-upstream/wheels
         run: |
           python -m venv "$RUNNER_TEMP/harness-wheel"
-          "$RUNNER_TEMP/harness-wheel/bin/python" -m pip install pytest 'b3-prosaic-runtime-postgres==0.3.0' .ci-upstream/wheels/b3_prosaic-0.5.0-py3-none-any.whl '.ci-upstream/wheels/b3_prosaic_runtime-0.9.22-py3-none-any.whl[mcp]' 'mcp==2.3.0' dist/b3_prosaic_harness-0.9.16-py3-none-any.whl
+          "$RUNNER_TEMP/harness-wheel/bin/python" -m pip install pytest 'b3-prosaic-runtime-postgres==0.3.0' .ci-upstream/wheels/b3_prosaic-0.5.0-py3-none-any.whl '.ci-upstream/wheels/b3_prosaic_runtime-0.9.23-py3-none-any.whl[mcp]' 'mcp==2.3.0' dist/b3_prosaic_harness-0.9.17-py3-none-any.whl
           "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/workflow_factory_smoke.py
           "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/conversation_smoke.py
           "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/conversation_smoke.py --context-assembly
           "$RUNNER_TEMP/harness-wheel/bin/python" -I scripts/context_pack_smoke.py
-          "$RUNNER_TEMP/harness-wheel/bin/python" -I -m pytest -o pythonpath=tests tests/test_parallel_tool_workflow.py tests/test_parallel_tool_conversation.py tests/test_parallel_tool_recovery.py tests/test_mcp_installed.py -q
+          PROSAIC_SUB_AGENTS_REQUIRED=1 "$RUNNER_TEMP/harness-wheel/bin/python" -I -m pytest -o pythonpath=tests tests/test_sub_agent_installed.py tests/test_parallel_tool_workflow.py tests/test_parallel_tool_conversation.py tests/test_parallel_tool_recovery.py tests/test_mcp_installed.py -q
           "$RUNNER_TEMP/harness-wheel/bin/python" -I -m pytest -o pythonpath=tests tests/test_conversation_input_caps.py -q
           "$RUNNER_TEMP/harness-wheel/bin/python" -I -m pytest -o pythonpath=tests tests/test_conversation_rules.py tests/test_revision_review_blueprint.py tests/test_workflow_rules_admission.py tests/test_workflow_rules_execution.py tests/test_workflow_rules_recovery.py tests/test_workflow_enforcement_blueprint.py -q
   postgres:
@@ -165,7 +165,7 @@ jobs:
         run: |
           python -m pip install packaging build
           python scripts/ci_context_pack_upstream.py
-          python -m pip install .ci-upstream/wheels/b3_prosaic-0.5.0-py3-none-any.whl '.ci-upstream/wheels/b3_prosaic_runtime-0.9.22-py3-none-any.whl[mcp]' 'mcp==2.3.0'
+          python -m pip install .ci-upstream/wheels/b3_prosaic-0.5.0-py3-none-any.whl '.ci-upstream/wheels/b3_prosaic_runtime-0.9.23-py3-none-any.whl[mcp]' 'mcp==2.3.0'
       - name: Build separate distributions
         run: |
           python -m pip install build pytest
@@ -175,8 +175,8 @@ jobs:
           python -m build "$RUNNER_TEMP/harness-source/adapters/postgres" --outdir adapters/postgres/dist
       - name: Install local core wheel before adapter
         run: |
-          python -m pip install dist/b3_prosaic_harness-0.9.16-py3-none-any.whl
-          python -m pip install adapters/postgres/dist/b3_prosaic_harness_postgres-0.4.4-py3-none-any.whl
+          python -m pip install dist/b3_prosaic_harness-0.9.17-py3-none-any.whl
+          python -m pip install adapters/postgres/dist/b3_prosaic_harness_postgres-0.4.5-py3-none-any.whl
           prosaic --version
       - name: Required real-database, owned crash/standby and clean-wheel gates
         env:

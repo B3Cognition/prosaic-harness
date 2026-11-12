@@ -90,6 +90,11 @@ def prepare_pack(chat,state,turn,candidates):
     if chat.bindings.tool_contracts is not None:
         from .context_packs.tool_contracts import prepare_pack_contract,CONVERSATION_PROFILE
         from .session_tool_contracts import scope_for
+        scope=scope_for(state,aid,namespace=chat.bindings.readmit()['operationNamespace'])
+        if chat.bindings.sub_agents is not None:
+            options['sub_agent_frame']=chat.bindings.sub_agents.frame(chat.bindings.agent,scope,
+                arguments={'request':turn['inputData'] or {}},session_id=state['sessionId'],
+                timeout_s=chat.bindings.run_policy.timeout_s)
         factory=None
         if turn.get('_retainedReferences'):
             from .session_tool_contracts import invocation_bindings
@@ -98,7 +103,7 @@ def prepare_pack(chat,state,turn,candidates):
             factory=lambda adapter:invocation_bindings(chat,state,aid,references=turn['_retainedReferences'],pack_adapter=adapter)[0]
         options['input_profile']=CONVERSATION_PROFILE
         prepared,pack,mapping,adapter=prepare_pack_contract(rt,chat.bindings.agent,candidates,roots,
-            bindings=bindings,contracts=chat.bindings.tool_contracts,scope=scope_for(state,aid,namespace=chat.bindings.readmit()['operationNamespace']),
+            bindings=bindings,contracts=chat.bindings.tool_contracts,scope=scope,
             options=options,context_policy=chat.bindings.context_policy,token_counters=chat.bindings.token_counters,
             deadline=deadline,session_id=state['sessionId'],binding_factory=factory)
         turn['_contractPackMapping']=mapping

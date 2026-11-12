@@ -35,7 +35,7 @@ _TERMINAL_NODES = 16
 
 
 class Harness:
-    capabilities = frozenset({'workflow_rules_v1','context_packs_v1'})
+    capabilities = frozenset({'workflow_rules_v1','context_packs_v1','sub_agents_v1'})
 
     def __init__(self, workflow, run_dir=None, *, store=None, run_id=None, runtime=None, on_event=None, observer=None, validators=None, cancelled=None, clock=time.time, context=None, accounting=None, lifecycle=None,
                  context_policy=None,token_counters=None):
@@ -68,6 +68,12 @@ class Harness:
             raise ValueError('Harness and Runtime must share one lifecycle')
         self.context = context
         self.accounting = accounting
+        if getattr(workflow, '_sub_agents', None) is not None:
+            scope = workflow._sub_agents.pack_bindings.scope
+            if (context is None or accounting is None or self.store.namespace != scope.namespace or
+                    (context.application_id, context.tenant_id, context.actor_id, context.billing_account_id)
+                    != (scope.application, scope.tenant, scope.actor, scope.billing_account)):
+                raise ValueError('delegation requires trusted workflow accounting')
         self._accounting_enabled = (context is not None or accounting is not None
                                     or getattr(self.runtime, 'accounting', None) is not None
                                     or getattr(self.runtime, 'context_defaults', None) is not None)
@@ -308,6 +314,9 @@ class Harness:
                 self._cwd = self.workflow.path.parent
             self.store.check_ready()
             from .parallel_tools import parallel_material
+            from .sub_agents import workflow_binding
+            if workflow_binding(self.workflow) and 'sub_agents_v1' not in getattr(self.store, 'capabilities', ()):
+                raise ValueError('delegation storage capability missing')
             if parallel_material(self.workflow,self.runtime) and 'parallel_tool_calls_v1' not in getattr(self.store,'capabilities',()):raise ValueError('parallel tool storage capability missing')
             if getattr(self.workflow,'_tool_contracts',None) is not None and 'tool_contracts_v1' not in getattr(self.store,'capabilities',()):
                 from .run_store import StoreIncompatible
@@ -498,6 +507,10 @@ class Harness:
             # Keep identity/conflict admission early, staging its owned state
             # changes until choice/schema/product validation has succeeded.
             human_action = choice is not None or response is not None
+            if human_action and state['version'] == 6:
+                from .sub_agents import workflow_granted
+                if not workflow_granted(self, state, 'modelUse'):
+                    raise HumanResponseError('evidenceUseDenied')
             accounting_changed = self._resume_accounting(state, persist=not human_action)
             if state['status'] in {'completed', 'rejected'}:
                 if choice is not None or response is not None:
@@ -562,7 +575,7 @@ class Harness:
                     validate_receipt(receipt, state, pending, self.workflow)
                     with self._observations.recovery():
                         self._accept(state, receipt)
-                elif (state.get('version') in (4,5) and state['toolContractV1']['attempts'][pending['id']] is not None
+                elif (state.get('version') in (4,5,6) and state['toolContractV1']['attempts'][pending['id']] is not None
                         and not state['toolContractV1']['attempts'][pending['id']]['dispatched']):
                     from .tool_contract_execution import resume_prepared
                     resume_prepared(self,state)
@@ -573,7 +586,8 @@ class Harness:
                     work=state['contextPacks']['attempts'][pending['id']]['contextWork']
                     resume_prepared(self,state,fresh_attempt=bool(retry_interrupted and work and work['reservedActiveMicros']))
                     if state['status']=='blocked': return state
-                elif not retry_interrupted or self.workflow.definition['steps'][pending['step']]['kind'] == 'tool':
+                elif (pending['id'] in state.get('subAgentsV1', {}).get('reservations', {})
+                        or not retry_interrupted or self.workflow.definition['steps'][pending['step']]['kind'] == 'tool'):
                     return self._block(state, 'interrupted_call')
                 elif has_packs(state) and state['contextPacks']['attempts'][pending['id']] is not None:
                     from .context_packs.workflow_execution import resume_prepared
@@ -598,6 +612,7 @@ class Harness:
             raise ValueError('declared evidence changed; start a new run')
 
     def _verify_ledger(self, state):
+        from .sub_agents import workflow_receipt_usage
         for invocation in state['invocations']:
             if invocation['status'] == 'complete':
                 receipt = self.store.load_receipt(self._storage_run_id, invocation['id'])
@@ -606,7 +621,7 @@ class Harness:
                 if self._admission:
                     self._bounded_document(receipt, self._admission.policy.max_receipt_bytes)
                 validate_receipt(receipt, state, invocation, self.workflow)
-                if receipt['sha256'] != invocation['receipt_sha256'] or receipt['result']['token_usage'] != invocation['token_usage']:
+                if receipt['sha256'] != invocation['receipt_sha256'] or workflow_receipt_usage(receipt) != invocation['token_usage']:
                     raise ValueError('invocation ledger receipt mismatch')
                 for name, binding in state['bindings'].items():
                     if binding['id'] == invocation['id']:
@@ -634,7 +649,8 @@ class Harness:
             return 'run_deadline'
         budget = self.workflow.definition['limits'].get('max_tokens')
         if budget is not None:
-            usage = [i['token_usage'] for i in state['invocations'] if i['status'] != 'pending']
+            from .sub_agents import workflow_usage
+            usage = workflow_usage(state)
             if any(value is None for value in usage):
                 return 'usage_unknown'
             total = sum(usage)
@@ -800,7 +816,9 @@ class Harness:
         if has_packs(state) and receipt['contextPack'] is not None:
             from .context_packs.records import ContextPackInvocation
             state['contextPacks']['attempts'][receipt['id']]=ContextPackInvocation.from_dict(receipt['contextPack']).adopt(receipt['sha256']).to_dict()
-        state['invocations'][-1].update(status='complete', token_usage=receipt['result']['token_usage'], receipt_sha256=receipt['sha256'])
+        from .sub_agents import workflow_receipt_usage
+        state['invocations'][-1].update(status='complete', token_usage=workflow_receipt_usage(receipt),
+                                        receipt_sha256=receipt['sha256'])
         state['pending'] = None
         reason = self._resource_reason(state)
         if reason:
@@ -927,6 +945,10 @@ class Harness:
         while state['status'] == 'running':
             self._check_ownership()
             self._evidence_unchanged(state)
+            if state['version'] == 6:
+                from .sub_agents import workflow_granted
+                if not workflow_granted(self, state, 'modelUse'):
+                    return self._block(state, 'evidenceUseDenied')
             reason = self._resource_reason(state)
             if reason:
                 return self._block(state, reason)
@@ -1170,6 +1192,9 @@ class Harness:
 
     def _invocation_policy(self, state, name, step):
         limits = self.workflow.definition['limits']
+        from .sub_agents import workflow_usage
+        usage = workflow_usage(state, exclude=state['pending']['id'] if state['pending'] else None)
+        remaining = max(0, limits.get('max_tokens', 0) - sum(value or 0 for value in usage))
         kind = step['kind']
         timeout = limits['timeout_s'] if state['deadline'] is None else min(limits['timeout_s'], max(0.001, state['deadline'] - self.clock()))
         policy = RunPolicy(allowed_tools=frozenset([step['tool']] if kind == 'tool' else step.get('tools', [])),
@@ -1182,8 +1207,7 @@ class Harness:
                            **({'max_input_bytes': self._admission.policy.max_invocation_bytes} if self._admission else {}),
                            **({'max_provider_requests': limits.get('max_provider_requests_per_invocation', self._admission.policy.max_provider_requests_per_invocation),
                                'max_tool_calls': limits.get('max_tool_calls_per_invocation', self._admission.policy.max_tool_calls_per_invocation),
-                               'max_reported_tokens': limits['max_tokens'] - sum(
-                                   i['token_usage'] for i in state['invocations'] if i['status'] == 'complete')}
+                               'max_reported_tokens': remaining}
                               if self._admission else {}),
                            **({field: limits[key] for key, field in (
                                ('max_provider_requests_per_invocation', 'max_provider_requests'),
@@ -1193,6 +1217,8 @@ class Harness:
                               {'initial_tool': 'read_file'} if step.get('require_reads') and
                               'initial_tool_v1' in getattr(self.runtime, 'capabilities', ()) else {}))
         from .parallel_tools import parallel_policy
+        if self._admission is None and getattr(self.workflow, '_sub_agents', None) is not None:
+            policy = replace(policy, max_reported_tokens=remaining)
         return replace(policy,parallel_tools=parallel_policy(self.workflow,name))
 
     def _receipt(self, state, attempt_id, name, arguments, result, events, failure):

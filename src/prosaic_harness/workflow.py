@@ -131,11 +131,11 @@ class Workflow:
     @classmethod
     def load(cls, path, *, executable='prosaic', custom_tools=None, allowed_direct_tools=frozenset(), guards=(),
              context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None,parallel_tools=None,
-             operation_namespace=None,tool_journal=None):
+             operation_namespace=None,tool_journal=None,sub_agents=None):
         try:
             return cls._load(path, executable=executable, custom_tools=custom_tools, allowed_direct_tools=allowed_direct_tools, guards=guards,
                 context_packs=context_packs,feedback_catalog=feedback_catalog,repeatable_validators=repeatable_validators,tool_contracts=tool_contracts,parallel_tools=parallel_tools,
-                operation_namespace=operation_namespace,tool_journal=tool_journal)
+                operation_namespace=operation_namespace,tool_journal=tool_journal,sub_agents=sub_agents)
         except WorkflowAdmissionError as exc:
             if exc.code == 'invalid_schema':
                 raise ValueError('invalid workflow definition: schema must be valid and support internal references only') from None
@@ -146,7 +146,7 @@ class Workflow:
     @classmethod
     def _load(cls, path, *, executable, custom_tools, allowed_direct_tools, guards,
               context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None,parallel_tools=None,
-             operation_namespace=None,tool_journal=None):
+             operation_namespace=None,tool_journal=None,sub_agents=None):
         path = Path(path).resolve()
         if path.suffix not in {'.yml', '.yaml'}:
             raise ValueError('workflow must use YAML/YML')
@@ -180,6 +180,11 @@ class Workflow:
         if allowed_direct_tools - config.allowed_tools:
             raise ValueError('direct permission must be a subset of allowed tools')
         registry = dict(custom_tools or {})
+        if sub_agents is not None:
+            from .sub_agents import SubAgentBindingsV1
+            if type(sub_agents) is not SubAgentBindingsV1:
+                raise ValueError('invalid delegation registration')
+            registry = sub_agents.bind_tools(registry)
         # Preserve compatibility with the released Runtime for no-custom flows.
         adapter = ProsaicRuntime(config, custom_tools=registry) if registry else ProsaicRuntime(config)
         registered = dict(getattr(adapter, 'tool_descriptors', {}))
@@ -313,6 +318,7 @@ class Workflow:
         from .tool_contracts import ToolContracts,material as tool_contract_material
         if tool_contracts is not None and type(tool_contracts) is not ToolContracts: raise ValueError('invalid tool contracts')
         workflow._parallel_tool_policy=parallel_tools
+        workflow._sub_agents=sub_agents
         workflow._tool_contracts=tool_contracts.frozen_copy() if tool_contracts is not None else None
         from .context_packs.bindings import attach,material as context_material
         attach(workflow,context_packs,feedback_catalog=feedback_catalog,repeatable_validators=repeatable_validators)
@@ -321,12 +327,15 @@ class Workflow:
                                                  profile=None, native=False)
         workflow._tool_descriptors = deepcopy(descriptors)
         from .mcp_tools import selected_mcp, yaml_operation_material
-        if selected_mcp(registry, descriptors):
+        delegates_selected = sub_agents is not None and bool(descriptors.keys() & sub_agents._tools.keys())
+        if not delegates_selected:
+            workflow._sub_agents = None
+        if selected_mcp(registry, descriptors) or delegates_selected:
             if operation_namespace is None or tool_journal is None:
-                raise ValueError('MCP requires an owned scope and tool journal')
+                raise ValueError('selected tools require an owned scope and tool journal')
             workflow._mcp_operation = (operation_namespace, tool_journal)
         elif operation_namespace is not None or tool_journal is not None:
-            raise ValueError('workflow operation bindings require selected MCP tools')
+            raise ValueError('workflow operation bindings require selected remote tools or delegates')
         fingerprint = digest({**rule_material(workflow), **yaml_operation_material(workflow), **context_material(workflow), **tool_contract_material(workflow), **__import__('prosaic_harness.parallel_tools',fromlist=['parallel_material']).parallel_material(workflow), 'workflow': raw, 'runtime': runtime_identity(config),
                               'schemas': schemas, 'prose': {name: a.digest for name, a in artifacts.items()},
                               **({'acquisitions': {name: a.digest for name, a in acquisitions.items()}} if acquisitions else {}),

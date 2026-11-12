@@ -270,7 +270,7 @@ class ConversationBindings:
                  workspace=None, workspace_identity=None, interpreter=None,
                  interpretation_policy=None, interpretation_schema=None, workflows=None,
                  context_policy=None, interpretation_context_policy=None, token_counters=None,
-                 guards=(), rule_project=None, rule_project_identity=None,context_packs=None,tool_contracts=None):
+                 guards=(), rule_project=None, rule_project_identity=None,context_packs=None,tool_contracts=None,sub_agents=None):
         try:
             reference(version)
             from .tool_contracts import ToolContracts, conversation_material
@@ -298,6 +298,21 @@ class ConversationBindings:
             operation = tool_journal_descriptor(tool_journal)
             if tool_journal is not None and operation_namespace is None:
                 raise ConversationError('bindingMismatch')
+            approved = _artifact_snapshot(agent, maximum_depth=policy.max_json_depth,
+                maximum_nodes=policy.max_json_nodes)
+            if sub_agents is not None:
+                from .sub_agents import SubAgentBindingsV1
+                from prosaic_runtime.policy import requested_tools
+                if type(sub_agents) is not SubAgentBindingsV1:
+                    raise ConversationError('bindingMismatch')
+                registered = sub_agents.bind_tools(custom_tools)
+                if requested_tools(approved.frontmatter.get('tools')) & sub_agents._tools.keys():
+                    if (tool_contracts is None or tool_journal is None or operation_namespace is None
+                            or 'sub_agents_v1' not in ProsaicRuntime.capabilities):
+                        raise ConversationError('capabilityMissing')
+                    custom_tools = registered
+                else:
+                    sub_agents = None
             tools = validate_custom_tools(custom_tools)
             from .mcp_tools import conversation_contract_descriptors, validate_conversation_mcp
             registered_guards = registrations(guards)
@@ -317,8 +332,6 @@ class ConversationBindings:
             runtime = ProsaicRuntime(_config_from_json(encode(config_data).decode()), custom_tools=tools,
                 **({'guards': registered_guards} if registered_guards else {}),
                 **source_options(rule_project))
-            approved = _artifact_snapshot(agent, maximum_depth=policy.max_json_depth,
-                maximum_nodes=policy.max_json_nodes)
             validate_conversation_mcp(ProsaicRuntime, approved, tools, operation_namespace, tool_journal)
             interpreting_agent = _artifact_snapshot(interpreter) if interpreter is not None else None
             rule_room = max(receipt_bound(runtime, approved),
@@ -363,7 +376,9 @@ class ConversationBindings:
             invocation = _policy(run_policy)
             contract_descriptors = conversation_contract_descriptors(approved, tools, custom_descriptors(tools))
             contract_material=conversation_material(runtime, contract_descriptors, tool_contracts, policy, run_policy, limits)
-            runtime.prepare_turn(approved, message='a', policy=run_policy, limits=limits, workspace=workspace,**_pack_probe(context_packs),
+            probe_scope = InvocationScope('admission', operation_namespace=operation_namespace)
+            frame = sub_agents.frame(approved, probe_scope, probe=True) if sub_agents is not None else None
+            runtime.prepare_turn(approved, message='a', **({'sub_agent_frame': frame} if frame is not None else {}), policy=run_policy, limits=limits, workspace=workspace,**_pack_probe(context_packs),
                 **({'tool_contract_bindings':tool_contracts.bind(InvocationScope('admission', operation_namespace=operation_namespace))} if tool_contracts is not None else {}))
             interpreting = None
             if interpreter is not None:
@@ -407,13 +422,14 @@ class ConversationBindings:
             data.update(context_data)
             if context_packs is not None: data['contextPacks']=context_packs.to_dict()
             if tool_contracts is not None: data['toolContractV1']=contract_material
+            if sub_agents is not None: data['subAgentsV1'] = sub_agents.descriptor()
             from .parallel_tools import conversation_parallel
             data.update(conversation_parallel(runtime,run_policy,tool_contracts))
             for key, value in {'_encoded': encode(data), '_config': encode(config_data),
                 '_tools': MappingProxyType(tools), '_journal': tool_journal, '_workspace': workspace,
                 '_workflows': MappingProxyType(registered), '_admitted': _ADMITTED,
                 '_token_counters': owned_counters, '_guards': registered_guards,
-                '_rule_project': rule_project,'_context_packs':context_packs,'_tool_contracts':tool_contracts}.items():
+                '_rule_project': rule_project,'_context_packs':context_packs,'_tool_contracts':tool_contracts,'_sub_agents':sub_agents}.items():
                 object.__setattr__(self, key, value)
         except ConversationError:
             raise
@@ -471,6 +487,8 @@ class ConversationBindings:
     @property
     def tool_contracts(self): return self._tool_contracts
     @property
+    def sub_agents(self): return self._sub_agents
+    @property
     def context_policy(self):
         document = decode(self._encoded).get('contextPolicy')
         if document is None: return None
@@ -520,7 +538,14 @@ class ConversationBindings:
             from .parallel_tools import conversation_parallel
             if data.get('parallelToolsV1')!=conversation_parallel(runtime,self.run_policy,self._tool_contracts).get('parallelToolsV1'):raise ValueError('parallel binding drift')
             if data.get('toolContractV1') != (contract_material or None): raise ValueError('tool contract drift')
+            frame = None
+            if self._sub_agents is not None:
+                if data.get('subAgentsV1') != self._sub_agents.descriptor():
+                    raise ValueError('delegation binding drift')
+                frame = self._sub_agents.frame(self.agent,
+                    InvocationScope('admission', operation_namespace=data['operationNamespace']), probe=True)
             runtime.prepare_turn(self.agent, message='a', policy=self.run_policy,
+                                 **({'sub_agent_frame': frame} if frame is not None else {}),
                                  limits=self.turn_limits, workspace=self._workspace,**_pack_probe(self._context_packs),
                 **({'tool_contract_bindings':self._tool_contracts.bind(InvocationScope('admission', operation_namespace=data['operationNamespace']))} if self._tool_contracts is not None else {}))
             if data['interpreter']:

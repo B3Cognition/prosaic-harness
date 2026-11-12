@@ -51,7 +51,7 @@ class FileRunStore:
         self.check_ready()
         from .context_packs.file_namespace import inspect_namespace
         packed=inspect_namespace(self)[0]
-        return frozenset({'context_packs_v1',*({'tool_contracts_v1'} if getattr(self,'_tool_contract_storage',False) else ()),*({'parallel_tool_calls_v1'} if getattr(self,'_parallel_tool_storage',False) else ())}) if packed else frozenset()
+        return frozenset({'context_packs_v1',*({'tool_contracts_v1'} if getattr(self,'_tool_contract_storage',False) else ()),*({'parallel_tool_calls_v1'} if getattr(self,'_parallel_tool_storage',False) else ()),*({'sub_agents_v1'} if getattr(self,'_sub_agent_storage',False) else ())}) if packed else frozenset()
 
     def check_ready(self):
         if self._pid != os.getpid() or self._closed:
@@ -59,16 +59,22 @@ class FileRunStore:
         from .context_packs.file_namespace import inspect_namespace
         inspect_namespace(self)
 
-    def initialize(self,*,context_packs=False,tool_contracts=False,parallel_tools=False):
+    def initialize(self,*,context_packs=False,tool_contracts=False,parallel_tools=False,sub_agents=False):
+        if type(sub_agents) is not bool: raise ValueError('sub_agents must be boolean')
         if type(parallel_tools) is not bool:raise ValueError("parallel_tools must be boolean")
         if type(tool_contracts) is not bool:raise ValueError("tool_contracts must be boolean")
-        tool_contracts=tool_contracts or parallel_tools
+        tool_contracts=tool_contracts or parallel_tools or sub_agents
         if type(tool_contracts) is not bool: raise ValueError('tool_contracts must be boolean')
         if type(context_packs) is not bool: raise ValueError('context_packs must be boolean')
         self.check_ready()
         if context_packs or tool_contracts:
             from .context_packs.file_namespace import migrate_namespace
-            with self._mutex: migrate_namespace(self,fresh=True,tool_contracts=tool_contracts,parallel_tools=parallel_tools)
+            with self._mutex: migrate_namespace(self,fresh=True,tool_contracts=tool_contracts,parallel_tools=parallel_tools,sub_agents=sub_agents)
+
+    def migrate_sub_agent_storage(self):
+        if self._pid != os.getpid() or self._closed: raise StoreBusy()
+        from .context_packs.file_namespace import migrate_namespace
+        with self._mutex: migrate_namespace(self, sub_agents=True)
 
     def migrate_parallel_tool_storage(self):
         if self._pid!=os.getpid() or self._closed:raise StoreBusy()
@@ -86,6 +92,9 @@ class FileRunStore:
         with self._mutex: migrate_namespace(self)
 
     def _admit_document(self,value):
+        if ((value.get('recordType') == 'workflow' and value.get('version') == 6)
+                or (value.get('recordType') == 'workflowReceipt' and value.get('version') == 5)):
+            if 'sub_agents_v1' not in self.capabilities: raise StoreIncompatible('enable delegation storage explicitly')
         if ((value.get('recordType')=='workflow' and value.get('version')==5) or (value.get('recordType')=='workflowReceipt' and value.get('version')==4)) and 'parallel_tool_calls_v1' not in self.capabilities:raise StoreIncompatible('enable parallel tool storage explicitly')
         if ((value.get('version') in (4,5) and value.get('recordType')=='workflow') or
                 value.get('version') in (3,4) and value.get('recordType')=='workflowReceipt'):
@@ -99,8 +108,8 @@ class FileRunStore:
 
     def _write_document(self,path,value):
         self._admit_document(value)
-        canonical=(value.get('recordType')=='workflow' and value.get('version') in (3,4,5) or
-            value.get('recordType')=='workflowReceipt' and value.get('version') in (2,3,4))
+        canonical=(value.get('recordType')=='workflow' and value.get('version') in (3,4,5,6) or
+            value.get('recordType')=='workflowReceipt' and value.get('version') in (2,3,4,5))
         write_json(path,value,canonical=canonical)
 
     @contextmanager

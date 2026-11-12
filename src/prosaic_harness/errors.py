@@ -75,6 +75,7 @@ class HumanResponseError(ValueError):
         'response_validation_failed': 'human response failed validation',
         'no_pending_choice': 'run has no pending human choice',
         'completed_run': 'completed run has no pending choice',
+        'evidenceUseDenied': 'workflow evidence use was denied',
     }
     CODES = frozenset(MESSAGES)
     ISSUE_CODES = frozenset(Draft202012Validator.VALIDATORS) | {'schema'}

@@ -26,10 +26,17 @@ def execute_step(controller, state, name, step, arguments):
         policy = replace(policy, max_provider_requests=limits['max_provider_requests_per_invocation'],
             max_tool_calls=limits['max_tool_calls_per_invocation'])
     binding = workflow._tool_contracts.bind(scope, citations=step['kind'] != 'tool')
+    from .sub_agents import reserve_workflow_frame
+    delegates = getattr(workflow, '_sub_agents', None)
+    frame = None
     prepared = None
     if step['kind'] != 'tool':
         try:
+            if delegates is not None:
+                frame = delegates.frame(workflow.artifacts[name], scope, arguments=arguments,
+                    evidence=state['evidence'], run_id=state['run_id'], timeout_s=policy.timeout_s)
             prepared = controller.runtime.prepare_turn(workflow.artifacts[name],
+                **({'sub_agent_frame': frame} if frame is not None else {}),
                 message='Execute the current workflow step using inputData.workflow.', input_data=facts(name, arguments),
                 input_profile='workflow-tool-contract-input-v1', policy=policy,
                 limits=TurnLimits(max_input_bytes=caps.max_invocation_bytes, max_user_bytes=caps.max_invocation_bytes,
@@ -39,6 +46,7 @@ def execute_step(controller, state, name, step, arguments):
                 workspace=_workspace(controller,policy), tool_contract_bindings=binding)
         except (TurnAdmissionError, ValueError, TypeError):
             return controller._block(state, 'invocation_limit')
+    reserve_workflow_frame(state, aid, frame)
     state['calls'] += 1
     state['attempt'] += 1
     state['pending'] = dict(id=aid, step=name, arguments_sha256=digest(arguments), arguments=arguments)
@@ -68,7 +76,10 @@ def resume_prepared(controller,state):
     if record['frozenInput'] is not None:
         frozen=record['frozenInput']
         policy=replace(policy,timeout_s=frozen['bindings']['policy']['timeout_s'])
+        from .sub_agents import bound_frame
+        frame = bound_frame(frozen)
         prepared=controller.runtime.restore_turn(controller.workflow.artifacts[name],frozen_input=frozen,
+            **({'sub_agent_frame': frame} if frame is not None else {}),
             policy=policy,limits=TurnLimits(**frozen['bindings']['limits']),workspace=_workspace(controller,policy),
             tool_contract_bindings=binding)
     state.update(status='running',reason=None)
@@ -103,8 +114,10 @@ def execute_prepared(controller, state, prepared, binding, policy):
         controller._check_ownership()
         state['toolContractV1']['attempts'][aid]['dispatched'] = True
         controller._save(state)
+    from .sub_agents import workflow_grant_check
+    prior_grant=workflow_grant_check(controller,state)
     options = dict(on_event=record, operation_context=binding.scope, tool_contract_bindings=binding,
-        cancelled=lambda: event_failure or controller._runtime_cancelled(state),
+        cancelled=lambda: event_failure or controller._runtime_cancelled(state) or not prior_grant('modelUse'),
         **controller._invocation_accounting(state, aid, name))
     from .mcp_tools import workflow_operation
     _, journal = workflow_operation(controller.workflow)
@@ -119,6 +132,11 @@ def execute_prepared(controller, state, prepared, binding, policy):
         result = controller.runtime.run_tool(step['tool'], pending['arguments']['tool_arguments'], policy=policy,
             cwd=controller._cwd, **options)
     else:
+        if prepared.encoding_version == 'conversation-turn-v6':
+            def owner_valid():
+                controller._check_ownership()
+                return True
+            options['sub_agent_access'] = workflow._sub_agents.access(owner_valid)
         turn = controller.runtime.turn(prepared, on_admitted=dispatch, **options)
         result = result_with_proof(turn, name, pending['arguments'], prepared) if name in compiled(workflow) else turn.result
     controller._check_ownership()
@@ -128,7 +146,13 @@ def execute_prepared(controller, state, prepared, binding, policy):
     if event_failure:
         payload = controller._failure_result(payload, 'event_limit')
         proof['answer']=result.stdout
-    packet = seal(dict(version=4 if state['version']==5 else 3, **({'parallelToolsV1':state['parallelToolsV1']} if state['version']==5 else {}), recordType='workflowReceipt', run_id=state['run_id'], **pending,
+    extra = {}
+    if 'parallelToolsV1' in state:
+        extra['parallelToolsV1'] = state['parallelToolsV1']
+    if state['version'] == 6:
+        from .sub_agents import proof_for
+        extra['subAgentsV1'] = proof_for(proof['frozenInput'], turn) if turn is not None else None
+    packet = seal(dict(version=state['version'] - 1, **extra, recordType='workflowReceipt', run_id=state['run_id'], **pending,
         result=payload, events=events, contextPack=None, contextPackResult=None, toolContractV1=proof))
     validate_receipt(packet, state, pending, workflow)
     controller._bounded_document(packet, caps.max_receipt_bytes)
