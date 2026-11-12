@@ -1,5 +1,6 @@
 """Public discovery must enforce projection, privacy and authoring parity."""
 import json
+from importlib.util import find_spec
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -48,7 +49,6 @@ def test_explicit_public_metadata_is_owned_and_does_not_change_identity():
 
 
 def ontology_factory(ontology, *, allowed_tools=('lookup_entity',), runtime_tools=('lookup_entity',)):
-    pytest.importorskip('prosaic.ontology', reason='Ontology fixtures require the matching Core build')
     return WorkflowFactory(
         catalog=WorkflowCatalog(agents={'finder': agent(), 'hidden': agent()},
                                 schemas={'result': True}, ontology=ontology),
@@ -64,7 +64,7 @@ def test_ontology_opt_in_with_no_attachment_uses_ordinary_discovery():
         build.describe(include_ontology='yes')
 
 
-def test_ontology_is_opt_in_owned_and_filtered_by_existing_discovery():
+def check_ontology_projection():
     attachment = {'schemaVersion': 1, 'ontologyId': 'entities',
                   'concepts': {'visible': 'Public entity', 'hidden': 'Restricted entity',
                                'lookup': 'Lookup evidence'},
@@ -90,22 +90,40 @@ def test_ontology_is_opt_in_owned_and_filtered_by_existing_discovery():
         build.describe(include_ontology=True, maximum_bytes=cap)
 
 
-@pytest.mark.parametrize('restriction', [{'allowed_tools': ()}, {'runtime_tools': ()}])
-def test_tool_annotations_require_visibility_in_the_native_projection(restriction):
+def check_ontology_tool_visibility(restriction):
     attachment = {'schemaVersion': 1, 'ontologyId': 'entities',
                   'concepts': {'entity': 'Public entity'}, 'relations': [], 'agents': {},
                   'tools': {'lookup_entity': ['entity']}}
-    build = ontology_factory(attachment, **restriction)
+    build = ontology_factory(attachment, **{restriction: ()})
     assert build.describe(include_ontology=True) == build.describe()
 
 
-@pytest.mark.parametrize('category', ['agents', 'tools'])
-def test_ontology_rejects_stale_registrations(category):
+def check_ontology_stale_registration(category):
     attachment = {'schemaVersion': 1, 'ontologyId': 'entities',
                   'concepts': {'entity': 'Public entity'}, 'relations': [], 'agents': {}, 'tools': {}}
     attachment[category]['unregistered'] = ['entity']
     with pytest.raises(WorkflowAdmissionError, match='unknown_reference'):
         ontology_factory(attachment)
+
+
+def check_ontology_requires_matching_core():
+    attachment = {'schemaVersion': 1, 'ontologyId': 'entities', 'concepts': {},
+                  'relations': [], 'agents': {}, 'tools': {}}
+    with pytest.raises(WorkflowAdmissionError, match='invalid_definition'):
+        ontology_factory(attachment)
+
+
+@pytest.mark.parametrize('check,args', [
+    pytest.param(check_ontology_projection, (), id='projection'),
+    pytest.param(check_ontology_tool_visibility, ('allowed_tools',), id='policy-tool-visibility'),
+    pytest.param(check_ontology_tool_visibility, ('runtime_tools',), id='runtime-tool-visibility'),
+    pytest.param(check_ontology_stale_registration, ('agents',), id='stale-agent'),
+    pytest.param(check_ontology_stale_registration, ('tools',), id='stale-tool'),
+] if find_spec('prosaic.ontology') is not None else [
+    pytest.param(check_ontology_requires_matching_core, (), id='older-core-rejects-attachment'),
+])
+def test_ontology_attachment(check, args):
+    check(*args)
 
 
 @pytest.mark.parametrize('metadata', [
