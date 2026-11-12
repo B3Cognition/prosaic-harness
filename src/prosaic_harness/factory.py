@@ -512,12 +512,18 @@ class WorkflowFactory:
                 public_metadata=({'contextPacks':{alias:{'description':''}
                     for alias in decoded(self._public_metadata_json).get('contextPacks',{})}}
                     if self._context_packs is not None else None))
+            from .mcp_tools import selected_mcp
             tools = {}
-            for name, tool in validate_custom_tools(self._tools).items():
+            registered = validate_custom_tools(self._tools)
+            preserve_contracts = bool(selected_mcp(registered, registered))
+            for name, tool in registered.items():
+                contracts = (dict(result_contract=tool.result_contract, event_policy=tool.event_policy,
+                                  parallel_read=tool.parallel_read) if preserve_contracts else {})
                 tools[name] = CustomTool(tool.name, tool.description, decoded(tool._schema_json),
                     tool.handler, tool.version, max_argument_bytes=tool.max_argument_bytes,
                     max_result_bytes=tool.max_result_bytes, authorize=tool.authorize,
-                    with_context=tool.with_context, operation_key=tool.operation_key, terminal=tool.terminal)
+                    with_context=tool.with_context, operation_key=tool.operation_key, terminal=tool.terminal,
+                    **contracts)
             validators = {}
             for name, value in self._validators.items():
                 if type(value) is not Validator:
@@ -794,6 +800,11 @@ def _check_adapter(workflow, runtime, descriptors, *, native):
     if runtime is not None:
         from .tool_contracts import material as tool_contract_material
         tool_contract_material(workflow, runtime)
+        from .mcp_tools import selected_mcp, validate_workflow_mcp
+        if validate_workflow_mcp(workflow, descriptors, runtime):
+            if type(runtime) is not ProsaicRuntime or selected_mcp(
+                    runtime._custom_tools, descriptors) != selected_mcp(workflow.custom_tools, descriptors):
+                _fail('binding_mismatch')
         from .parallel_tools import parallel_material
         parallel_material(workflow,runtime)
     if runtime is None:

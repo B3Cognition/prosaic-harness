@@ -112,8 +112,9 @@ class Workflow:
         from .context_packs.bindings import material as context_material
         from .tool_contracts import material as tool_contract_material
         from .parallel_tools import parallel_material
+        from .mcp_tools import yaml_operation_material
         return digest({'workflow': self.definition, 'runtime': runtime_identity(self.config),
-                       **rule_material(self), **context_material(self), **tool_contract_material(self), **parallel_material(self), 'schemas': self.schemas, 'prose': {name: a.digest for name, a in self.artifacts.items()},
+                       **rule_material(self), **yaml_operation_material(self), **context_material(self), **tool_contract_material(self), **parallel_material(self), 'schemas': self.schemas, 'prose': {name: a.digest for name, a in self.artifacts.items()},
                        **({'acquisitions': {name: a.digest for name, a in self.acquisitions.items()}} if self.acquisitions else {}),
                        **({'custom_tools': self.tool_descriptors} if self._tool_descriptors else {}),
                        **({'allowed_direct_tools': sorted(self.allowed_direct_tools)} if self.allowed_direct_tools else {})})
@@ -129,10 +130,12 @@ class Workflow:
 
     @classmethod
     def load(cls, path, *, executable='prosaic', custom_tools=None, allowed_direct_tools=frozenset(), guards=(),
-             context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None,parallel_tools=None):
+             context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None,parallel_tools=None,
+             operation_namespace=None,tool_journal=None):
         try:
             return cls._load(path, executable=executable, custom_tools=custom_tools, allowed_direct_tools=allowed_direct_tools, guards=guards,
-                context_packs=context_packs,feedback_catalog=feedback_catalog,repeatable_validators=repeatable_validators,tool_contracts=tool_contracts,parallel_tools=parallel_tools)
+                context_packs=context_packs,feedback_catalog=feedback_catalog,repeatable_validators=repeatable_validators,tool_contracts=tool_contracts,parallel_tools=parallel_tools,
+                operation_namespace=operation_namespace,tool_journal=tool_journal)
         except WorkflowAdmissionError as exc:
             if exc.code == 'invalid_schema':
                 raise ValueError('invalid workflow definition: schema must be valid and support internal references only') from None
@@ -142,7 +145,8 @@ class Workflow:
 
     @classmethod
     def _load(cls, path, *, executable, custom_tools, allowed_direct_tools, guards,
-              context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None,parallel_tools=None):
+              context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None,parallel_tools=None,
+             operation_namespace=None,tool_journal=None):
         path = Path(path).resolve()
         if path.suffix not in {'.yml', '.yaml'}:
             raise ValueError('workflow must use YAML/YML')
@@ -316,7 +320,14 @@ class Workflow:
         descriptors = validate_resolved_workflow(workflow, descriptors=registered,
                                                  profile=None, native=False)
         workflow._tool_descriptors = deepcopy(descriptors)
-        fingerprint = digest({**rule_material(workflow), **context_material(workflow), **tool_contract_material(workflow), **__import__('prosaic_harness.parallel_tools',fromlist=['parallel_material']).parallel_material(workflow), 'workflow': raw, 'runtime': runtime_identity(config),
+        from .mcp_tools import selected_mcp, yaml_operation_material
+        if selected_mcp(registry, descriptors):
+            if operation_namespace is None or tool_journal is None:
+                raise ValueError('MCP requires an owned scope and tool journal')
+            workflow._mcp_operation = (operation_namespace, tool_journal)
+        elif operation_namespace is not None or tool_journal is not None:
+            raise ValueError('workflow operation bindings require selected MCP tools')
+        fingerprint = digest({**rule_material(workflow), **yaml_operation_material(workflow), **context_material(workflow), **tool_contract_material(workflow), **__import__('prosaic_harness.parallel_tools',fromlist=['parallel_material']).parallel_material(workflow), 'workflow': raw, 'runtime': runtime_identity(config),
                               'schemas': schemas, 'prose': {name: a.digest for name, a in artifacts.items()},
                               **({'acquisitions': {name: a.digest for name, a in acquisitions.items()}} if acquisitions else {}),
                               **({'custom_tools': descriptors} if descriptors else {}),

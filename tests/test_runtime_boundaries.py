@@ -9,6 +9,7 @@ from prosaic_runtime import CustomTool, ProsaicRuntime, Result
 from test_workflow_factory import factory, graph, tools, config, agent
 from test_native_execution import bound
 from test_transport import endpoint
+from support.tool_journal import MemoryJournal
 
 
 HISTORIC_FINGERPRINT = 'ac9913171a763a653b8de7e23403aa8e68314db7e07bad6a9e0d5578bd54e624'
@@ -234,28 +235,6 @@ def test_resume_keeps_original_deadline_and_passes_remaining_time(tmp_path, monk
     final = h.resume(choice='accept')
     assert final['status'] == 'completed' and final['deadline'] == 160
     assert [call[1]['policy'].timeout_s for call in calls] == [50, 20]
-
-
-class MemoryJournal(Journal):
-    """Test-only public protocol fixture; RunStore never contains effect records."""
-    def __init__(self):
-        self.records = {}
-        self.claims = []
-
-    def claim(self, namespace, key, signature):
-        from prosaic_runtime import ToolClaim
-        self.claims.append((namespace, key))
-        record = self.records.get((namespace, key))
-        if record is None:
-            self.records[(namespace, key)] = (signature, None)
-            return ToolClaim('new', signature, claim_token='fence-v1')
-        signature, outcome = record
-        return ToolClaim('uncertain', signature) if outcome is None else ToolClaim('replay', signature, outcome=outcome)
-
-    def commit(self, namespace, key, token, outcome):
-        assert token == 'fence-v1'
-        signature, _ = self.records[(namespace, key)]
-        self.records[(namespace, key)] = (signature, outcome)
 
 
 @pytest.mark.parametrize('phase', ['before', 'after_effect', 'after_commit'])

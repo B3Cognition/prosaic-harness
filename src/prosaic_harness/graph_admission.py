@@ -86,6 +86,7 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
     _strings(evidence, 'evidence', unique=True)
     if len(evidence) > 64 or any(Path(item).is_absolute() or '..' in Path(item).parts for item in evidence):
         raise ValueError('evidence must use at most 64 confined relative files')
+    from .mcp_tools import is_mcp_tool, selected_mcp, validate_workflow_mcp
     demanded, artifact_steps, schema_steps, acquisition_steps = {}, set(), set(), set()
     for name, step in steps.items():
         if type(name) is not str or not re.fullmatch(r'[a-zA-Z][a-zA-Z0-9_-]*', name):
@@ -158,6 +159,12 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
                 raise ValueError('undeclared acquisition')
             validate_execution_artifact(artifact, workflow.config, acquisition=acquisition)
             requested = requested_tools(artifact.frontmatter.get('tools'))
+            selected = selected_mcp(workflow.custom_tools, requested)
+            if selected - set(granted):
+                raise ValueError('MCP tool must be granted on the agent step')
+            if step.get('initial_tool') in selected or (acquisition is not None and selected_mcp(
+                    workflow.custom_tools, requested_tools(acquisition.frontmatter.get('tools')))):
+                raise ValueError('MCP unavailable for initial tools or acquisition')
             if requested - BUILTIN_TOOLS - descriptors.keys():
                 raise ValueError('prose requests unsupported tools')
             if set(required) - requested or (reads and 'read_file' not in requested):
@@ -170,7 +177,7 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
             tool = step.get('tool')
             if (type(tool) is not str or tool not in descriptors or tool not in workflow.custom_tools or tool in BUILTIN_TOOLS
                     or tool not in workflow.config.allowed_tools
-                    or tool not in workflow.allowed_direct_tools):
+                    or tool not in workflow.allowed_direct_tools or is_mcp_tool(workflow.custom_tools.get(tool))):
                 raise ValueError('direct tool requires explicit host permission and custom registration')
             if type(step.get('arguments')) is not dict:
                 raise ValueError('tool arguments must be a literal JSON object')
@@ -221,6 +228,7 @@ def validate_resolved_workflow(workflow, *, descriptors, profile=None, native=Fa
         raise ValueError('resolved content does not match graph references')
     for schema in workflow.schemas.values():
         admit_schema(schema, profile=profile)
+    validate_workflow_mcp(workflow, demanded)
     return demanded
 
 

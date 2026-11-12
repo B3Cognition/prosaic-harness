@@ -21,7 +21,7 @@ CORE_VERSION = PROJECT['version']
 RUNTIME_REQUIREMENT = next(Requirement(value) for value in PROJECT['dependencies']
                            if Requirement(value).name == 'b3-prosaic-runtime')
 # The qualified train may be newer than the declared compatibility floor.
-RUNTIME_VERSION = '0.9.21'
+RUNTIME_VERSION = '0.9.22'
 CORE = project_wheel(ROOT)
 ADAPTER = project_wheel(ROOT, 'adapters/postgres')
 
@@ -192,9 +192,7 @@ def curated_candidates(release_tool, tmp_path, monkeypatch):
     # These cases deliberately exercise hosted evidence, independently of the
     # branch-build channel inherited by ordinary PostgreSQL CI.
     monkeypatch.delenv('HARNESS_TEST_BRANCH_UPSTREAM_RECEIPT',raising=False)
-    # This synthetic fixture verifies the retained published receipt protocol.
-    # The current development dependency floor is exercised by branch wheel tests.
-    assert RUNTIME_VERSION == '0.9.21'
+    # Use the qualified SDK version while exercising the published receipt protocol.
     directory, wheelhouse = tmp_path / 'artifacts', tmp_path / 'wheels'
     directory.mkdir(); wheelhouse.mkdir()
     candidates = []

@@ -264,12 +264,14 @@ def execute_prepared(controller,state,prepared,frame,pack,reader,deadline):
         if controller.on_event: controller.on_event({**event,'step':name,'attempt_id':aid})
     activation=(reader.activate(scope,pack,bindings,deadline=deadline,cancelled=lambda:controller._runtime_cancelled(state),**evidence_capture)
         if reader is not None else nullcontext())
+    from ..mcp_tools import workflow_operation
+    _, journal = workflow_operation(workflow)
     with activation:
         turn=controller.runtime.turn(prepared,on_event=record,operation_context=scope,
             on_admitted=dispatch,context_checkpoint=checkpoint,cancelled=lambda:event_failure or controller._runtime_cancelled(state),
             **({'token_counters':controller.token_counters,'context_work':frame.context_work} if controller.context_policy is not None else {}),
             **contract_options,**controller._invocation_accounting(state,aid,name),
-            **({'tool_journal':controller._admission.tool_journal} if controller._admission and controller._admission.tool_journal is not None else {}),
+            **({'tool_journal':journal} if journal is not None else {}),
             **({'observer':controller._observations.observer} if controller._observations.observer is not None else {}))
     controller._check_ownership()
     result=result_with_pack_proof(turn,frame) if name in compiled(workflow) else turn.result

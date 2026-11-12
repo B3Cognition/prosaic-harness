@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.16 — 2026-11-11
+
+- Admit host-approved MCP aliases in workflow nodes and conversations.
+- Preserve binding identity and adopt saved MCP receipts offline.
+- See [release notes](docs/release-0.9.16.md).
+
 ## 0.9.15 / PostgreSQL 0.4.4 — 2026-11-11
 
 - Enable opt-in bounded parallel reads per workflow node or conversation using Runtime 0.9.21.

@@ -106,8 +106,10 @@ def execute_prepared(controller, state, prepared, binding, policy):
     options = dict(on_event=record, operation_context=binding.scope, tool_contract_bindings=binding,
         cancelled=lambda: event_failure or controller._runtime_cancelled(state),
         **controller._invocation_accounting(state, aid, name))
-    if controller._admission and controller._admission.tool_journal is not None:
-        options['tool_journal'] = controller._admission.tool_journal
+    from .mcp_tools import workflow_operation
+    _, journal = workflow_operation(controller.workflow)
+    if journal is not None:
+        options['tool_journal'] = journal
     if controller._observations.observer is not None:
         options['observer'] = controller._observations.observer
     controller._check_ownership(); controller._admit()
