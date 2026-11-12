@@ -95,7 +95,7 @@ async def ready_on_connection(conn,*,expected_versions=None):
     if actual_constraints != CONSTRAINTS:
         raise StoreIncompatible('adapter schema constraints are incompatible')
     version = await (await conn.execute('SELECT schema_version, storage_contract_version FROM prosaic_harness.schema_version')).fetchall()
-    allowed=[expected_versions] if expected_versions is not None else [(1,1),(2,2),(3,3),(4,4)]
+    allowed=[expected_versions] if expected_versions is not None else [(1,1),(2,2),(3,3),(4,4),(5,5)]
     if len(version)!=1 or version[0] not in allowed:
         raise StoreIncompatible('deploy a compatible adapter/schema; no automatic downgrade')
     for table in COLUMNS:
@@ -116,9 +116,10 @@ def check_ready(transport):
     return transport.call(ready_on_connection)
 
 
-def initialize(transport,*,context_packs=False,tool_contracts=False,parallel_tools=False):
+def initialize(transport,*,context_packs=False,tool_contracts=False,parallel_tools=False,sub_agents=False):
+    if type(sub_agents) is not bool: raise ValueError('sub_agents must be boolean')
     if type(parallel_tools) is not bool:raise ValueError("parallel_tools must be boolean")
-    tool_contracts=tool_contracts or parallel_tools
+    tool_contracts=tool_contracts or parallel_tools or sub_agents
     if type(tool_contracts) is not bool:raise ValueError("tool_contracts must be boolean")
     if type(context_packs) is not bool: raise ValueError('context_packs must be boolean')
     async def migrate(conn):
@@ -135,12 +136,15 @@ def initialize(transport,*,context_packs=False,tool_contracts=False,parallel_too
                                               (namespace[0],))).fetchone()
             if count[0]:
                 actual=await ready_on_connection(conn)
-                if parallel_tools and actual!=(4,4):raise StoreIncompatible("migrate parallel storage explicitly")
-                if tool_contracts and actual not in ((3,3),(4,4)):raise StoreIncompatible("migrate tool contract storage explicitly")
-                if context_packs and actual not in ((2,2),(3,3),(4,4)): raise StoreIncompatible('migrate context pack storage explicitly')
+                if sub_agents and actual!=(5,5):raise StoreIncompatible('migrate delegation storage explicitly')
+                if parallel_tools and actual<(4,4):raise StoreIncompatible("migrate parallel storage explicitly")
+                if tool_contracts and actual not in ((3,3),(4,4),(5,5)):raise StoreIncompatible("migrate tool contract storage explicitly")
+                if context_packs and actual not in ((2,2),(3,3),(4,4),(5,5)): raise StoreIncompatible('migrate context pack storage explicitly')
                 return
         await conn.execute(DDL)
-        if parallel_tools:
+        if sub_agents:
+            await conn.execute('UPDATE prosaic_harness.schema_version SET schema_version=5,storage_contract_version=5')
+        elif parallel_tools:
             await conn.execute('UPDATE prosaic_harness.schema_version SET schema_version=4,storage_contract_version=4')
         elif tool_contracts:
             await conn.execute('UPDATE prosaic_harness.schema_version SET schema_version=3,storage_contract_version=3')
@@ -152,15 +156,21 @@ def initialize(transport,*,context_packs=False,tool_contracts=False,parallel_too
 
 def migrate_context_pack_storage(transport):
     from .pack_schema import migrate
-    return migrate(transport,schema='prosaic_harness',target=2,versions={(1,1),(2,2),(3,3),(4,4)},
+    return migrate(transport,schema='prosaic_harness',target=2,versions={(1,1),(2,2),(3,3),(4,4),(5,5)},
         lock=MIGRATION_LOCK,ready=ready_on_connection)
 
 
 def migrate_tool_contract_storage(transport):
     from .pack_schema import migrate
-    return migrate(transport,schema="prosaic_harness",target=3,versions={(1,1),(2,2),(3,3),(4,4)},lock=MIGRATION_LOCK,ready=ready_on_connection)
+    return migrate(transport,schema="prosaic_harness",target=3,versions={(1,1),(2,2),(3,3),(4,4),(5,5)},lock=MIGRATION_LOCK,ready=ready_on_connection)
 
 
 def migrate_parallel_tool_storage(transport):
     from .pack_schema import migrate
-    return migrate(transport,schema="prosaic_harness",target=4,versions={(1,1),(2,2),(3,3),(4,4)},lock=MIGRATION_LOCK,ready=ready_on_connection)
+    return migrate(transport,schema="prosaic_harness",target=4,versions={(1,1),(2,2),(3,3),(4,4),(5,5)},lock=MIGRATION_LOCK,ready=ready_on_connection)
+
+
+def migrate_sub_agent_storage(transport):
+    from .pack_schema import migrate
+    return migrate(transport,schema='prosaic_harness',target=5,versions={(1,1),(2,2),(3,3),(4,4),(5,5)},
+        lock=MIGRATION_LOCK,ready=ready_on_connection)

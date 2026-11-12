@@ -26,6 +26,10 @@ def retained_workflow_view(method):
                 exc.feedback=safe_feedback('humanResponseInvalid',None,1,{}).to_dict()
             raise
         state=result if type(result) is dict else result.state
+        if state.get('version')==6:
+            from ..sub_agents import workflow_granted
+            if not workflow_granted(controller,state,'retainedRead'):
+                raise ContextPackError('evidenceUseDenied')
         if has_packs(state):
             from ..validation import CheckContext
             bindings=controller.workflow._context_packs
@@ -135,6 +139,11 @@ def execute_step(controller,state,name,step,arguments):
     options=dict(message='Execute the current workflow step using inputData.workflow and inputData.contextPack.',input_profile=projection.profile,
         authoritative_input_data=projection.authoritative_input_data,authoritative_input_profile=projection.authoritative_input_profile,
         policy=policy,limits=limits,workspace=pack_workspace(controller))
+    delegates=getattr(workflow,'_sub_agents',None)
+    if delegates is not None:
+        from ..tool_contracts import invocation_scope
+        options['sub_agent_frame']=delegates.frame(workflow.artifacts[name],invocation_scope(state,aid,name,workflow),
+            arguments=arguments,evidence=state['evidence'],run_id=state['run_id'],timeout_s=policy.timeout_s)
     mapping=[index]
     contracts=getattr(workflow,'_tool_contracts',None)
     if contracts is not None:
@@ -171,7 +180,7 @@ def resume_prepared(controller,state,*,fresh_attempt=False):
     controller._admit()
     workflow=controller.workflow;pending=state['pending'];name=pending['step'];step=workflow.definition['steps'][name]
     frame=ContextPackInvocation.from_dict(state['contextPacks']['attempts'][pending['id']])
-    if frame.to_dict()['version'] in (2,3):
+    if frame.to_dict()['version'] in (2,3,4):
         from .tool_contracts import resume_contract_pack
         return resume_contract_pack(controller,state,frame,fresh_attempt=fresh_attempt)
     if frame.stage not in ({'prepared','dispatched'} if fresh_attempt else {'prepared'}): raise ContextPackError('contextBindingMismatch')
@@ -230,6 +239,11 @@ def execute_prepared(controller,state,prepared,frame,pack,reader,deadline):
         adapter=pack_evidence_bindings(frame,None,bindings,tool_contracts=workflow._tool_contracts,scope=scope,deadline=deadline)
         contract_options['tool_contract_bindings']=adapter.runtime_bindings
         evidence_capture['evidence_capture']=adapter.capture_read
+    if prepared.encoding_version=='conversation-turn-v6':
+        def owner_valid():
+            controller._check_ownership()
+            return True
+        contract_options['sub_agent_access']=workflow._sub_agents.access(owner_valid)
     def dispatch():
         controller._check_ownership()
         authorize_context_use(bindings,ContextUse.for_pack('invocation',pack,operation_id=aid,run_id=state['run_id'],deadline=deadline))

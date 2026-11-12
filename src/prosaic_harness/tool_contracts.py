@@ -110,7 +110,8 @@ def material(workflow, runtime=None):
     admitted = admit_tool_contracts(runtime, descriptors, bindings, dict(
         max_provider_requests=limits.get('max_provider_requests_per_invocation'),
         max_tool_calls=limits.get('max_tool_calls_per_invocation')))
-    return {'toolContractV1': admitted}
+    from .sub_agents import workflow_binding
+    return {'toolContractV1': admitted, **workflow_binding(workflow)}
 
 
 def conversation_material(runtime, descriptors, bindings, policy, run_policy, turn_limits):
@@ -122,7 +123,7 @@ def conversation_material(runtime, descriptors, bindings, policy, run_policy, tu
 
 
 def has_packs(state):
-    return state.get('version') in (3, 4, 5) and type(state.get('contextPacks')) is dict
+    return state.get('version') in (3, 4, 5, 6) and type(state.get('contextPacks')) is dict
 
 
 def upgrade_workflow(state, workflow):
@@ -133,6 +134,9 @@ def upgrade_workflow(state, workflow):
     from .parallel_tools import parallel_material
     parallel=parallel_material(workflow)
     if parallel:state.update(version=5,**parallel)
+    delegation = material(workflow).get('subAgentsV1')
+    if delegation is not None:
+        state.update(version=6, subAgentsV1={'binding': delegation, 'reservations': {}})
     return seal(state)
 
 
@@ -164,7 +168,12 @@ def validate_workflow_state(state, workflow):
         if record['scope'] != asdict(scope): raise ValueError('foreign tool contract attempt')
         if record['frozenInput'] is not None:
             frozen = FrozenTurnInput.from_dict(record['frozenInput']).to_dict()
-            if frozen['encodingVersion'] != ('conversation-turn-v5' if __import__('prosaic_harness.parallel_tools',fromlist=['parallel_policy']).parallel_policy(workflow,invocation['step']) is not None else 'conversation-turn-v4') or frozen['bindings']['toolContractV1'] != workflow._tool_contracts.bind(scope).to_dict():
+            from .parallel_tools import parallel_policy
+            delegates = state.get('subAgentsV1', {}).get('reservations', {})
+            encoding = ('conversation-turn-v6' if invocation['id'] in delegates else
+                        'conversation-turn-v5' if parallel_policy(workflow, invocation['step']) is not None
+                        else 'conversation-turn-v4')
+            if frozen['encodingVersion'] != encoding or frozen['bindings']['toolContractV1'] != workflow._tool_contracts.bind(scope).to_dict():
                 raise ValueError('tool contract input mismatch')
 
 
@@ -215,7 +224,7 @@ def validate_tool_contract_receipt(receipt, state, pending, workflow):
         raise ValueError('tool contract selected input changed')
     if evidence_value is not None:
         evidence = TurnEvidence.from_dict(evidence_value).to_dict()
-        if evidence['version'] != (4 if frozen is not None and frozen['encodingVersion']=='conversation-turn-v5' else 3) or frozen is None or evidence['toolContractV1']['bindings'] != frozen['bindings']['toolContractV1']:
+        if evidence['version'] != (4 if frozen is not None and 'parallelToolsV1' in frozen['bindings'] else 3) or frozen is None or evidence['toolContractV1']['bindings'] != frozen['bindings']['toolContractV1']:
             raise ValueError('tool contract execution binding mismatch')
         if evidence['toolContractV1']['bindings']['scope'] != asdict(scope) or evidence['toolContractV1']['citations'] != value['citations']:
             raise ValueError('tool contract citation binding mismatch')

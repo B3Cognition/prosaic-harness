@@ -24,11 +24,13 @@ def _owner(scope):
 class VerifiedToolReceipt:
     _encoded: bytes
     _owner_encoded: bytes
+    _delegates: object
 
-    def __init__(self,packet,owner,*,_seal=None):
+    def __init__(self,packet,owner,*,delegates=None,_seal=None):
         if _seal is not _SEAL: raise ValueError('owned stored receipt required')
         object.__setattr__(self,'_encoded',encode(packet))
         object.__setattr__(self,'_owner_encoded',encode(owner))
+        object.__setattr__(self,'_delegates',delegates)
 
     @classmethod
     def from_workflow_store(cls,store,run_id,invocation_id,*,workflow):
@@ -37,13 +39,13 @@ class VerifiedToolReceipt:
         state=store.load_run(run_id).state
         packet=store.load_receipt(run_id,invocation_id)
         admit_workflow(workflow);validate_state(state,workflow)
-        if packet is None or state['fingerprint']!=workflow.current_fingerprint() or state.get('version') not in (4,5):
+        if packet is None or state['fingerprint']!=workflow.current_fingerprint() or state.get('version') not in (4,5,6):
             raise ValueError('unavailable owned tool receipt')
         invocation=next((item for item in state['invocations'] if item['id']==invocation_id),None)
         if invocation is None or invocation['status']!='complete' or invocation['receipt_sha256']!=packet['sha256']:
             raise ValueError('receipt is not adopted')
         validate_receipt(packet,state,invocation,workflow)
-        return cls(packet,_owner(InvocationScope(**packet['toolContractV1']['scope'])),_seal=_SEAL)
+        return cls(packet,_owner(InvocationScope(**packet['toolContractV1']['scope'])),delegates=workflow._sub_agents,_seal=_SEAL)
 
     @classmethod
     def from_session_store(cls,store,session_id,invocation_id,*,bindings,scope):
@@ -51,14 +53,14 @@ class VerifiedToolReceipt:
         state=store.load_session(session_id,scope=scope).state
         packet=store.load_receipt(session_id,invocation_id,scope=scope)
         bindings.readmit()
-        if state['bindingIdentity']!=bindings.identity or state.get('version') not in (4,5) or packet is None:
+        if state['bindingIdentity']!=bindings.identity or state.get('version') not in (4,5,6) or packet is None:
             raise ValueError('unavailable owned tool receipt')
         attempt=state['attempts'].get(invocation_id)
         if attempt is None or not attempt['receiptAdopted'] or attempt['receiptIdentity']!=packet['sha256']:
             raise ValueError('receipt is not adopted')
         match_receipt(state,packet)
         if packet.get('toolContractV1') is None: raise ValueError('no tool contract for this phase')
-        return cls(packet,_owner(scope),_seal=_SEAL)
+        return cls(packet,_owner(scope),delegates=bindings.sub_agents,_seal=_SEAL)
 
     def to_dict(self): return decode(self._encoded)
 
@@ -143,6 +145,10 @@ def authorize_source(verified,evidence_id,bindings,purpose,*,scope=None,call_id=
     bindings.__post_init__()
     if len(_seen)>=8 or (verified.identity,evidence_id) in _seen: raise ValueError('cyclic retained source')
     packet,frozen,evidence,record=_record(verified,evidence_id)
+    if packet.get('subAgentsV1') is not None:
+        delegates=verified._delegates
+        if delegates is None or not delegates.may_reuse(packet['subAgentsV1'],bindings.scope,purpose):
+            raise ValueError('delegate result use denied')
     grant=bindings.evidence_authorizer
     scope=InvocationScope(**evidence['toolContractV1']['bindings']['scope']) if scope is None else scope
     use=EvidenceUseV1(scope,purpose,record['sourceKey'],record['sourceRevision'],record['locator'],record['selector'],

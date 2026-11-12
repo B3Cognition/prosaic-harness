@@ -1,5 +1,5 @@
 """Closed version-1 session reducer. No callbacks, I/O or model execution."""
-from dataclasses import fields
+from dataclasses import asdict, fields
 import hashlib
 import re
 
@@ -129,18 +129,21 @@ def _bounds(state, *, admission=False):
 def verify_session(document):
     try:
         state=owned(document)
-        context_fields = {'contextBindings'} if state.get('version') in (2,3,4,5) else set()
-        if state.get('version') in (3,4,5): context_fields.add('contextPacks')
-        if state.get('version') in (4,5): context_fields.add('toolContractV1')
-        if state.get('version')==5:context_fields.add('parallelToolsV1')
+        context_fields = {'contextBindings'} if state.get('version') in (2,3,4,5,6) else set()
+        if state.get('version') in (3,4,5,6): context_fields.add('contextPacks')
+        if state.get('version') in (4,5,6): context_fields.add('toolContractV1')
+        if state.get('version')==5 or state.get('version')==6 and 'parallelToolsV1' in state:
+            context_fields.add('parallelToolsV1')
+        if state.get('version')==6:
+            context_fields.add('subAgentsV1')
         closed(state,{'version','recordType','sessionId','scope','bindingIdentity','bindingVersion','policy',
             'accounting','accountingScope','turns','attempts','pending','workflow','sha256',*_counters_empty(),*context_fields})
         verify_seal(state)
-        if type(state['version']) is not int or state['version'] not in (1,2,3,4,5) or state['recordType']!='session':
+        if type(state['version']) is not int or state['version'] not in (1,2,3,4,5,6) or state['recordType']!='session':
             raise ValueError('record version')
-        if state['version'] in (2,3,4,5):
+        if state['version'] in (2,3,4,5,6):
             from .session_context import validate_context_bindings, validate_attempt_context, ATTEMPT_FIELDS
-            validate_context_bindings(state['contextBindings'],allow_empty=state['version'] in (3,4,5))
+            validate_context_bindings(state['contextBindings'],allow_empty=state['version'] in (3,4,5,6))
         validate_id(state['sessionId'])
         scope_from(state['scope'])
         hash_value(state['bindingIdentity'])
@@ -214,14 +217,15 @@ def verify_session(document):
             closed(attempt,{'invocationId','turnSequence','purpose','contextIdentity','encodingVersion','inputBytes',
                 'context','dispatchMarker','receiptAdopted','effectUncertain','receiptIdentity','receiptBytes','receiptReservation',
                 'providerAllowance','toolAllowance','providerAttempts','toolAttempts',
-                'providerReservation','toolReservation',*(ATTEMPT_FIELDS if state['version'] in (2,3,4,5) else ())})
+                'providerReservation','toolReservation',*(ATTEMPT_FIELDS if state['version'] in (2,3,4,5,6) else ()),
+                *({'delegatedTokens'} if state['version']==6 else ())})
             if attempt['invocationId']!=aid or attempt['purpose'] not in {'ordinary','interpretation'}:
                 raise ValueError('attempt identity')
             integer(attempt['turnSequence'],1,len(state['turns']))
             if aid not in state['turns'][attempt['turnSequence']-1]['attempts']:
                 raise ValueError('attempt source')
             hash_value(attempt['contextIdentity'])
-            if state['version'] in (2,3,4,5): validate_attempt_context(state,attempt)
+            if state['version'] in (2,3,4,5,6): validate_attempt_context(state,attempt)
             elif attempt['encodingVersion']!='conversation-turn-v1': raise ValueError('encoding contract')
             integer(attempt['inputBytes'],1,state['policy']['maxInputBytes'])
             if any(type(attempt[k]) is not bool for k in ('dispatchMarker','receiptAdopted','effectUncertain')):
@@ -238,6 +242,10 @@ def verify_session(document):
             for key in ('receiptBytes','receiptReservation','providerAllowance','toolAllowance',
                         'providerAttempts','toolAttempts','providerReservation','toolReservation'):
                 integer(attempt[key])
+            if state['version']==6 and attempt['delegatedTokens'] is not None:
+                if attempt['encodingVersion'] != 'conversation-turn-v6' or not attempt['receiptAdopted']:
+                    raise ValueError('delegation usage without an adopted receipt')
+                integer(attempt['delegatedTokens'])
             if attempt['providerAttempts']+attempt['providerReservation']>attempt['providerAllowance'] or (
                     attempt['toolAttempts']+attempt['toolReservation']>attempt['toolAllowance']):
                 raise ValueError('allowance ledger')
@@ -297,10 +305,26 @@ def verify_session(document):
         if has_packs(state):
             from .context_packs.records import validate_pack_session
             validate_pack_session(state)
-        if state['version']==5:
+        if state['version']==6:
+            delegation = state['subAgentsV1']
+            from .sub_agents import bound_frame
+            reserved = 0
+            for aid, attempt in state['attempts'].items():
+                if attempt['encodingVersion'] == 'conversation-turn-v6':
+                    from .session_tool_contracts import attempt_frozen
+                    frame = bound_frame(attempt_frozen(state, aid))
+                    if (frame is None or asdict(frame.policy) != delegation['policy']
+                            or frame.access_revision != delegation['revision']
+                            or frame.policy.max_provider_requests != attempt['providerAllowance']
+                            or frame.policy.max_tool_calls != attempt['toolAllowance']):
+                        raise ValueError('delegation reservation mismatch')
+                    reserved += delegation_token_charge(attempt, frame.policy.max_reported_tokens)
+            if reserved > delegation['sessionTokenAllowance'] and state['pending'] is not None:
+                raise ValueError('delegation token allowance')
+        if 'parallelToolsV1' in state:
             from prosaic_runtime.tool_parallel_contracts import validate_parallel_binding
             validate_parallel_binding(state['parallelToolsV1'])
-        if state['version'] in (4,5):
+        if state['version'] in (4,5,6):
             from .session_tool_contracts import validate_state
             validate_state(state)
         _bounds(state)
@@ -347,8 +371,8 @@ def _failed_retry_transition(old,new,before,after):
     previous=old['attempts'][before['attempts'][-1]]
     frozen=('turnSequence','purpose','contextIdentity','encodingVersion','inputBytes',
             'providerAllowance','toolAllowance')
-    if old['version'] in (2,3,4,5): frozen+=('contextSelection','initialContextReport')
-    if old['version'] in (4,5) and previous['purpose']=='ordinary':
+    if old['version'] in (2,3,4,5,6): frozen+=('contextSelection','initialContextReport')
+    if old['version'] in (4,5,6) and previous['purpose']=='ordinary':
         from .session_tool_contracts import same_retry_input
         if not same_retry_input(old,new,previous['invocationId'],aid):return False
         frozen=tuple(key for key in frozen if key not in {'contextIdentity','inputBytes'})
@@ -363,8 +387,9 @@ def validate_session_transition(previous, proposed):
     """Validate monotonic storage advancement, independently of a record hash."""
     old,new=verify_session(previous),verify_session(proposed)
     immutable=('version','recordType','sessionId','scope','bindingIdentity','bindingVersion','policy','accounting','accountingScope')
-    if old['version'] in (2,3,4,5): immutable += ('contextBindings',)
-    if old['version']==5:immutable+=('parallelToolsV1',)
+    if old['version'] in (2,3,4,5,6): immutable += ('contextBindings',)
+    if 'parallelToolsV1' in old: immutable+=('parallelToolsV1',)
+    if old['version']==6: immutable+=('subAgentsV1',)
     turn_input=('sequence','messageId','message','requestIdentity','interactionRef','inputData','historyIdentity')
     attempt_input=('invocationId','turnSequence','purpose','contextIdentity','encodingVersion','inputBytes',
                    'context','providerAllowance','toolAllowance')
@@ -382,7 +407,7 @@ def validate_session_transition(previous, proposed):
         for aid,before in old['attempts'].items():
             after=new['attempts'][aid]
             if any(before[k]!=after[k] for k in attempt_input): raise ValueError('attempt input changed')
-            if old['version'] in (2,3,4,5):
+            if old['version'] in (2,3,4,5,6):
                 from .session_context import validate_work_transition, ContextWorkState
                 if any(before[k]!=after[k] for k in ('contextSelection','initialContextReport')):
                     raise ValueError('context selection changed')
@@ -398,7 +423,7 @@ def validate_session_transition(previous, proposed):
         if has_packs(old):
             from .context_packs.records import validate_pack_session_transition
             validate_pack_session_transition(old,new)
-        if old['version'] in (4,5):
+        if old['version'] in (4,5,6):
             from .session_tool_contracts import validate_transition
             validate_transition(old,new)
         return new
@@ -427,6 +452,11 @@ def new_session(session_id, scope, bindings, *, accounting=None, accounting_scop
     return verify_session(state)
 
 
+def delegation_token_charge(attempt, allowance):
+    reported = attempt['delegatedTokens']
+    return reported if reported is not None else allowance
+
+
 def reserve_attempt(document, *, message_id, message, invocation_id, context_identity,
                     encoding_version, input_bytes, provider_allowance, tool_allowance,
                     input_data=None, interaction_ref=None, purpose='ordinary', context=None,
@@ -434,6 +464,13 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
                     pack_invocation=None,tool_contract_frozen=None,retained_references=()):
     state=verify_session(document)
     p=state['policy']
+    if encoding_version == 'conversation-turn-v6':
+        delegation = state['subAgentsV1']
+        allowance = delegation['policy']['max_reported_tokens']
+        retained = sum(delegation_token_charge(attempt, allowance) for attempt in state['attempts'].values()
+                       if attempt['encodingVersion'] == encoding_version)
+        if retained + allowance > delegation['sessionTokenAllowance']:
+            raise ConversationError('sessionLimit', 'delegationTokenAllowance')
     validate_id(invocation_id)
     reference(message_id)
     hash_value(context_identity)
@@ -488,7 +525,8 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
         'receiptBytes':0,'receiptReservation':p['maxReceiptBytes'],
         'providerAllowance':provider_allowance,'toolAllowance':tool_allowance,
         'providerAttempts':0,'toolAttempts':0,'providerReservation':provider_allowance,'toolReservation':tool_allowance}
-    if state['version'] in (2,3,4,5):
+    if state['version']==6: attempt['delegatedTokens']=None
+    if state['version'] in (2,3,4,5,6):
         from .session_context import context_reservation_bounds
         extra_bytes,extra_nodes=context_reservation_bounds()
         turn['stateReservation']+=extra_bytes
@@ -500,7 +538,7 @@ def reserve_attempt(document, *, message_id, message, invocation_id, context_ide
         raise ConversationError('bindingMismatch')
     turn['attempts'].append(invocation_id)
     state['attempts'][invocation_id]=attempt
-    if state['version'] in (4,5):
+    if state['version'] in (4,5,6):
         from .session_tool_contracts import reserve_contract
         reserve_contract(state,attempt,tool_contract_frozen,pack_invocation,retained_references)
     if has_packs(state):
@@ -546,21 +584,22 @@ def mark_interrupted(document):
 def verify_receipt(document):
     try:
         value=owned(document)
-        if value.get('version') in (2,3,4,5):
+        if value.get('version') in (2,3,4,5,6):
             from .session_context import RECEIPT_FIELDS, validate_receipt_context
         closed(value,{'version','recordType','sessionId','scope','bindingIdentity','invocationId','turnSequence',
             'contextIdentity','encodingVersion','context','result','completedTurn','evidence','sha256',
-            *(RECEIPT_FIELDS if value.get('version') in (2,3,4,5) else ()),
-            *({'contextPack','exposureBindings'} if value.get('version') in (3,4,5) else ()),
-            *({'toolContractV1'} if value.get('version') in (4,5) else ()),*({'parallelToolsV1'} if value.get('version')==5 else ())}, optional={'rules'})
+            *(RECEIPT_FIELDS if value.get('version') in (2,3,4,5,6) else ()),
+            *({'contextPack','exposureBindings'} if value.get('version') in (3,4,5,6) else ()),
+            *({'toolContractV1'} if value.get('version') in (4,5,6) else ()),*({'parallelToolsV1'} if value.get('version')==5 or value.get('version')==6 and 'parallelToolsV1' in value else ()),
+            *({'subAgentsV1'} if value.get('version')==6 else ())}, optional={'rules'})
         verify_seal(value)
-        if type(value['version']) is not int or value['version'] not in (1,2,3,4,5) or value['recordType']!='receipt':
+        if type(value['version']) is not int or value['version'] not in (1,2,3,4,5,6) or value['recordType']!='receipt':
             raise ValueError('receipt version')
         for name in ('sessionId','invocationId'): validate_id(value[name])
         for name in ('bindingIdentity','contextIdentity'): hash_value(value[name])
         scope_from(value['scope'])
         integer(value['turnSequence'],1)
-        if value['version'] in (2,3,4,5): validate_receipt_context(value)
+        if value['version'] in (2,3,4,5,6): validate_receipt_context(value)
         elif value['encodingVersion']!='conversation-turn-v1': raise ValueError('encoding version')
         result=value['result']
         closed(result,{'exitCode','answer','failureCode','timedOut'})
@@ -579,14 +618,19 @@ def verify_receipt(document):
             raise ValueError('evidence result mismatch')
         if 'rules' in value:
             validate_rule_receipt(value['rules'])
-        if value['version'] in (3,4,5) and value['contextPack'] is not None:
+        if value['version'] in (3,4,5,6) and value['contextPack'] is not None:
             from .context_packs.records import validate_pack_receipt
             validate_pack_receipt(value)
-        if value['version']==5:
+        if value['version']==6:
+            from .sub_agents import validate_proof
+            side = value['toolContractV1']
+            frozen = (side['frozenInput'] or value['contextPack']['frozenInput']) if side is not None else None
+            validate_proof(frozen, value['subAgentsV1'], value['evidence'])
+        if 'parallelToolsV1' in value:
             from prosaic_runtime.tool_parallel_contracts import validate_parallel_binding
             validate_parallel_binding(value['parallelToolsV1'])
             if value['toolContractV1'] is not None and value['evidence'].get('parallelToolsV1',{}).get('bindings')!=value['parallelToolsV1']:raise ValueError('parallel receipt authority mismatch')
-        if value['version'] in (4,5):
+        if value['version'] in (4,5,6):
             from .session_tool_contracts import validate_receipt
             validate_receipt(value)
         return value
@@ -603,15 +647,15 @@ def match_receipt(state, receipt):
             if state[key]!=value[key]: raise ValueError('receipt scope')
         for key in ('turnSequence','contextIdentity','encodingVersion','context'):
             if attempt[key]!=value[key]: raise ValueError('receipt correlation')
-        if state['version'] in (2,3,4,5):
+        if state['version'] in (2,3,4,5,6):
             from .session_context import match_context_receipt
             match_context_receipt(state,attempt,value)
         elif not attempt['dispatchMarker']: raise ValueError('missing dispatch marker')
         if has_packs(state):
             from .context_packs.records import match_pack_receipt
             match_pack_receipt(state,value)
-        if state['version']==5 and value['parallelToolsV1']!=state['parallelToolsV1']:raise ValueError('parallel receipt drift')
-        if state['version'] in (4,5):
+        if value.get('parallelToolsV1') != state.get('parallelToolsV1'):raise ValueError('parallel receipt drift')
+        if state['version'] in (4,5,6):
             from .session_tool_contracts import match_contract
             match_contract(state,value)
         evidence=value['evidence']
@@ -653,7 +697,7 @@ def make_receipt(document, invocation_id, result,*,tool_events=(),events_truncat
                   'failureCode':evidence['failureCode'],'timedOut':result.result.timed_out},
         'completedTurn':result.completed_turn.to_dict() if result.completed_turn is not None else None,
         'evidence':evidence, **({'rules': rules} if rules is not None else {})})
-    if state['version'] in (2,3,4,5):
+    if state['version'] in (2,3,4,5,6):
         purpose=state['contextBindings'][attempt['purpose']]
         packet=seal({**packet,'version':state['version'],'contextSelection':attempt['contextSelection'],
             'initialContextReport':attempt['initialContextReport'],
@@ -663,8 +707,12 @@ def make_receipt(document, invocation_id, result,*,tool_events=(),events_truncat
     if has_packs(state):
         from .context_packs.records import complete_pack_receipt
         packet=seal(complete_pack_receipt(state,packet,result))
-    if state['version']==5:packet.update(version=5,parallelToolsV1=state['parallelToolsV1'])
-    if state['version'] in (4,5):
+    if 'parallelToolsV1' in state: packet.update(parallelToolsV1=state['parallelToolsV1'])
+    if state['version']==6:
+        from .sub_agents import proof_for
+        from .session_tool_contracts import attempt_frozen
+        packet['subAgentsV1'] = proof_for(attempt_frozen(state, invocation_id), result)
+    if state['version'] in (4,5,6):
         from .session_tool_contracts import complete_receipt
         packet=seal(complete_receipt(state,packet,result,tool_events,events_truncated))
     return match_receipt(state,packet)
@@ -685,9 +733,12 @@ def adopt_receipt(document, receipt, *, finalize=True):
     attempt['receiptBytes']=len(encode(value))
     attempt['receiptReservation']=0
     evidence=value['evidence']
-    attempt['providerAttempts']=evidence['providerAttempts']
-    attempt['toolAttempts']=evidence['toolAttempts']
-    if state['version'] in (2,3,4,5):
+    proof = value.get('subAgentsV1')
+    if proof is not None and proof['usageComplete']:
+        attempt['delegatedTokens'] = proof['reportedTokens']
+    attempt['providerAttempts'] = proof['providerRequests'] if proof is not None else evidence['providerAttempts']
+    attempt['toolAttempts'] = proof['toolCalls'] if proof is not None else evidence['toolAttempts']
+    if state['version'] in (2,3,4,5,6):
         attempt['finalContextReport']=value['finalContextReport']
         attempt['contextWork']=value['contextWork']
     if has_packs(state):

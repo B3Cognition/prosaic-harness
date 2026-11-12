@@ -200,6 +200,11 @@ def resume_contract_pack(controller,state,frame,*,fresh_attempt=False):
     from .workflow_execution import pack_workspace
     options=dict(policy=policy,limits=TurnLimits(**frozen['bindings']['limits']),workspace=pack_workspace(controller),
         tool_contract_bindings=adapter.runtime_bindings)
+    from ..sub_agents import bound_frame
+    delegates=bound_frame(frozen)
+    if delegates is not None:
+        if fresh_attempt: return controller._block(state,'interrupted_call')
+        options['sub_agent_frame']=delegates
     if fresh_attempt:
         options.update(message=frozen['message'],input_data=frozen['selectedInputData'],input_profile=frozen['inputProfile'],
             authoritative_input_data=frozen['authoritativeInputData'],authoritative_input_profile=frozen['authoritativeInputProfile'])

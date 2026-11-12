@@ -31,19 +31,25 @@ def output_json(text):
 def validate_receipt(receipt, state, pending, workflow=None):
     verify_seal(receipt)
     required = {'version', 'run_id', 'id', 'step', 'arguments_sha256', 'arguments', 'result', 'events', 'sha256'}
-    enabled=state.get('version') in (4,5)
+    enabled=state.get('version') in (4,5,6)
     packed=has_packs(state)
     if packed or enabled: required |= {'recordType','contextPack','contextPackResult'}
     if enabled: required.add('toolContractV1')
-    if state.get('version')==5:required.add('parallelToolsV1')
-    if set(receipt) != required or type(receipt['version']) is not int or receipt['version'] != (4 if state.get("version")==5 else 3 if enabled else 2 if packed else 1):
+    if 'parallelToolsV1' in state: required.add('parallelToolsV1')
+    if state.get('version') == 6: required.add('subAgentsV1')
+    if set(receipt) != required or type(receipt['version']) is not int or receipt['version'] != (state["version"] - 1 if enabled else 2 if packed else 1):
         raise ValueError('invalid invocation receipt schema')
-    if state.get('version')==5:
+    if 'parallelToolsV1' in state:
         from .parallel_tools import parallel_material
         if state.get('parallelToolsV1')!=parallel_material(workflow).get('parallelToolsV1') or receipt['parallelToolsV1']!=state['parallelToolsV1']:raise ValueError('parallel receipt binding mismatch')
     if enabled:
         from .tool_contracts import validate_tool_contract_receipt
         validate_tool_contract_receipt(receipt,state,pending,workflow)
+    if state['version'] == 6:
+        from .sub_agents import validate_proof
+        from .tool_contracts import receipt_contract_material
+        frozen, evidence = receipt_contract_material(receipt)
+        validate_proof(frozen, receipt['subAgentsV1'], evidence)
     if packed:
         from .context_packs.workflow_records import validate_workflow_pack_receipt
         validate_workflow_pack_receipt(receipt,state,pending,workflow)
@@ -85,12 +91,13 @@ def validate_state(state, workflow):
     required = {'version', 'run_id', 'fingerprint', 'validators', 'inputs', 'status', 'reason', 'current',
                 'calls', 'visits', 'outputs', 'bindings', 'history', 'pending', 'entered', 'attempt',
                 'feedback', 'invocations', 'evidence', 'started_at', 'deadline', 'sha256'}
-    enabled=state.get('version') in (4,5)
+    enabled=state.get('version') in (4,5,6)
     packed=has_packs(state)
     if packed or enabled: required |= {'recordType','contextPacks'}
     if enabled: required.add('toolContractV1')
-    if state.get('version')==5:required.add('parallelToolsV1')
-    if set(state) - (required | {'question', 'choices', 'pause_bindings', 'accounting_context', 'accounting_migration', 'accounting_scope'}) or required - set(state) or type(state['version']) is not int or state['version'] != (5 if state.get("version")==5 else 4 if enabled else 3 if packed else 2):
+    if 'parallelToolsV1' in state: required.add('parallelToolsV1')
+    if state.get('version') == 6: required.add('subAgentsV1')
+    if set(state) - (required | {'question', 'choices', 'pause_bindings', 'accounting_context', 'accounting_migration', 'accounting_scope'}) or required - set(state) or type(state['version']) is not int or state['version'] != (state["version"] if enabled else 3 if packed else 2):
         raise ValueError('invalid checkpoint schema; start a new run')
     if 'accounting_context' in state:
         from prosaic_runtime.accounting import ResolvedContext
@@ -185,12 +192,28 @@ def validate_state(state, workflow):
         if (step['kind'] != 'pause' or pending is not None or state.get('question') != step['question']
                 or state.get('choices') != list(step['choices']) or state.get('pause_bindings') != state['bindings']):
             raise ValueError('invalid human pause binding')
-    if state.get('version')==5:
+    if 'parallelToolsV1' in state:
         from .parallel_tools import parallel_material
         if state['parallelToolsV1']!=parallel_material(workflow).get('parallelToolsV1'):raise ValueError('parallel workflow binding mismatch')
     if enabled:
         from .tool_contracts import validate_workflow_state
         validate_workflow_state(state,workflow)
+    if state['version'] == 6:
+        from .sub_agents import bound_frame, workflow_binding
+        side = state['subAgentsV1']
+        if set(side) != {'binding', 'reservations'} or side['binding'] != workflow_binding(workflow).get('subAgentsV1'):
+            raise ValueError('delegation workflow binding mismatch')
+        reservations = {}
+        for invocation in state['invocations']:
+            aid = invocation['id']
+            record = state['toolContractV1']['attempts'][aid]
+            packed = state.get('contextPacks')
+            frozen = record['frozenInput'] if record is not None else packed['attempts'][aid]['frozenInput']
+            frame = bound_frame(frozen)
+            if frame is not None:
+                reservations[aid] = frame.policy.max_reported_tokens
+        if reservations != side['reservations']:
+            raise ValueError('delegation workflow reservation mismatch')
     if packed:
         from .context_packs.workflow_records import validate_workflow_pack_state
         validate_workflow_pack_state(state,workflow)

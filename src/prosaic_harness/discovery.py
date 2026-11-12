@@ -56,6 +56,9 @@ def _selection(factory):
         'tools': sorted(policy.allowed_tools & factory._tools.keys() & set(config['allowed_tools'])),
         'validators': sorted(policy.allowed_validators & factory._validators.keys()),
     }
+    delegates = getattr(factory, '_sub_agents', None)
+    if delegates is not None:
+        selected['tools'] = [name for name in selected['tools'] if name not in delegates._tools]
     selected['directTools'] = sorted(policy.allowed_direct_tools & set(selected['tools']))
     selected['modelTiers'] = sorted(policy.allowed_model_tiers & config['routes'].keys())
     return selected

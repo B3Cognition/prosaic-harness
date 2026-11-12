@@ -467,3 +467,5 @@ same restored catalogue and binding. Offline receipt adoption needs the original
 trusted catalogue digest. Retained source access still uses the current evidence
 authorizer. A different tool binding version requires new work under the new
 binding. Resolve ambiguous dispatch through the existing journal before retrying.
+
+[Bounded sub-agents](docs/sub-agents.md) covers authored delegation, current grants, storage migration and recovery.
