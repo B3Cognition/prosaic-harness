@@ -59,6 +59,8 @@ def test_lost_parent_receipt_ack_adopts_with_endpoints_offline(rule_endpoint, tm
                   expected_revision=created.revision, on_event=interrupt)
     assert len(requests) == 3
     assert 'Child only dependency' in json.dumps(requests[1])
+    assert 'sourceLocator' not in json.dumps(requests[1])
+    assert 'sourceIdentity' not in json.dumps(requests[1])
     assert 'Parent-only text' not in json.dumps(requests[1])
     fresh = harness.Conversation(chat.bindings, store=store, scope=chat.scope, context=chat.context,
                                  accounting=chat.accounting)
@@ -133,6 +135,8 @@ def test_parent_pack_is_not_inherited_by_child(rule_endpoint):
     assert 'Parent pack sentinel' in json.dumps(requests[0])
     assert 'Parent pack sentinel' not in json.dumps(requests[1])
     assert 'Child only dependency' in json.dumps(requests[1])
+    assert 'sourceLocator' not in json.dumps(requests[1])
+    assert 'sourceIdentity' not in json.dumps(requests[1])
 
 
 
@@ -180,6 +184,8 @@ def test_packed_authored_yaml_binds_the_same_operation_scope(rule_endpoint, tmp_
     assert 'Parent pack sentinel' in json.dumps(requests[0])
     assert 'Parent pack sentinel' not in json.dumps(requests[1])
     assert 'Child only dependency' in json.dumps(requests[1])
+    assert 'sourceLocator' not in json.dumps(requests[1])
+    assert 'sourceIdentity' not in json.dumps(requests[1])
 
 
 

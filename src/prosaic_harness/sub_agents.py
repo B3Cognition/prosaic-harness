@@ -60,6 +60,7 @@ class SubAgentBindingsV1:
         from prosaic_runtime.policy import requested_tools
         from .context_packs import ContextPacker, ContextUse, ExposureBindings, authorize_context_use
         from .context_packs.sources import capture_sources
+        from .context_packs.tool_contracts import public_pack_input
         from .context_packs.codec import digest as pack_digest
         source = decode(self._encoded)
         selected = requested_tools(artifact.frontmatter.get('tools')) & self._tools.keys()
@@ -83,7 +84,7 @@ class SubAgentBindingsV1:
                 raise ValueError('deferred specialist evidence is unsupported')
             refs = [entry['citationId'] or 'ctxstatus_' + pack_digest(entry)
                     for entry in ExposureBindings.from_pack(pack).entries]
-            projections[name] = {'context': {'contextPack': envelope}, 'sources': refs}
+            projections[name] = {'context': public_pack_input({'contextPack': envelope}), 'sources': refs}
         return SubAgentFrameV1(scope, self.policy, self.revision, projections)
 
     def access(self, check_owner):
