@@ -74,9 +74,10 @@ def core_qualification(directory, commit, run_id):
     if run_id is not None:
         if not re.fullmatch(r'[1-9][0-9]*', run_id):
             raise ReleaseError('invalid Core ontology qualification run')
-        run = json.loads(subprocess.check_output([
-            'gh', 'api', f'repos/B3Cognition/prosaic/actions/runs/{run_id}']))
+        run = json.loads((directory / 'ontology-core-run.json').read_bytes())
         validate_candidate_run(run, commit)
+        if run['id'] != int(run_id) or run['repository']['full_name'] != 'B3Cognition/prosaic':
+            raise ReleaseError('Core ontology qualification run identity differs')
         labels = [f'linux-{runner}-{version}-{origin}'
                   for runner in ('ubuntu-24.04', 'ubuntu-24.04-arm')
                   for version in ('3.11', '3.12', '3.13')
@@ -85,6 +86,18 @@ def core_qualification(directory, commit, run_id):
                    for kind in ('', 'ontology-')]
         require_qualification(directory, commit, labels)
     return {**package_binding(directory, commit, CORE), 'run_id': run_id}
+
+
+def fetch_core(directory, commit, run_id):
+    if not re.fullmatch(r'[1-9][0-9]*', run_id or ''):
+        raise ReleaseError('invalid Core ontology qualification run')
+    run = json.loads(subprocess.check_output([
+        'gh', 'api', f'repos/B3Cognition/prosaic/actions/runs/{run_id}'], timeout=60))
+    validate_candidate_run(run, commit)
+    subprocess.run(['gh', 'run', 'download', run_id, '--repo', 'B3Cognition/prosaic',
+                    '--name', 'qualified-release', '--dir', str(directory)], check=True, timeout=120)
+    write_json(directory / 'ontology-core-run.json', run)
+    return core_qualification(directory, commit, run_id)
 
 
 def rebuild(archive, directory):
@@ -136,10 +149,10 @@ def qualify(directory, commit, core_dir, core_commit, runtime_wheel, *, core_run
     write_json(directory / RECEIPT, {'version': 1, 'kind': 'catalogue-ontology', 'core': core,
         'harness': harness, 'runtime': runtime, 'python': platform.python_version(),
         'platform': sys.platform, 'machine': platform.machine(), 'results': records})
-    return verify(directory, commit, hosted=core_run is not None)
+    return verify(directory, commit, hosted=core_run is not None, core_dir=core_dir)
 
 
-def verify(directory, commit, *, hosted):
+def verify(directory, commit, *, hosted, core_dir=None):
     record = json.loads((directory / RECEIPT).read_bytes())
     core, results = record['core'], record['results']
     if (record['version'] != 1 or record['kind'] != 'catalogue-ontology'
@@ -151,6 +164,15 @@ def verify(directory, commit, *, hosted):
                             or record['platform'] != 'linux' or record['machine'] != 'x86_64'))
             or set(results) != set(ORIGINS)):
         raise ReleaseError('ontology compatibility provenance differs')
+    if core_dir is not None:
+        verified_core = core_qualification(core_dir, core['source_commit'], core['run_id'])
+    elif hosted:
+        with tempfile.TemporaryDirectory(prefix='ontology-core-evidence-') as temporary:
+            verified_core = fetch_core(Path(temporary), core['source_commit'], core['run_id'])
+    else:
+        raise ReleaseError('Core candidate evidence is required')
+    if verified_core != core:
+        raise ReleaseError('Core candidate compatibility binding differs')
     for package, prefix in (('core', CORE), ('harness', HARNESS)):
         artifacts = record[package]['artifacts']
         hashes = {item['filename']: item['sha256'] for item in artifacts}
@@ -170,7 +192,7 @@ def verify(directory, commit, *, hosted):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('qualify', 'verify'))
+    parser.add_argument('action', choices=('fetch-core', 'qualify', 'verify'))
     parser.add_argument('--directory', type=lambda value: Path(value).resolve(), required=True)
     parser.add_argument('--commit', required=True)
     parser.add_argument('--core-directory', type=lambda value: Path(value).resolve())
@@ -179,13 +201,15 @@ def main():
     parser.add_argument('--runtime-wheel', type=lambda value: Path(value).resolve())
     parser.add_argument('--hosted', action='store_true')
     args = parser.parse_args()
-    if args.action == 'qualify':
+    if args.action == 'fetch-core':
+        fetch_core(args.directory, args.commit, args.core_run)
+    elif args.action == 'qualify':
         if not all((args.core_directory, args.core_commit, args.runtime_wheel)):
             parser.error('qualification requires Core candidate artifacts and a retained Runtime wheel')
         qualify(args.directory, args.commit, args.core_directory, args.core_commit,
                 args.runtime_wheel, core_run=args.core_run)
     else:
-        verify(args.directory, args.commit, hosted=args.hosted)
+        verify(args.directory, args.commit, hosted=args.hosted, core_dir=args.core_directory)
 
 
 if __name__ == '__main__':

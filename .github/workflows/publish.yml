@@ -432,14 +432,20 @@ jobs:
           name: curated-upstream
           path: release/upstream-wheels
       - run: python -m pip install 'build>=1' 'setuptools>=77' wheel packaging
-      - name: Qualify the same Harness bytes with the Core ontology candidate
+      - name: Fetch the exact qualified Core candidate
         env:
           GH_TOKEN: ${{ secrets.ECOSYSTEM_ARTIFACT_TOKEN || github.token }}
           CORE_RUN: ${{ inputs.ontology_core_run_id }}
           CORE_COMMIT: ${{ inputs.ontology_core_commit }}
         run: |
           [[ "$CORE_RUN" =~ ^[1-9][0-9]*$ && "$CORE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
-          gh run download "$CORE_RUN" --repo B3Cognition/prosaic --name qualified-release --dir release/ontology-core
+          python scripts/catalogue_ontology_qualify.py fetch-core --directory release/ontology-core \
+            --commit "$CORE_COMMIT" --core-run "$CORE_RUN"
+      - name: Qualify the same Harness bytes with the Core ontology candidate
+        env:
+          CORE_RUN: ${{ inputs.ontology_core_run_id }}
+          CORE_COMMIT: ${{ inputs.ontology_core_commit }}
+        run: |
           python scripts/catalogue_ontology_qualify.py qualify \
             --directory release/artifacts --commit "$(git rev-parse HEAD)" \
             --core-directory release/ontology-core --core-run "$CORE_RUN" --core-commit "$CORE_COMMIT" \
@@ -502,7 +508,10 @@ jobs:
                   counts = record['result_counts']
                   assert counts['tests'] > 0 and all(counts[key] == 0 for key in ('failures', 'errors', 'skipped'))
           PY
-          python scripts/catalogue_ontology_qualify.py verify --directory release/artifacts --commit "$PROSAIC_RELEASE_SOURCE" --hosted
+      - name: Rebind ontology compatibility to the qualified Core run
+        env:
+          GH_TOKEN: ${{ secrets.ECOSYSTEM_ARTIFACT_TOKEN || github.token }}
+        run: python scripts/catalogue_ontology_qualify.py verify --directory release/artifacts --commit "$PROSAIC_RELEASE_SOURCE" --hosted
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: qualified-release
