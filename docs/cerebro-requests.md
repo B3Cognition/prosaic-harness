@@ -36,12 +36,17 @@ adoption while the endpoint is offline. See the
 | Parallel tool calls | Explicit independent reads in fixed bounded windows; omitted policy remains sequential | Released: host-reviewed read registrations, per-node limits, serial barriers, ordered evidence and joined cancellation. Native and installed checks cover both wires. |
 | MCP client | Local `CustomTool` registry with schema validation, explicit grants and bounded results | Released: optional SDK-backed adapter with scoped catalogs, bounded results and per-call authorization. MCP calls form serial barriers in parallel tool batches. |
 
-## Next follow-up — sub-agents
+## Bounded sub-agents
 
-Design named, host-registered delegates with scoped context and tools. Use the
-existing specialist prompts, context packs and child accounting context as the
-foundation. Define parent and child budget accounting, depth and call limits,
-cancellation and durable result adoption.
+Runtime 0.9.23 and Harness 0.9.17 implement one level of serial delegation for
+host-authored workflow nodes and conversations. The host registers each alias,
+binds it to an independent context pack and reviewed read tools, and grants
+current access. The coordinator owns the final answer and can cite approved
+observations. PostgreSQL storage uses adapter 0.4.5 with explicit owner
+migration. Lab 0.9.16 provides a copyable dependency analyst and reviewer.
+
+See the [workflow authoring and recovery guide](sub-agents.md) and the
+[Harness release notes](release-0.9.17.md).
 
 ## Earlier requests — recorded 2026-11-07
 
