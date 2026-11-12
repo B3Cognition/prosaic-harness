@@ -23,7 +23,7 @@ import prosaic_runtime
 import prosaic_harness
 from prosaic_runtime import CustomTool, EndpointConfig, ProsaicArtifact, RuntimeConfig
 from prosaic_harness import (FileRunStore, Harness, Validator, WorkflowBindings,
-                             WorkflowCatalog, WorkflowFactory, WorkflowPolicy,
+                             WorkflowAdmissionError, WorkflowCatalog, WorkflowFactory, WorkflowPolicy,
                              WorkflowBundle, WorkflowReference)
 
 
@@ -168,6 +168,16 @@ def exercise_factory():
             definition = proposal()
             factory = make_factory(url, tool_calls)
             description = factory.describe(include_schemas=True)
+            assert factory.describe(include_schemas=True, include_ontology=True) == description
+            if metadata.version('b3-prosaic') == '0.5.0':
+                attachment = {'schemaVersion': 1, 'ontologyId': 'smoke', 'concepts': {},
+                              'relations': [], 'agents': {}, 'tools': {}}
+                try:
+                    WorkflowCatalog(ontology=attachment)
+                except WorkflowAdmissionError as error:
+                    assert error.code == 'invalid_definition'
+                else:
+                    raise AssertionError('Core 0.5.0 unexpectedly accepted an ontology attachment')
             assert description['defaultModelTierAllowed'] is True
             assert description['limits']['maxProviderRequestsPerInvocation'] == 2
             assert description['limitUnits']['maxToolCallsPerInvocation'] == 'perInvocation'
