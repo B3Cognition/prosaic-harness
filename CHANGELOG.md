@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.18
+
+- Add opt-in v1 catalogue ontology discovery for registered agents and tools.
+- Require Core 0.5.1 for an attachment and retain Core 0.5.0 support for ordinary
+  use. Preserve workflow identity and existing PostgreSQL 0.4.5 storage.
+- See the [0.9.18 release notes](docs/release-0.9.18.md).
+
 ## 0.9.17 / PostgreSQL 0.4.5 — 2026-11-12
 
 - Add host-bound specialist aliases, per-specialist context packs and shared execution limits.

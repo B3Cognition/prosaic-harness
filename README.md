@@ -1,9 +1,10 @@
 # Prosaic Harness
 
-Harness **0.9.17** adds [bounded sub-agents](docs/sub-agents.md) to authored workflow nodes and conversations using Runtime **0.9.23**. See the [release notes](docs/release-0.9.17.md) and [PostgreSQL 0.4.5 migration notes](docs/release-postgres-0.4.5.md).
+Harness **0.9.18** adds opt-in [catalogue ontology](docs/catalogue-ontology.md)
+with Core **0.5.1**. Ordinary Harness use still supports Core **0.5.0**. See the
+[0.9.18 release notes](docs/release-0.9.18.md).
 
-The 0.9.18 candidate adds optional [catalogue ontology](docs/catalogue-ontology.md)
-with Core 0.5.1. Ordinary Harness use supports Core 0.5.0.
+Harness **0.9.17** adds [bounded sub-agents](docs/sub-agents.md) to authored workflow nodes and conversations using Runtime **0.9.23**. See the [release notes](docs/release-0.9.17.md) and [PostgreSQL 0.4.5 migration notes](docs/release-postgres-0.4.5.md).
 
 Harness **0.9.16** admits [MCP read-tool bindings](docs/release-0.9.16.md) for workflow nodes and conversations with Runtime 0.9.22 and its optional MCP extra.
 
@@ -62,12 +63,12 @@ conversation and run caps wins; explicit tighter run caps stay intact. See
 [input request caps](docs/conversations.md#input-request-caps) to configure both
 policies from one value for new sessions.
 
-The `b3-prosaic-harness` 0.9.16 distribution selects
+The `b3-prosaic-harness` 0.9.18 distribution selects
 `b3-prosaic-runtime>=0.9.21,<0.10` and directly requires `b3-prosaic>=0.5.0,<0.6`. The optional `b3-prosaic-harness-postgres`
-**0.4.4** package supports shared workflow and conversation storage.
+**0.4.5** package supports shared workflow and conversation storage.
 Imports (`prosaic_harness`) and CLI commands (`prosaic-harness`) remain unchanged.
 Runtime **0.9.19** retains per-invocation headers, canonical `effort: none` and Gemma thinking controls.
-Install with `python -m pip install 'b3-prosaic-harness==0.9.16'`.
+Install with `python -m pip install 'b3-prosaic-harness==0.9.18'`.
 See [reasoning in workflows](docs/reasoning-effort.md), the
 [conversation installation guide](docs/conversations.md#install-the-compatible-candidate-train)
 and [package migration](docs/package-migration.md) for fresh environments.
