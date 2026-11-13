@@ -1,5 +1,9 @@
 # Releases and compatibility
 
+Harness 0.9.18 adds opt-in [catalogue ontology](release-0.9.18.md) with Core
+0.5.1 and Runtime 0.9.23. Ordinary Harness use retains Core 0.5.0 support.
+Existing PostgreSQL adapters require no migration for this feature.
+
 Harness 0.9.17 and PostgreSQL store 0.4.5 add [bounded sub-agents](release-0.9.17.md) with Runtime 0.9.23. See [owner migration](release-postgres-0.4.5.md).
 
 Harness 0.9.16 adds [MCP read-tool bindings](release-0.9.16.md) with Runtime 0.9.22.
