@@ -21,7 +21,7 @@ CORE_VERSION = PROJECT['version']
 RUNTIME_REQUIREMENT = next(Requirement(value) for value in PROJECT['dependencies']
                            if Requirement(value).name == 'b3-prosaic-runtime')
 # The qualified train may be newer than the declared compatibility floor.
-RUNTIME_VERSION = '0.9.23'
+RUNTIME_VERSION = '0.9.25'
 CORE = project_wheel(ROOT)
 ADAPTER = project_wheel(ROOT, 'adapters/postgres')
 
