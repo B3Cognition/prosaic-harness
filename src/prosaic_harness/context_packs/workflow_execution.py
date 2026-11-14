@@ -289,7 +289,9 @@ def execute_prepared(controller,state,prepared,frame,pack,reader,deadline):
             **({'tool_journal':journal} if journal is not None else {}),
             **({'observer':controller._observations.observer} if controller._observations.observer is not None else {}))
     controller._check_ownership()
-    result=result_with_pack_proof(turn,frame) if name in compiled(workflow) else turn.result
+    from ..guarded_recovery import with_recovery
+    result = (result_with_pack_proof(turn, frame) if name in compiled(workflow)
+              else with_recovery(turn, turn.result, None))
     packet=make_workflow_pack_receipt(state,workflow,turn,events=events,
         result={key:getattr(result,key) for key in ('exit_code','stdout','stderr','token_usage','cost_usd','timed_out','metadata')})
     controller.store.save_receipt(controller._storage_run_id,aid,packet,controller._lease)

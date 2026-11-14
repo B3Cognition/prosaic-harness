@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.19
+
+- Bind Runtime recovery options to workflow and conversation identity. Store bounded recovery outcomes in invocation receipts.
+- See the [0.9.19 release notes](docs/release-0.9.19.md).
+
 ## 0.9.18
 
 - Add opt-in v1 catalogue ontology discovery for registered agents and tools.

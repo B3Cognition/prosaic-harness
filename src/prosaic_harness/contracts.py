@@ -71,6 +71,18 @@ def validate_receipt(receipt, state, pending, workflow=None):
         if pending['step'] in compiled(workflow) and (not packed or receipt['contextPack'] is None):
             validate_proof(result['metadata'].get('workflow_rules_v1'), workflow, pending['step'],
                 receipt['arguments'], success=result['exit_code'] == 0)
+    if 'guarded_recovery_v1' in result['metadata']:
+        from .guarded_recovery import validate_recovery
+        pack_result = receipt.get('contextPackResult') or {}
+        tool_contract = receipt.get('toolContractV1') or {}
+        evidence = pack_result.get('evidence') or tool_contract.get('evidence') or {}
+        rule_proof = result['metadata'].get('workflow_rules_v1')
+        rules = pack_result.get('rules')
+        if rules is None and type(rule_proof) is dict:
+            rules = rule_proof.get('rules')
+        validate_recovery(result['metadata']['guarded_recovery_v1'], rules,
+            provider_attempts=evidence.get('providerAttempts'),
+            options=workflow._rule_bindings.recovery if workflow is not None else None)
     accounting = result['metadata'].get('accounting_v1')
     if 'accounting_v1' in result['metadata']:
         from prosaic_runtime.accounting import ResolvedContext
