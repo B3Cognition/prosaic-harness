@@ -9,6 +9,7 @@ from .conversation_errors import ConversationError
 from .run_store import StoreCorrupt, validate_id, validate_revision
 from .session_codec import encode, decode, owned, digest, reference, node_count
 from .conversation_rules import rule_receipt, validate_rule_receipt
+from .guarded_recovery import recovery_receipt, validate_recovery
 from .session_tool_contracts import has_packs
 
 _HASH = re.compile('[0-9a-f]{64}')
@@ -578,7 +579,7 @@ def verify_receipt(document):
             *(RECEIPT_FIELDS if value.get('version') in (2,3,4,5,6) else ()),
             *({'contextPack','exposureBindings'} if value.get('version') in (3,4,5,6) else ()),
             *({'toolContractV1'} if value.get('version') in (4,5,6) else ()),*({'parallelToolsV1'} if value.get('version')==5 or value.get('version')==6 and 'parallelToolsV1' in value else ()),
-            *({'subAgentsV1'} if value.get('version')==6 else ())}, optional={'rules'})
+            *({'subAgentsV1'} if value.get('version')==6 else ())}, optional={'rules', 'guardedRecoveryV1'})
         verify_seal(value)
         if type(value['version']) is not int or value['version'] not in (1,2,3,4,5,6) or value['recordType']!='receipt':
             raise ValueError('receipt version')
@@ -605,6 +606,9 @@ def verify_receipt(document):
             raise ValueError('evidence result mismatch')
         if 'rules' in value:
             validate_rule_receipt(value['rules'])
+        if 'guardedRecoveryV1' in value:
+            validate_recovery(value['guardedRecoveryV1'], value.get('rules'),
+                              provider_attempts=value['evidence']['providerAttempts'])
         if value['version'] in (3,4,5,6) and value['contextPack'] is not None:
             from .context_packs.records import validate_pack_receipt
             validate_pack_receipt(value)
@@ -675,6 +679,7 @@ def make_receipt(document, invocation_id, result,*,tool_events=(),events_truncat
     evidence=result.evidence.to_dict()
     try:
         rules = rule_receipt(result)
+        recovery = recovery_receipt(result, rules)
     except (ValueError, TypeError, UnicodeError, AttributeError):
         raise StoreCorrupt('invalid Runtime rule result') from None
     packet=seal({'version':1,'recordType':'receipt','sessionId':state['sessionId'],'scope':state['scope'],
@@ -683,7 +688,8 @@ def make_receipt(document, invocation_id, result,*,tool_events=(),events_truncat
         'result':{'exitCode':result.result.exit_code,'answer':result.result.stdout if result.result.exit_code==0 else '',
                   'failureCode':evidence['failureCode'],'timedOut':result.result.timed_out},
         'completedTurn':result.completed_turn.to_dict() if result.completed_turn is not None else None,
-        'evidence':evidence, **({'rules': rules} if rules is not None else {})})
+        'evidence':evidence, **({'rules': rules} if rules is not None else {}),
+        **({'guardedRecoveryV1': recovery} if recovery is not None else {})})
     if state['version'] in (2,3,4,5,6):
         purpose=state['contextBindings'][attempt['purpose']]
         packet=seal({**packet,'version':state['version'],'contextSelection':attempt['contextSelection'],

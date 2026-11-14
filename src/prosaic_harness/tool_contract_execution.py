@@ -138,7 +138,9 @@ def execute_prepared(controller, state, prepared, binding, policy):
                 return True
             options['sub_agent_access'] = workflow._sub_agents.access(owner_valid)
         turn = controller.runtime.turn(prepared, on_admitted=dispatch, **options)
-        result = result_with_proof(turn, name, pending['arguments'], prepared) if name in compiled(workflow) else turn.result
+        from .guarded_recovery import with_recovery
+        result = (result_with_proof(turn, name, pending['arguments'], prepared)
+                  if name in compiled(workflow) else with_recovery(turn, turn.result, None))
     controller._check_ownership()
     proof = freeze_tool_contract_receipt(workflow, binding.scope, result, turn=turn, prepared=prepared)
     payload = {key: getattr(result, key) for key in ('exit_code', 'stdout', 'stderr', 'token_usage', 'cost_usd', 'timed_out', 'metadata')}

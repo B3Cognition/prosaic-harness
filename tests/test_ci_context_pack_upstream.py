@@ -12,7 +12,7 @@ def upstream(tmp_path,monkeypatch):
     spec=importlib.util.spec_from_file_location('branch_upstream',path)
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     core=tmp_path/'b3_prosaic-0.5.0-py3-none-any.whl';core.write_bytes(b'core-fixture')
-    runtime=tmp_path/'b3_prosaic_runtime-0.9.23-py3-none-any.whl';runtime.write_bytes(b'runtime-fixture')
+    runtime=tmp_path/'b3_prosaic_runtime-0.9.25-py3-none-any.whl';runtime.write_bytes(b'runtime-fixture')
     monkeypatch.setattr(module,'CORE_SHA',hashlib.sha256(core.read_bytes()).hexdigest(),raising=False)
     return module,tmp_path,'a'*40
 

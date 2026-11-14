@@ -25,6 +25,7 @@ from .graph_admission import validate_resolved_workflow
 from .schema_validation import admit_schema
 from .validation import Validator
 from .conversation_rules import requires_rule_support
+from .guarded_recovery import RecoveryOptions
 from .workflow import Workflow, digest, runtime_identity
 
 
@@ -187,7 +188,8 @@ class WorkflowBindings:
     def __init__(self, *, config, custom_tools=None, validators=None,
                  operation_namespace=None, tool_journal=None, runtime_adapter=None,
                  guards=(), rule_project=None, rule_project_identity=None,
-                 context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None,sub_agents=None):
+                 context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None,sub_agents=None,
+                 rule_retries=1, correct_malformed_tool_calls=False):
         from .context_packs.bindings import ContextPackBindings,admit_options
         from .tool_contracts import ToolContracts
         if tool_contracts is not None and type(tool_contracts) is not ToolContracts: _fail('binding_mismatch')
@@ -201,11 +203,13 @@ class WorkflowBindings:
         if context_packs is not None and type(context_packs) is not ContextPackBindings: _fail('binding_mismatch')
         self._context_packs=context_packs.frozen_copy() if context_packs is not None else None
         self._feedback_catalog,self._repeatable_validators=admit_options(feedback_catalog,repeatable_validators)
-        self._rule_bindings = RuleBindings.create(guards, rule_project, rule_project_identity)
+        recovery = RecoveryOptions(rule_retries, correct_malformed_tool_calls)
+        self._rule_bindings = RuleBindings.create(guards, rule_project, rule_project_identity, recovery=recovery)
         self._config_json = _encode(_config_payload(config, native=True))
         if runtime_adapter is not None:
             if type(runtime_adapter) is not RuntimeAdapter:
                 _fail('binding_mismatch')
+            recovery.check_runtime(runtime_adapter)
             runtime_adapter.validate_binding()
             if _encode(_config_payload(runtime_adapter.config)) != self._config_json:
                 _fail('binding_mismatch')
@@ -552,6 +556,7 @@ class WorkflowFactory:
                                         custom_tools=tools, validators=validators,
                                         guards=self._rule_bindings.guards, rule_project=self._rule_bindings.project,
                                         rule_project_identity=self._rule_bindings.identity,
+                                        **self._rule_bindings.recovery.runtime_options(),
                                         tool_contracts=self._tool_contracts,sub_agents=self._sub_agents,
                                         context_packs=self._context_packs.frozen_copy() if self._context_packs is not None else None,
                                         feedback_catalog=self._feedback_catalog,repeatable_validators=self._repeatable_validators,
@@ -783,7 +788,7 @@ class WorkflowFactory:
         workflow._tool_contracts=self._tool_contracts.frozen_copy() if self._tool_contracts is not None else None
         workflow._sub_agents = self._sub_agents
         workflow._rule_bindings = RuleBindings(self._rule_bindings.guards, self._rule_bindings.project,
-            self._rule_bindings.identity, policy.allowed_guards)
+            self._rule_bindings.identity, policy.allowed_guards, self._rule_bindings.recovery)
         # Only enforced-rule graphs gain explicit host defaults, preserving old seals.
         from prosaic_runtime.rules import artifact_rules
         parsed_rules = [artifact_rules(a) for a in artifacts.values()]

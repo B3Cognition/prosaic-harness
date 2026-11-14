@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from .session_codec import owned, encode
+from .guarded_recovery import recovery_bound
 
 MAX_RULE_RECEIPT_BYTES = 262_144
 _GROUPS = ('evaluated', 'violated', 'fixed', 'faulted')
@@ -96,13 +97,14 @@ def rule_receipt(result):
     return validate_rule_receipt({'version': 1, **groups, 'fingerprint': fingerprint})
 
 
-def receipt_bound(runtime, artifact):
+def receipt_bound(runtime, artifact, recovery=None):
     """Reserve the worst rule extension before provider spend, including all outcomes."""
     if 'rule_admission_v1' not in runtime.capabilities:
         return 0
     coverage = runtime.rule_coverage(artifact)
     ids = coverage['registered'] + coverage['unregistered']
     if not ids:
-        return 0
+        return recovery_bound([], recovery) if recovery is not None else 0
     largest = validate_rule_receipt({'version': 1, **dict.fromkeys(_GROUPS, ids), 'fingerprint': 'f'*64})
-    return len(encode({'rules': largest}))
+    size = len(encode({'rules': largest}))
+    return size + recovery_bound(ids, recovery) + 1 if recovery is not None else size

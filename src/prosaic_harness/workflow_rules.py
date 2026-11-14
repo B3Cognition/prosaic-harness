@@ -13,6 +13,7 @@ from prosaic_runtime.rules import artifact_rules, turn_rules
 from .conversation_rules import registrations, descriptors, source_options
 from .conversation_rules import rule_receipt, validate_rule_receipt
 from .session_codec import owned
+from .guarded_recovery import RecoveryOptions, with_recovery
 
 CAPS = ('max_provider_requests_per_invocation', 'max_tool_calls_per_invocation')
 FACT_PROFILE = 'workflow-guard-input-v1'
@@ -24,9 +25,10 @@ class RuleBindings:
     project: Path | None = None
     identity: str | None = None
     allowed: frozenset | None = None
+    recovery: RecoveryOptions = RecoveryOptions()
 
     @classmethod
-    def create(cls, guards=(), project=None, identity=None, allowed=None):
+    def create(cls, guards=(), project=None, identity=None, allowed=None, *, recovery=RecoveryOptions()):
         if project is None:
             if identity is not None:
                 raise ValueError('rule project identity requires a project')
@@ -35,13 +37,15 @@ class RuleBindings:
                 raise ValueError('rule project requires an absolute host root and bounded logical identity')
             project = Path(project).resolve()
             source_options(project)
-        return cls(registrations(guards), project, identity, allowed)
+        return cls(registrations(guards), project, identity, allowed, recovery)
 
     def runtime_options(self):
-        return {'guards': self.guards, **source_options(self.project)} if self.guards or self.project else {}
+        options = {'guards': self.guards, **source_options(self.project)} if self.guards or self.project else {}
+        return {**options, **self.recovery.runtime_options()}
 
     def bundle_material(self):
-        return {'guards': descriptors(self.guards), 'project': self.identity} if self.guards or self.project else None
+        material = {'guards': descriptors(self.guards), 'project': self.identity} if self.guards or self.project else {}
+        return {**material, **self.recovery.material()} or None
 
 
 def compiled(workflow):
@@ -69,17 +73,19 @@ def compiled(workflow):
 
 def material(workflow):
     rules = compiled(workflow)
-    if not rules:
-        return {}
     bindings = workflow._rule_bindings
+    recovery = bindings.recovery.material()
+    if not rules:
+        return recovery
     used = {b.guard_name for ruleset in rules.values() for b in ruleset.bindings}
-    return {'workflow_rules': {'version': 1, 'facts': FACT_PROFILE,
+    return {**recovery, 'workflow_rules': {'version': 1, 'facts': FACT_PROFILE,
         'project': bindings.identity,
         'guards': descriptors([g for g in bindings.guards if g.name in used]),
         'steps': {name: value.material() for name, value in rules.items()}}}
 
 
 def check_runtime(workflow, runtime):
+    workflow._rule_bindings.recovery.check_runtime(runtime)
     expected = compiled(workflow)
     if not expected or runtime is None:
         return
@@ -130,7 +136,8 @@ def result_with_proof(turn, step, arguments, prepared):
     rules = rule_receipt(turn)
     if rules is None:
         raise ValueError('missing guarded Runtime evidence')
-    return replace(turn.result, metadata={**turn.result.metadata,
+    result = with_recovery(turn, turn.result, rules)
+    return replace(result, metadata={**result.metadata,
         'workflow_rules_v1': proof(step, arguments, prepared.context_identity, rules)})
 
 
@@ -172,7 +179,8 @@ def result_with_pack_proof(turn,frame):
     from dataclasses import replace
     rules=rule_receipt(turn)
     if rules is None: raise ValueError('missing guarded Runtime evidence')
-    return replace(turn.result,metadata={**turn.result.metadata,'workflow_rules_v2':pack_proof(frame,rules)})
+    result = with_recovery(turn, turn.result, rules)
+    return replace(result,metadata={**result.metadata,'workflow_rules_v2':pack_proof(frame,rules)})
 
 
 def validate_pack_proof(value,workflow,step,frame,result,*,success=False):

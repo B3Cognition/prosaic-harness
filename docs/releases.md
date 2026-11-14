@@ -1,5 +1,7 @@
 # Releases and compatibility
 
+Harness 0.9.19 adds [guarded-turn recovery](release-0.9.19.md) with Runtime 0.9.25.
+
 Harness 0.9.18 adds opt-in [catalogue ontology](release-0.9.18.md) with Core
 0.5.1 and Runtime 0.9.23. Ordinary Harness use retains Core 0.5.0 support.
 Existing PostgreSQL adapters require no migration for this feature.

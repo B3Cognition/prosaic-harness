@@ -14,11 +14,11 @@ from release_artifacts import (ReleaseError, digest, require_qualification, tar_
 
 
 CORE = 'b3_prosaic-0.5.1'
-HARNESS = 'b3_prosaic_harness-0.9.18'
-RUNTIME = 'b3_prosaic_runtime-0.9.23-py3-none-any.whl'
-RUNTIME_SHA = '5caab59f6d0ffd14299ee0840dd5f9b58b4e4f4a1b724ff6e3e2fa1699f08fd8'
-RUNTIME_SOURCE = '48c10ac9aeb18bd06f53015df0624b35d5254646'
-RUNTIME_RUN = '43210113804'
+HARNESS = 'b3_prosaic_harness-0.9.19'
+RUNTIME = 'b3_prosaic_runtime-0.9.25-py3-none-any.whl'
+RUNTIME_SHA = 'aff0106e1fc0c3f81e6435555609050a94051e029185ecba3d6ea8fa2f789004'
+RUNTIME_SOURCE = 'a8aac088bb07a705b4dee619945bc4c2921fd1a6'
+RUNTIME_RUN = '43483771269'
 RECEIPT = 'catalogue-ontology-compatibility.json'
 ORIGINS = ('wheel', 'sdist')
 CASES = sorted((

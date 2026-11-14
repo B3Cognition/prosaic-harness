@@ -22,7 +22,7 @@ def output_pack_binding(frame):
         contextSourceRevisions=frame.candidates.snapshot.to_dict()['sources'])
 
 
-def metadata_bounds(frame,tool_bytes):
+def metadata_bounds(frame,tool_bytes,*,recovery=None):
     """Bound all receipt metadata occurrences, including duplicated proofs.
 
     Tool outcomes already have their own body/envelope reservations. Evidence
@@ -56,7 +56,15 @@ def metadata_bounds(frame,tool_bytes):
         byte_bound+=tool_room+contract['max_citation_bytes']+4096
         registry_nodes=contract['max_registry_items']*(32+4*frozen['bindings']['policy']['max_provider_requests'])
         node_bound=2048+_nodes(maximum_proof)+_nodes(maximum_rules)+_nodes(report)+registry_nodes+contract['max_citations']*8+_nodes(frozen['bindings']['toolContractV1'])+2*tool_nodes
-    return byte_bound,node_bound,limits['max_metadata_bytes']+proof_bytes
+    recovery_bytes = 0
+    if recovery is not None:
+        from ..guarded_recovery import recovery_bound
+        ids = maximum_rules['evaluated'] if maximum_rules else []
+        recovery_bytes = recovery_bound(ids, recovery)
+        if recovery_bytes:
+            byte_bound += recovery_bytes
+            node_bound += 16 + 2 * len(ids)
+    return byte_bound,node_bound,limits['max_metadata_bytes']+proof_bytes+recovery_bytes
 
 
 def upgrade_pack_workflow(document,workflow,*,assembly_bindings=None):
@@ -90,7 +98,7 @@ def reserve_workflow_pack_attempt(document,workflow,step,arguments,frame,*,tool_
     if state['version'] in (4,5,6): state['toolContractV1']['attempts'][aid]=None
     state['contextPacks']['reservations'][aid]=None
     policy=storage_policy(workflow)
-    metadata_bytes,metadata_nodes,result_metadata_bytes=metadata_bounds(frame,tool_result_bytes)
+    metadata_bytes,metadata_nodes,result_metadata_bytes=metadata_bounds(frame,tool_result_bytes,recovery=workflow._rule_bindings.recovery)
     if result_metadata_bytes>policy.max_metadata_bytes: raise ContextPackError('contextPackLimit')
     packet=dict(version=state['version']-1,recordType='workflowReceipt',run_id=state['run_id'],id=aid,step=step,
         arguments_sha256=arguments_digest(arguments),arguments=arguments,contextPack=frame.to_dict(),contextPackResult=None,
@@ -150,6 +158,8 @@ def validate_workflow_pack_state(state,workflow):
         if reservation is None: raise ContextPackError('contextBindingMismatch')
         bound=PackReservation.from_dict(reservation)
         caps=storage_policy(workflow)
+        # Prior releases reserved against v1 proofs. New attempts reserve
+        # recovery separately before dispatch, without invalidating saved runs.
         minimum_bytes,minimum_nodes,result_bytes=metadata_bounds(frame,bound.tool_result_bytes)
         limits=frame.frozen_input.to_dict()['bindings']['limits']
         policy=frame.frozen_input.to_dict()['bindings']['policy']
@@ -256,6 +266,7 @@ def validate_workflow_pack_receipt(packet,state,pending,workflow):
     frozen=frame.frozen_input.to_dict()
     runtime_metadata=dict(packet['result']['metadata'])
     runtime_metadata.pop('workflow_rules_v2',None)
+    runtime_metadata.pop('guarded_recovery_v1',None)
     limits=frozen['bindings']['limits']
     if (len(encode(runtime_metadata))>limits['max_metadata_bytes']
             or len(encode(evidence))>limits['max_evidence_bytes']

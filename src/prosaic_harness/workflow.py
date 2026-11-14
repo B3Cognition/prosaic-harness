@@ -131,11 +131,13 @@ class Workflow:
     @classmethod
     def load(cls, path, *, executable='prosaic', custom_tools=None, allowed_direct_tools=frozenset(), guards=(),
              context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None,parallel_tools=None,
-             operation_namespace=None,tool_journal=None,sub_agents=None):
+             operation_namespace=None,tool_journal=None,sub_agents=None,
+             rule_retries=1, correct_malformed_tool_calls=False):
         try:
             return cls._load(path, executable=executable, custom_tools=custom_tools, allowed_direct_tools=allowed_direct_tools, guards=guards,
                 context_packs=context_packs,feedback_catalog=feedback_catalog,repeatable_validators=repeatable_validators,tool_contracts=tool_contracts,parallel_tools=parallel_tools,
-                operation_namespace=operation_namespace,tool_journal=tool_journal,sub_agents=sub_agents)
+                operation_namespace=operation_namespace,tool_journal=tool_journal,sub_agents=sub_agents,
+                rule_retries=rule_retries,correct_malformed_tool_calls=correct_malformed_tool_calls)
         except WorkflowAdmissionError as exc:
             if exc.code == 'invalid_schema':
                 raise ValueError('invalid workflow definition: schema must be valid and support internal references only') from None
@@ -146,7 +148,8 @@ class Workflow:
     @classmethod
     def _load(cls, path, *, executable, custom_tools, allowed_direct_tools, guards,
               context_packs=None,feedback_catalog=None,repeatable_validators=None,tool_contracts=None,parallel_tools=None,
-             operation_namespace=None,tool_journal=None,sub_agents=None):
+             operation_namespace=None,tool_journal=None,sub_agents=None,
+             rule_retries=1, correct_malformed_tool_calls=False):
         path = Path(path).resolve()
         if path.suffix not in {'.yml', '.yaml'}:
             raise ValueError('workflow must use YAML/YML')
@@ -186,7 +189,10 @@ class Workflow:
                 raise ValueError('invalid delegation registration')
             registry = sub_agents.bind_tools(registry)
         # Preserve compatibility with the released Runtime for no-custom flows.
-        adapter = ProsaicRuntime(config, custom_tools=registry) if registry else ProsaicRuntime(config)
+        from .guarded_recovery import RecoveryOptions
+        recovery = RecoveryOptions(rule_retries, correct_malformed_tool_calls)
+        adapter = ProsaicRuntime(config, **({"custom_tools": registry} if registry else {}),
+                                 **recovery.runtime_options())
         registered = dict(getattr(adapter, 'tool_descriptors', {}))
         source = local(root, raw.get('source', '.prosaic'))
         evidence = raw.get('evidence', [])
@@ -314,7 +320,7 @@ class Workflow:
         # and manually assembled execution objects. No native limits are applied.
         workflow = cls(path, raw, config, artifacts, schemas, '', acquisitions,
                        MappingProxyType(registry), {}, allowed_direct_tools)
-        workflow._rule_bindings = RuleBindings.create(guards, root, 'workflow-directory-v1')
+        workflow._rule_bindings = RuleBindings.create(guards, root, 'workflow-directory-v1', recovery=recovery)
         from .tool_contracts import ToolContracts,material as tool_contract_material
         if tool_contracts is not None and type(tool_contracts) is not ToolContracts: raise ValueError('invalid tool contracts')
         workflow._parallel_tool_policy=parallel_tools

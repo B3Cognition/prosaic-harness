@@ -1083,7 +1083,9 @@ class Harness:
                                 max_tool_calls=limits['max_tool_calls_per_invocation'])
                         maximum = maximum_proof(self.workflow, name, arguments)
                         caps = self._admission.policy if self._admission else None
-                        overhead = len(json.dumps({'workflow_rules_v1': maximum}).encode()) + 128
+                        from .guarded_recovery import recovery_bound
+                        recovery_room = recovery_bound(maximum['rules']['evaluated'], self.workflow._rule_bindings.recovery)
+                        overhead = len(json.dumps({'workflow_rules_v1': maximum}).encode()) + 128 + recovery_room
                         if caps and overhead > caps.max_metadata_bytes:
                             return self._block(state, 'metadata_limit')
                         turn_limits = TurnLimits(**({
@@ -1105,7 +1107,7 @@ class Harness:
                                 'arguments_sha256': digest(arguments), 'arguments': arguments,
                                 'result': self._failure_result({'metadata': {'workflow_rules_v1': maximum}}, 'receipt_limit'),
                                 'events': []})
-                            self._bounded_document(minimum, caps.max_receipt_bytes, reserve=4096, reserve_nodes=64)
+                            self._bounded_document(minimum, caps.max_receipt_bytes, reserve=4096 + recovery_room, reserve_nodes=64 + 2 * len(maximum['rules']['evaluated']))
                     except (TurnAdmissionError, WorkflowAdmissionError, ValueError, TypeError):
                         return self._block(state, 'invocation_limit')
                 state['calls'] += 1
@@ -1298,6 +1300,13 @@ class Harness:
         if type(payload.get('metadata')) is dict and 'workflow_rules_v1' in payload['metadata']:
             from .session_codec import owned
             metadata['workflow_rules_v1'] = owned(payload['metadata']['workflow_rules_v1'], maximum=262_144, nodes=4096)
+        if type(payload.get('metadata')) is dict and 'guarded_recovery_v1' in payload['metadata']:
+            from .guarded_recovery import validate_recovery
+            try:
+                metadata['guarded_recovery_v1'] = validate_recovery(payload['metadata']['guarded_recovery_v1'],
+                    metadata.get('workflow_rules_v1', {}).get('rules'), options=self.workflow._rule_bindings.recovery)
+            except ValueError:
+                pass
         if self._admission and self._admission.policy.allowed_terminal_tools:
             metadata.update(failure_evidence(payload.get('metadata')))
         # Keep safe accounting lineage where it fits, without retaining arbitrary

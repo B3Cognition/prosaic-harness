@@ -18,6 +18,7 @@ from .schema_validation import admit_schema
 from .session_codec import encode, decode, owned, digest, reference
 from .validation import Validator
 from .conversation_rules import registrations, descriptors, receipt_bound, source_options
+from .guarded_recovery import RecoveryOptions
 
 _ADMITTED = object()
 
@@ -270,9 +271,11 @@ class ConversationBindings:
                  workspace=None, workspace_identity=None, interpreter=None,
                  interpretation_policy=None, interpretation_schema=None, workflows=None,
                  context_policy=None, interpretation_context_policy=None, token_counters=None,
-                 guards=(), rule_project=None, rule_project_identity=None,context_packs=None,tool_contracts=None,sub_agents=None):
+                 guards=(), rule_project=None, rule_project_identity=None,context_packs=None,tool_contracts=None,sub_agents=None,
+                 rule_retries=1, correct_malformed_tool_calls=False):
         try:
             reference(version)
+            recovery = RecoveryOptions(rule_retries, correct_malformed_tool_calls)
             from .tool_contracts import ToolContracts, conversation_material
             if tool_contracts is not None:
                 if type(tool_contracts) is not ToolContracts: raise ConversationError('bindingMismatch')
@@ -331,10 +334,12 @@ class ConversationBindings:
                 raise ConversationError('bindingMismatch')
             runtime = ProsaicRuntime(_config_from_json(encode(config_data).decode()), custom_tools=tools,
                 **({'guards': registered_guards} if registered_guards else {}),
-                **source_options(rule_project))
+                **source_options(rule_project), **recovery.runtime_options())
             validate_conversation_mcp(ProsaicRuntime, approved, tools, operation_namespace, tool_journal)
             interpreting_agent = _artifact_snapshot(interpreter) if interpreter is not None else None
-            rule_room = max(receipt_bound(runtime, approved),
+            rule_room = max(receipt_bound(runtime, approved, recovery),
+                receipt_bound(runtime, interpreting_agent, recovery) if interpreting_agent is not None else 0)
+            legacy_rule_room = max(receipt_bound(runtime, approved),
                 receipt_bound(runtime, interpreting_agent) if interpreting_agent is not None else 0)
             shared = {f.name: getattr(policy, f.name) for f in fields(TurnLimits)
                       if hasattr(policy, f.name)}
@@ -350,7 +355,7 @@ class ConversationBindings:
                 if tool_contracts.citations is not None: shared['max_metadata_bytes']=65536
             evidence_room=policy.max_receipt_bytes-policy.max_turn_bytes-encoded_answer_bound(
                 policy.max_assistant_bytes,policy.max_turn_bytes)-8192
-            evidence_room -= rule_room
+            evidence_room -= legacy_rule_room
             if rule_room and evidence_room < 1024:
                 raise ConversationError('sessionLimit', 'maxReceiptBytes')
             if context_policy is not None or interpretation_context_policy is not None:
@@ -373,6 +378,10 @@ class ConversationBindings:
             if any(getattr(limits, key) != val for key, val in shared.items()):
                 raise ConversationError('bindingMismatch')
             if limits.max_evidence_bytes>evidence_room: raise ConversationError('bindingMismatch')
+            # Keep the original derived limits in the identity. Recovery shares
+            # the receipt framing reserve and any otherwise unused capacity.
+            if limits.max_evidence_bytes + max(0, rule_room - legacy_rule_room - 4096) > evidence_room:
+                raise ConversationError('sessionLimit', 'maxReceiptBytes')
             invocation = _policy(run_policy)
             contract_descriptors = conversation_contract_descriptors(approved, tools, custom_descriptors(tools))
             contract_material=conversation_material(runtime, contract_descriptors, tool_contracts, policy, run_policy, limits)
@@ -420,6 +429,7 @@ class ConversationBindings:
                 ProsaicArtifact.from_inspection(interpreting['artifact']) if interpreting else None,
                 context_policy, interpretation_context_policy, token_counters)
             data.update(context_data)
+            data.update(recovery.material())
             if context_packs is not None: data['contextPacks']=context_packs.to_dict()
             if tool_contracts is not None: data['toolContractV1']=contract_material
             if sub_agents is not None: data['subAgentsV1'] = sub_agents.descriptor()
@@ -429,7 +439,7 @@ class ConversationBindings:
                 '_tools': MappingProxyType(tools), '_journal': tool_journal, '_workspace': workspace,
                 '_workflows': MappingProxyType(registered), '_admitted': _ADMITTED,
                 '_token_counters': owned_counters, '_guards': registered_guards,
-                '_rule_project': rule_project,'_context_packs':context_packs,'_tool_contracts':tool_contracts,'_sub_agents':sub_agents}.items():
+                '_rule_project': rule_project, '_recovery': recovery, '_context_packs':context_packs,'_tool_contracts':tool_contracts,'_sub_agents':sub_agents}.items():
                 object.__setattr__(self, key, value)
         except ConversationError:
             raise
@@ -516,6 +526,8 @@ class ConversationBindings:
                 if not {'frozen_turn_inputs_v1','guard_input_views_v1','context_input_variants_v1'}<=ProsaicRuntime.capabilities:
                     raise ConversationError('contextCapabilityMissing')
                 if data.get('contextPacks')!=self._context_packs.readmit(): raise ValueError('context binding drift')
+            if data.get('guardedRecoveryV1') != self._recovery.material().get('guardedRecoveryV1'):
+                raise ValueError('recovery binding drift')
             if (data['toolJournal'] != (tool_journal_descriptor(self._journal) or None)
                     or data['tools'] != custom_descriptors(validate_custom_tools(self._tools))
                     or data.get('guards', []) != descriptors(self._guards)
@@ -523,7 +535,7 @@ class ConversationBindings:
                 raise ValueError()
             runtime = ProsaicRuntime(self.config, custom_tools=self._tools,
                 **({'guards': self._guards} if self._guards else {}),
-                **source_options(self._rule_project))
+                **source_options(self._rule_project), **self._recovery.runtime_options())
             from .mcp_tools import conversation_contract_descriptors, validate_conversation_mcp
             validate_conversation_mcp(runtime, self.agent, self._tools, data['operationNamespace'], self._journal)
             context_data, _ = _context_material(self.config, self.agent,
@@ -558,7 +570,7 @@ class ConversationBindings:
         self.readmit()
         return ProsaicRuntime(self.config, custom_tools=self._tools, lifecycle=lifecycle,
             **({'guards': self._guards} if self._guards else {}),
-            **source_options(self._rule_project))
+            **source_options(self._rule_project), **self._recovery.runtime_options())
 
 
 def _pack_probe(packs):
