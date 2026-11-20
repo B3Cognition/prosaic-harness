@@ -8,7 +8,7 @@ import yaml
 
 from prosaic_harness import (Harness, Workflow, WorkflowBindings, WorkflowBundle,
     WorkflowCatalog, WorkflowFactory, WorkflowPolicy, WorkflowAdmissionError)
-from prosaic_runtime import Guard, ProsaicArtifact, ProsaicRuntime, Verdict
+from prosaic_runtime import CliSandboxConfig, Guard, ProsaicArtifact, ProsaicRuntime, Verdict
 from test_workflow_factory import config
 
 TAG = '<!-- enforce: review_scope(stage=final, on_violation=retry) -->'
@@ -146,7 +146,7 @@ def test_default_and_unused_guard_registrations_preserve_untagged_identity():
 
 def test_released_untagged_workflow_and_bundle_goldens():
     from test_workflow_factory import factory as legacy_factory, graph
-    f = legacy_factory()
+    f = legacy_factory(cfg=config(cli_sandbox=CliSandboxConfig(mode='off')))
     assert f.build(graph()).fingerprint == 'ac9913171a763a653b8de7e23403aa8e68314db7e07bad6a9e0d5578bd54e624'
     assert WorkflowBundle('legacy-v1', f).identity == '289d2c28dad4966d331f4fe1f08c24d2c3a79d5303eeb1b48cf55da7db8c6182'
 
@@ -181,6 +181,7 @@ def test_released_yaml_and_prompt_goldens(tmp_path):
 def test_prose_only_annotations_with_host_caps_keep_released_native_identity():
     from test_workflow_factory import factory as legacy_factory, graph, agent
     flow=legacy_factory(assets={'finder':agent(body='ALWAYS be warm. <!-- prose-only: tone is judged by people -->')},
+        cfg=config(cli_sandbox=CliSandboxConfig(mode='off')),
         max_provider_requests_per_invocation=2,max_tool_calls_per_invocation=0).build(graph())
     # Independently captured from the installed released0.9.11 wheel.
     assert flow.fingerprint=='1b1aa6af34014723818e7f234b202da460413a9ebc90f986dd3f78aab00b4475'
