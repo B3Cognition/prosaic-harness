@@ -22,6 +22,8 @@ def test_shipped_cli_blueprint_validates_then_requires_native_execution(endpoint
     data = yaml.safe_load(manifest.read_text()); data['executable'] = str(executable)
     manifest.write_text(yaml.safe_dump(data))
     config = workspace / 'cli-tools-runtime.yml'; data = yaml.safe_load(config.read_text())
+    # Portable CLI coverage. test_cli_sandbox.py exercises real confinement.
+    data['cli_sandbox'] = {'mode': 'off'}
     for profile in data['profiles'].values():
         profile.update(base_url=url, api_key_env=None, features={'streaming': False})
     config.write_text(yaml.safe_dump(data))

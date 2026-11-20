@@ -8,7 +8,7 @@ from test_transport import endpoint, text
 from test_custom_tools import blueprint, call
 
 
-def cli_blueprint(tmp_path, url):
+def cli_blueprint(tmp_path, url, *, sandbox_mode='off'):
     path = blueprint(tmp_path, url)
     executable = tmp_path / 'catalog-cli'
     executable.write_text(f'#!{sys.executable}\nimport json, sys\n'
@@ -23,7 +23,10 @@ def cli_blueprint(tmp_path, url):
             'required': ['sku'], 'properties': {'sku': {'type': 'string'}}},
         'output_format': 'json', 'version_probe': ['--version']}))
     config = tmp_path / 'runtime.yml'; data = yaml.safe_load(config.read_text())
-    data['tool_directories'] = ['.prosaic/tools']; config.write_text(yaml.safe_dump(data))
+    data['tool_directories'] = ['.prosaic/tools']
+    if sandbox_mode is not None:
+        data['cli_sandbox'] = {'mode': sandbox_mode}
+    config.write_text(yaml.safe_dump(data))
     return path, executable, manifest
 
 

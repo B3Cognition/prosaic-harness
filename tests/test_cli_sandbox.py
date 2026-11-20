@@ -11,7 +11,7 @@ pytest.importorskip('prosaic_runtime.sandbox', reason='requires the unreleased C
 from prosaic_harness import Harness, Workflow
 from prosaic_harness.workflow import runtime_identity
 from prosaic_runtime import CliSandboxConfig, ProsaicRuntime
-from test_harness import setup, FakeRuntime
+from test_harness import setup
 from test_transport import endpoint, text
 from test_cli_tools import cli_blueprint
 from test_custom_tools import call
@@ -57,22 +57,25 @@ def test_documented_sandboxed_blueprint_runs_tool_then_requires_human(endpoint, 
     assert len(requests) == 2
 
 
-def test_default_off_sandbox_preserves_legacy_runtime_identity(tmp_path, monkeypatch):
+def test_cli_free_workflow_preserves_legacy_runtime_identity(tmp_path, monkeypatch):
     workflow = setup(tmp_path, monkeypatch)
-    identity = runtime_identity(workflow.config)
-    assert 'cli_sandbox' not in identity
+    config = replace(workflow.config, cli_sandbox=CliSandboxConfig(mode='required'))
+    assert 'cli_sandbox' not in runtime_identity(config)
 
 
-def test_changing_sandbox_policy_invalidates_pending_approval(tmp_path, monkeypatch):
-    workflow = setup(tmp_path, monkeypatch, pause=True)
-    h = Harness(workflow, tmp_path / 'run', runtime=FakeRuntime(['{"approved":true}']))
-    assert h.run({})['status'] == 'waiting'
-    path = tmp_path / 'runtime.yml'
-    cfg = yaml.safe_load(path.read_text())
+def test_changing_cli_sandbox_policy_invalidates_pending_approval(endpoint, tmp_path, monkeypatch):
+    url, requests, replies = endpoint
+    path, _, _ = cli_blueprint(tmp_path, url)
+    replies.extend([call(), text({'found': True})])
+    assert Harness(Workflow.load(path), tmp_path / 'run').run({})['status'] == 'waiting'
+    config = tmp_path / 'runtime.yml'
+    cfg = yaml.safe_load(config.read_text())
     cfg['cli_sandbox'] = {'mode': 'required'}
-    path.write_text(yaml.safe_dump(cfg))
+    config.write_text(yaml.safe_dump(cfg))
+    monkeypatch.setattr(ProsaicRuntime, 'preflight', lambda *args, **kwargs: {'ok': True})
     with pytest.raises(ValueError, match='changed'):
-        Harness(Workflow.load(tmp_path / 'flow.yml'), tmp_path / 'run', runtime=FakeRuntime([])).resume(choice='approve')
+        Harness(Workflow.load(path), tmp_path / 'run').resume(choice='approve')
+    assert len(requests) == 2
 
 
 @pytest.mark.skipif(not ((sys.platform == 'darwin' and Path('/usr/bin/sandbox-exec').is_file())
@@ -80,7 +83,10 @@ def test_changing_sandbox_policy_invalidates_pending_approval(tmp_path, monkeypa
                     reason='requires Seatbelt or Bubblewrap')
 def test_harness_cli_sandbox_denies_outside_secret_and_preserves_pause(endpoint, tmp_path):
     url, requests, replies = endpoint
-    path, executable, _ = cli_blueprint(tmp_path, url)
+    # Exercise the default when available. Older supported Runtime releases
+    # still run the same containment check with required mode configured.
+    sandbox_mode = None if CliSandboxConfig().mode == 'required' else 'required'
+    path, executable, _ = cli_blueprint(tmp_path, url, sandbox_mode=sandbox_mode)
     secret = tmp_path / 'host-secret.txt'
     secret.write_text('SYNTHETIC-HOST-SECRET')
     executable.write_text(f'#!{sys.executable}\nimport json, pathlib, sys\n'
@@ -89,11 +95,8 @@ def test_harness_cli_sandbox_denies_outside_secret_and_preserves_pause(endpoint,
         f'    try: pathlib.Path({str(secret)!r}).read_text()\n'
         '    except (PermissionError, FileNotFoundError): print(json.dumps({"found":True}))\n'
         '    else: print(json.dumps({"found":False}))\n')
-    config = tmp_path / 'runtime.yml'
-    raw = yaml.safe_load(config.read_text())
-    raw['cli_sandbox'] = {'mode': 'required'}
-    config.write_text(yaml.safe_dump(raw))
     workflow = Workflow.load(path)
+    assert workflow.config.cli_sandbox.mode == 'required'
     replies.extend([call(), text({'found': True})])
     h = Harness(workflow, tmp_path / 'run')
     result = h.run({})
@@ -109,20 +112,16 @@ def test_harness_cli_sandbox_denies_outside_secret_and_preserves_pause(endpoint,
 def test_injected_adapter_cannot_downgrade_required_sandbox(endpoint, tmp_path, change):
     url, requests, replies = endpoint
     replies.append(text({'found': True}))  # Keep a broken implementation's HTTP response well-formed.
-    path, _, _ = cli_blueprint(tmp_path, url)
-    config = tmp_path / 'runtime.yml'
-    raw = yaml.safe_load(config.read_text())
-    raw['cli_sandbox'] = {'mode': 'required'}
-    config.write_text(yaml.safe_dump(raw))
+    path, _, _ = cli_blueprint(tmp_path, url, sandbox_mode='required')
     workflow = Workflow.load(path)
     adapter = ProsaicRuntime(workflow.config)
     if change == 'missing_capability':
         adapter.capabilities = frozenset({'custom_tools_v1'})
     elif change == 'off':
-        adapter.config = replace(adapter.config, cli_sandbox=CliSandboxConfig())
+        adapter.config = replace(adapter.config, cli_sandbox=CliSandboxConfig(mode='off'))
     if change == 'after_construction':
         h = Harness(workflow, tmp_path / 'run', runtime=adapter)
-        adapter.config = replace(adapter.config, cli_sandbox=CliSandboxConfig())
+        adapter.config = replace(adapter.config, cli_sandbox=CliSandboxConfig(mode='off'))
         with pytest.raises(ValueError, match='sandbox'):
             h.run({})
     else:

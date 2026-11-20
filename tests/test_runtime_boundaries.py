@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 from prosaic_harness import (Harness, WorkflowBindings, WorkflowBundle, WorkflowCatalog,
                              WorkflowFactory, WorkflowPolicy, WorkflowAdmissionError)
-from prosaic_runtime import CustomTool, ProsaicRuntime, Result
+from prosaic_runtime import CliSandboxConfig, CustomTool, ProsaicRuntime, Result
 from test_workflow_factory import factory, graph, tools, config, agent
 from test_native_execution import bound
 from test_transport import endpoint
@@ -13,17 +13,19 @@ from support.tool_journal import MemoryJournal
 
 
 HISTORIC_FINGERPRINT = 'ac9913171a763a653b8de7e23403aa8e68314db7e07bad6a9e0d5578bd54e624'
+HISTORIC_SANDBOX = CliSandboxConfig(mode='off')
 HISTORIC_DESCRIPTOR = '{"lookup_entity": {"authorization_required": false, "description": "Lookup a synthetic entity", "max_argument_bytes": 16384, "max_result_bytes": 65536, "name": "lookup_entity", "parameters": {"additionalProperties": false, "properties": {"query": {"type": "string"}}, "required": ["query"], "type": "object"}, "version": "v1"}}'
 
 
 def test_disabled_controls_keep_exact_released_identity():
     for caps in ({}, {'max_provider_requests_per_invocation': None,
                      'max_tool_calls_per_invocation': None}):
-        w = factory(**caps).build(graph())
+        f = factory(cfg=config(cli_sandbox=HISTORIC_SANDBOX), **caps)
+        w = f.build(graph())
         assert w.fingerprint == HISTORIC_FINGERPRINT
         assert json.dumps(w.tool_descriptors, sort_keys=True) == HISTORIC_DESCRIPTOR
-        assert WorkflowBundle('historic-v1', factory(**caps)).identity == '289d2c28dad4966d331f4fe1f08c24d2c3a79d5303eeb1b48cf55da7db8c6182'
-        assert 'maxProviderRequestsPerInvocation' not in factory(**caps).describe()['limits']
+        assert WorkflowBundle('historic-v1', f).identity == '289d2c28dad4966d331f4fe1f08c24d2c3a79d5303eeb1b48cf55da7db8c6182'
+        assert 'maxProviderRequestsPerInvocation' not in f.describe()['limits']
     bindings = WorkflowBindings(config=config(), custom_tools=tools(),
                                 operation_namespace=None, tool_journal=None)
     assert bindings._operation_namespace is None
@@ -39,7 +41,7 @@ def test_caps_are_exact_nonnegative_integers(field, value):
 @pytest.mark.parametrize('field', ['max_provider_requests_per_invocation', 'max_tool_calls_per_invocation'])
 @pytest.mark.parametrize('value', [0, 2])
 def test_enabled_host_caps_change_identity_and_discovery(field, value):
-    f = factory(**{field: value})
+    f = factory(cfg=config(cli_sandbox=HISTORIC_SANDBOX), **{field: value})
     assert f.build(graph()).fingerprint != HISTORIC_FINGERPRINT
     name = 'maxProviderRequestsPerInvocation' if field.startswith('max_provider') else 'maxToolCallsPerInvocation'
     assert f.describe()['limits'][name] == value

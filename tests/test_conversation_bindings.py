@@ -1,6 +1,6 @@
 from dataclasses import replace
 import pytest
-from prosaic_runtime import TurnLimits, ProsaicArtifact, RunPolicy, EndpointConfig
+from prosaic_runtime import CliSandboxConfig, TurnLimits, ProsaicArtifact, RunPolicy, EndpointConfig
 from support.conversations import binding_factory, scope, StaticJournal
 from prosaic_harness import (ConversationBindings, ConversationPolicy, ConversationScope,
                              ConversationError, RunAuthorizer, ConfirmationRule)
@@ -75,6 +75,13 @@ def test_no_cli_discovery_during_binding_admission(binding_factory, tmp_path):
     config = replace(binding_factory().config, tool_directories=(str(tmp_path/'missing'),))
     with pytest.raises(ConversationError, match='capabilityMissing'):
         binding_factory(config=config)
+
+
+def test_cli_free_binding_preserves_legacy_identity(binding_factory):
+    config = binding_factory().config
+    legacy = binding_factory(config=replace(config, cli_sandbox=CliSandboxConfig(mode='off')))
+    required = binding_factory(config=replace(config, cli_sandbox=CliSandboxConfig(mode='required')))
+    assert required.identity == legacy.identity
 
 
 @pytest.mark.parametrize('field', ['max_turns','max_history_bytes','max_state_bytes','max_attempts',

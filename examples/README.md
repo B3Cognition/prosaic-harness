@@ -142,14 +142,13 @@ Harness v0.4.2+ (automatically installs Python Prosaic v0.3.0). Keep a sibling
 Runtime v0.5.2 checkout only to install the standalone example executable. From
 the Harness repository root:
 
-**Compatibility mode:** this section uses `cli-tools-runtime.yml`, whose sandbox
-defaults to off. Use the sandboxed workflow above for CLI isolation.
+This example uses `cli-tools-runtime.yml` and requires an operational OS sandbox.
 
 ```sh
 source .venv/bin/activate
 # The Harness dependency pin already installs Runtime v0.5.2.
 git clone --branch v0.5.2 https://github.com/B3Cognition/prosaic-runtime.git ../prosaic-runtime
-python -m pip install -e ../prosaic-runtime/examples/cli-tool
+python -m pip install ../prosaic-runtime/examples/cli-tool
 
 prosaic-example-analyzer examples/evidence/requirements.md --json
 prosaic tools --source examples/.prosaic   # requires updated Prosaic CLI

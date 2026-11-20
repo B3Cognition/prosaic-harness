@@ -23,7 +23,7 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
-def runtime_identity(config):
+def runtime_identity(config, *, seal_unused_sandbox=False):
     value = asdict(config) | {'allowed_tools': sorted(config.allowed_tools)}
     for endpoint in value.get('profiles', {}).values():
         if endpoint.get('supported_efforts') is None:
@@ -32,9 +32,11 @@ def runtime_identity(config):
         value.pop('tool_directories', None)
     if not value.get('required_guards'):
         value.pop('required_guards', None)
-    # Preserve existing checkpoints when the newly added sandbox policy is
-    # absent/default-off. Required mode or trusted runtime roots are sealed.
-    if value.get('cli_sandbox') == {'mode': 'off', 'runtime_roots': ()}:
+    # Preserve legacy off-mode seals. File workflows also omit an empty policy
+    # without CLI directories. Native bundles seal unused operator settings.
+    sandbox = value.get('cli_sandbox')
+    if sandbox and not sandbox['runtime_roots'] and (
+            sandbox['mode'] == 'off' or (not seal_unused_sandbox and not config.tool_directories)):
         value.pop('cli_sandbox')
     return value
 

@@ -165,6 +165,9 @@ def _policy_from(data):
 
 def _logical_config(config):
     data = owned(config)
+    if not data['tool_directories'] and not data['cli_sandbox']['runtime_roots']:
+        # Preserve the historical identity for bindings without CLI tools.
+        data['cli_sandbox']['mode'] = 'off'
     for endpoint in data['profiles'].values():
         endpoint.pop('api_key_env', None)
         endpoint.pop('api_key_file', None)

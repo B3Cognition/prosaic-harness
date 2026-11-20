@@ -123,7 +123,8 @@ Permissions are operator-owned, not granted by prose:
 
 All tool permission layers must agree. `validate` loads the workflow and runs
 offline CLI preflight; it does not contact a model or need an endpoint key.
-The sandbox is off by default. Required mode fails closed if unavailable;
+The installed Runtime supplies the default. Runtime 0.9.27 requires isolation
+by default. Required mode fails closed if unavailable;
 Linux needs Bubblewrap >= 0.12.0 and permitted user namespaces, while macOS needs
 Seatbelt's `sandbox-exec`. See [Runtime's setup](https://github.com/B3Cognition/prosaic-runtime/blob/main/docs/cli-tools.md).
 
@@ -133,8 +134,9 @@ granted directories. Extra dependencies need narrow `runtime_roots`, not HOME or
 `/`. This does not sandbox Python callbacks, validators or native coding providers;
 builtin read tools retain their existing path checks. Harness itself still writes
 durable run state on the host. Required-mode policy is sealed into workflow
-identity: changes invalidate existing approvals/resume, and injected adapters
-cannot silently downgrade it. Use a fresh run directory when changing policy.
+identity for CLI workflows. Switching an existing CLI workflow from off to
+required needs a fresh run directory. Follow the
+[upgrade notes](docs/release-0.9.20.md) for existing native bundles and checkpoints.
 
 ## Overview
 

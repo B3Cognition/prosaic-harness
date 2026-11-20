@@ -399,7 +399,8 @@ def _identity_payload(workflow, policy, *, operation=None, adapter=None):
     from .context_packs.bindings import material as context_material
     from .tool_contracts import material as tool_contract_material
     from .parallel_tools import parallel_material
-    return {**rule_material(workflow), **context_material(workflow), **tool_contract_material(workflow), **parallel_material(workflow), 'workflow': definition, 'runtime': runtime_identity(config),
+    return {**rule_material(workflow), **context_material(workflow), **tool_contract_material(workflow), **parallel_material(workflow), 'workflow': definition,
+            'runtime': runtime_identity(config, seal_unused_sandbox=True),
             'schemas': schemas, 'prose': artifacts,
             **({'custom_tools': descriptors} if descriptors else {}),
             **({'operation_bindings': operation} if operation else {}),
@@ -572,7 +573,7 @@ class WorkflowFactory:
         """Complete private versioned material; public discovery is not identity."""
         if self._runtime_adapter is not None:
             _fail('binding_mismatch')  # Host callbacks cannot be serialized into a bundle.
-        runtime = runtime_identity(_config_from_json(self._config_json))
+        runtime = runtime_identity(_config_from_json(self._config_json), seal_unused_sandbox=True)
         if 'cli_sandbox' in runtime:
             # The admitted config identity retains this supported tuple for
             # historic workflow seals. Bundle material must be plain JSON.

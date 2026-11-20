@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.20
+
+- Qualify Runtime 0.9.27 and retain historical CLI-free workflow and conversation identities.
+- Bind CLI sandbox changes to saved CLI workflow approvals and keep sandbox mode in native bundle identities.
+
 ## 0.9.19
 
 - Bind Runtime recovery options to workflow and conversation identity. Store bounded recovery outcomes in invocation receipts.
