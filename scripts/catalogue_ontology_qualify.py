@@ -1,4 +1,4 @@
-"""Qualify the exact Core/Harness candidate pair with the released Runtime."""
+"""Qualify the exact Core/Harness pair with the qualified Runtime candidate."""
 import argparse
 import json
 from pathlib import Path
@@ -14,11 +14,11 @@ from release_artifacts import (ReleaseError, digest, require_qualification, tar_
 
 
 CORE = 'b3_prosaic-0.5.1'
-HARNESS = 'b3_prosaic_harness-0.9.19'
-RUNTIME = 'b3_prosaic_runtime-0.9.25-py3-none-any.whl'
-RUNTIME_SHA = 'aff0106e1fc0c3f81e6435555609050a94051e029185ecba3d6ea8fa2f789004'
-RUNTIME_SOURCE = 'a8aac088bb07a705b4dee619945bc4c2921fd1a6'
-RUNTIME_RUN = '43483771269'
+HARNESS = 'b3_prosaic_harness-0.9.20'
+RUNTIME = 'b3_prosaic_runtime-0.9.27-py3-none-any.whl'
+RUNTIME_SHA = '3aedb4342abb6ba7923623c45ce958fee24dd5920af54267a27b381583f556bf'
+RUNTIME_SOURCE = '4508a83259d11241a0f0f4019fbfbbf583039dd8'
+RUNTIME_RUN = '44804449338'
 RECEIPT = 'catalogue-ontology-compatibility.json'
 ORIGINS = ('wheel', 'sdist')
 CASES = sorted((
@@ -64,7 +64,7 @@ def runtime_binding(directory):
                 if item['repository'] == 'B3Cognition/prosaic-runtime')
     if (runtime['source_commit'] != RUNTIME_SOURCE or runtime['run_id'] != RUNTIME_RUN
             or {'filename': RUNTIME, 'sha256': RUNTIME_SHA} not in runtime['wheels']):
-        raise ReleaseError('ontology requires the original published Runtime lineage')
+        raise ReleaseError('ontology requires the exact qualified Runtime lineage')
     return {'source_commit': RUNTIME_SOURCE, 'run_id': RUNTIME_RUN, 'filename': RUNTIME,
             'sha256': RUNTIME_SHA, 'receipt_sha256': runtime['receipt_sha256'],
             'upstream_sha256': runtime['upstream_sha256'], 'harness_upstream_sha256': digest(raw)}
@@ -122,7 +122,7 @@ def qualify(directory, commit, core_dir, core_commit, runtime_wheel, *, core_run
     harness = package_binding(directory, commit, HARNESS)
     runtime = runtime_binding(directory)
     if runtime_wheel.name != RUNTIME or digest(runtime_wheel.read_bytes()) != runtime['sha256']:
-        raise ReleaseError('retained Runtime wheel digest differs')
+        raise ReleaseError('qualified Runtime wheel digest differs')
     (directory / RECEIPT).unlink(missing_ok=True)
     test = Path(__file__).resolve().parents[1] / 'qualification/test_catalogue_ontology.py'
     records = {}
