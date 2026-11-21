@@ -1,6 +1,7 @@
 # PostgreSQL persistence for Prosaic Harness
 
 PostgreSQL adapter **0.4.5** adds explicit [delegation storage migration](../../docs/release-postgres-0.4.5.md) for Harness **0.9.17**.
+The same adapter and schema are qualified with [Harness 0.9.20](../../docs/release-0.9.20.md).
 
 PostgreSQL adapter **0.4.2** requires Harness **0.9.13** or later
 in the compatible family. Explicit owner migration enables
@@ -14,8 +15,8 @@ Run on worker A, inspect/resume on worker B, without a shared writable run
 directory. Core remains database-free; install this separate adapter only when
 you need shared durable state. The API is synchronous; a private I/O thread
 bounds network waits. Model execution holds no database connection/transaction.
-The adapter is independently versioned: `b3-prosaic-harness-postgres` **0.4.2**
-requires `b3-prosaic-harness>=0.9.13,<0.10`. PostgreSQL drivers remain optional for
+The adapter is independently versioned. `b3-prosaic-harness-postgres` **0.4.5**
+requires `b3-prosaic-harness>=0.9.15,<0.10`. PostgreSQL drivers remain optional for
 core Harness users. Imports and CLI names are unchanged.
 
 ## Durability profiles
@@ -52,8 +53,8 @@ Use a fresh environment and the published compatible SDKs:
 
 ```sh
 python3 -m venv .venv-postgres
-.venv-postgres/bin/python -m pip install 'b3-prosaic-harness==0.9.11' \
-  'b3-prosaic-runtime==0.9.19' 'b3-prosaic-harness-postgres==0.4.2'
+.venv-postgres/bin/python -m pip install 'b3-prosaic-harness==0.9.20' \
+  'b3-prosaic-runtime==0.9.27' 'b3-prosaic-harness-postgres==0.4.5'
 export PATH="$PWD/.venv-postgres/bin:$PATH"
 prosaic --version
 prosaic-harness-postgres --help

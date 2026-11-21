@@ -98,6 +98,8 @@ def _config_payload(config, *, native=False):
              'tool_directories': [] if native else list(config.tool_directories),
              'cli_sandbox': {'mode': config.cli_sandbox.mode,
                              'runtime_roots': list(config.cli_sandbox.runtime_roots)}}
+    if getattr(config.cli_sandbox, 'mode_is_default', False):
+        value['cli_sandbox']['mode_is_default'] = True
     if getattr(config, 'required_guards', None):
         value['required_guards'] = config.required_guards
     try:
@@ -112,13 +114,14 @@ def _config_payload(config, *, native=False):
 def _config_from_json(config_json):
     """Reconstruct a fresh execution config from the owned immutable record."""
     value = json.loads(config_json)
+    sandbox = value['cli_sandbox']
     return RuntimeConfig(
         profiles={name: EndpointConfig(**endpoint) for name, endpoint in value['profiles'].items()},
         routes=value['routes'], default_profile=value['default_profile'],
         allowed_tools=frozenset(value['allowed_tools']), limits=RunLimits(**value['limits']),
         tool_directories=tuple(value['tool_directories']),
-        cli_sandbox=CliSandboxConfig(value['cli_sandbox']['mode'],
-                                    tuple(value['cli_sandbox']['runtime_roots'])),
+        cli_sandbox=CliSandboxConfig(runtime_roots=tuple(sandbox['runtime_roots']),
+                                    **({} if sandbox.get('mode_is_default') else {'mode': sandbox['mode']})),
         **({'required_guards': value['required_guards']} if 'required_guards' in value else {}))
 
 
@@ -400,7 +403,7 @@ def _identity_payload(workflow, policy, *, operation=None, adapter=None):
     from .tool_contracts import material as tool_contract_material
     from .parallel_tools import parallel_material
     return {**rule_material(workflow), **context_material(workflow), **tool_contract_material(workflow), **parallel_material(workflow), 'workflow': definition,
-            'runtime': runtime_identity(config, seal_unused_sandbox=True),
+            'runtime': runtime_identity(config),
             'schemas': schemas, 'prose': artifacts,
             **({'custom_tools': descriptors} if descriptors else {}),
             **({'operation_bindings': operation} if operation else {}),
@@ -573,7 +576,7 @@ class WorkflowFactory:
         """Complete private versioned material; public discovery is not identity."""
         if self._runtime_adapter is not None:
             _fail('binding_mismatch')  # Host callbacks cannot be serialized into a bundle.
-        runtime = runtime_identity(_config_from_json(self._config_json), seal_unused_sandbox=True)
+        runtime = runtime_identity(_config_from_json(self._config_json))
         if 'cli_sandbox' in runtime:
             # The admitted config identity retains this supported tuple for
             # historic workflow seals. Bundle material must be plain JSON.

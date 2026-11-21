@@ -3,7 +3,9 @@
 ## 0.9.20
 
 - Qualify Runtime 0.9.27 and retain historical CLI-free workflow and conversation identities.
-- Bind CLI sandbox changes to saved CLI workflow approvals and keep sandbox mode in native bundle identities.
+- Preserve prior explicit sandbox modes in saved CLI-free workflows, sessions and native bundles.
+- Require fresh approval when an existing CLI workflow switches sandbox policy.
+- See the [0.9.20 release notes](docs/release-0.9.20.md).
 
 ## 0.9.19
 

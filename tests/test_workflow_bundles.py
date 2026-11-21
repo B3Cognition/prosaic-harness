@@ -55,7 +55,7 @@ def test_bundle_preserves_supported_sandbox_configuration_identity(mode, roots, 
     assert recreated.config.cli_sandbox.mode == mode
     assert recreated.config.cli_sandbox.runtime_roots == roots
     default = WorkflowBundle('v1', factory())
-    if mode == config().cli_sandbox.mode and not roots:
+    if mode == 'off' and not roots:
         assert bundle.identity == default.identity
     else:
         assert bundle.identity != default.identity

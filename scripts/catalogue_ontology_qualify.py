@@ -16,9 +16,9 @@ from release_artifacts import (ReleaseError, digest, require_qualification, tar_
 CORE = 'b3_prosaic-0.5.1'
 HARNESS = 'b3_prosaic_harness-0.9.20'
 RUNTIME = 'b3_prosaic_runtime-0.9.27-py3-none-any.whl'
-RUNTIME_SHA = '3aedb4342abb6ba7923623c45ce958fee24dd5920af54267a27b381583f556bf'
-RUNTIME_SOURCE = '4508a83259d11241a0f0f4019fbfbbf583039dd8'
-RUNTIME_RUN = '44804449338'
+RUNTIME_SHA = '4b19e5af113523175e5ec9dcafd46e65c59daad48af377a67632d50b34fb2e6a'
+RUNTIME_SOURCE = 'de39d7c66ab0763326715d9933864e7552af3fb6'
+RUNTIME_RUN = '44887310748'
 RECEIPT = 'catalogue-ontology-compatibility.json'
 ORIGINS = ('wheel', 'sdist')
 CASES = sorted((

@@ -1,6 +1,7 @@
 # Reusable workflow blueprints
 
-Current published release: **0.9.12**. See [release notes and compatible SDK versions](../docs/releases.md).
+Harness **0.9.20** pairs with Runtime **0.9.27**. See the
+[upgrade notes and supported versions](../docs/release-0.9.20.md).
 
 For enforcement tags with accepted earlier outputs, use the [workflow enforcement V2 blueprint](workflow-enforcement/README.md) and [API contract](../docs/workflow-rules.md).
 
@@ -30,19 +31,17 @@ belong in Markdown. Both packages are published; the adapter remains independent
 
 Use [cli-tool-sandboxed.yml](cli-tool-sandboxed.yml) with
 [cli-tools-sandboxed-runtime.yml](cli-tools-sandboxed-runtime.yml) for required
-CLI OS isolation. Harness 0.4.2 pins Runtime 0.5.2 with `cli_sandbox_v1`;
-Harness 0.4.1 and earlier do not include this feature. Upgrading Prosaic or
-changing agent Markdown alone does not enable it.
+CLI OS isolation. These manifests explicitly require isolation, including
+with older supported Runtime releases that defaulted to off.
 
 ### 1. Install the coordinated release
 
-Assume sibling Harness v0.4.2 and Runtime v0.5.2 checkouts and an
-existing Harness virtual environment. From the Harness repository root:
+Use the Harness 0.9.20 and Runtime 0.9.27 source archives and an existing
+Harness virtual environment. From the Harness source directory:
 
 ```sh
 source .venv/bin/activate
-python -m pip install -e .
-# Harness installs its immutable Runtime v0.5.2 dependency automatically.
+python -m pip install 'b3-prosaic-harness==0.9.20' 'b3-prosaic-runtime==0.9.27'
 python -m pip install ../prosaic-runtime/examples/cli-tool
 ```
 
@@ -60,7 +59,7 @@ Do not grant a whole repository, HOME or `/` as a workaround.
 
 The environment's `prosaic` must be on PATH. macOS needs `/usr/bin/sandbox-exec`;
 Linux (including ARM64) needs `/usr/bin/bwrap` >= 0.12.0 and permitted unprivileged
-user namespaces. See the [Runtime setup](https://github.com/B3Cognition/prosaic-runtime/blob/main/docs/cli-tools.md#opt-in-cli-sandbox).
+user namespaces. See the [Runtime setup](https://github.com/B3Cognition/prosaic-runtime/blob/v0.9.27/docs/cli-tools.md#cli-sandbox).
 Do not disable host security or fall back to off mode to bypass a setup failure.
 
 ### 2. Review all permission layers
@@ -191,9 +190,9 @@ read receipts and do not independently certify which source bytes were read.
 See Runtime's
 [complete CLI-tool contract](https://github.com/B3Cognition/prosaic-runtime/blob/main/docs/cli-tools.md)
 for environment isolation, manifest versions, exit codes, timeout/output limits,
-an optional Understanding adapter and security boundaries. CLI tools execute
-trusted host code with sandboxing off in this compatibility example. Fixed argv is not complete prompt-injection
-prevention; consequential tools require separate approval/isolation.
+an optional Understanding adapter and security boundaries. This example
+requires CLI sandboxing. Continue to use separate approval for consequential
+tools and treat CLI manifests and executables as trusted code.
 
 Start with the installation and endpoint setup in the [root README](../README.md).
 Run commands below from the repository root. `.venv/bin` must be on PATH so the

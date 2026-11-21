@@ -81,7 +81,10 @@ def test_cli_free_binding_preserves_legacy_identity(binding_factory):
     config = binding_factory().config
     legacy = binding_factory(config=replace(config, cli_sandbox=CliSandboxConfig(mode='off')))
     required = binding_factory(config=replace(config, cli_sandbox=CliSandboxConfig(mode='required')))
-    assert required.identity == legacy.identity
+    default = binding_factory(config=replace(config, cli_sandbox=CliSandboxConfig()))
+    assert default.identity == legacy.identity
+    assert required.identity != legacy.identity
+    assert required.identity == binding_factory(config=required.config).identity
 
 
 @pytest.mark.parametrize('field', ['max_turns','max_history_bytes','max_state_bytes','max_attempts',

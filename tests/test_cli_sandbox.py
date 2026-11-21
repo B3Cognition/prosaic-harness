@@ -59,8 +59,10 @@ def test_documented_sandboxed_blueprint_runs_tool_then_requires_human(endpoint, 
 
 def test_cli_free_workflow_preserves_legacy_runtime_identity(tmp_path, monkeypatch):
     workflow = setup(tmp_path, monkeypatch)
-    config = replace(workflow.config, cli_sandbox=CliSandboxConfig(mode='required'))
+    config = replace(workflow.config, cli_sandbox=CliSandboxConfig())
     assert 'cli_sandbox' not in runtime_identity(config)
+    explicit = replace(config, cli_sandbox=CliSandboxConfig(mode='required'))
+    assert runtime_identity(explicit)['cli_sandbox']['mode'] == 'required'
 
 
 def test_changing_cli_sandbox_policy_invalidates_pending_approval(endpoint, tmp_path, monkeypatch):

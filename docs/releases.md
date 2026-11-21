@@ -1,5 +1,8 @@
 # Releases and compatibility
 
+Harness 0.9.20 [qualifies Runtime 0.9.27](release-0.9.20.md), preserves CLI-free
+checkpoint identities, and retains the PostgreSQL 0.4.5 storage contract.
+
 Harness 0.9.19 adds [guarded-turn recovery](release-0.9.19.md) with Runtime 0.9.25.
 
 Harness 0.9.18 adds opt-in [catalogue ontology](release-0.9.18.md) with Core

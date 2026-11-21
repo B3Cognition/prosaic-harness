@@ -1,5 +1,8 @@
 # Prosaic Harness
 
+Harness **0.9.20** qualifies the default CLI sandbox in Runtime **0.9.27**.
+See [upgrade and checkpoint compatibility](docs/release-0.9.20.md).
+
 Harness **0.9.19** adds [guarded-turn recovery](docs/release-0.9.19.md) with Runtime 0.9.25.
 
 Harness **0.9.18** adds opt-in [catalogue ontology](docs/catalogue-ontology.md)
@@ -105,8 +108,8 @@ native execution evidence. The current release selects the compatible Runtime 0.
 
 ## CLI permissions and sandboxing
 
-Harness **0.8.0** retains CLI sandbox policy enforcement and selects Runtime
-**0.9.x**, which provides `cli_sandbox_v1`. Follow the
+Harness **0.9.20** supports Runtime **0.9.25** through the compatible 0.9 series.
+Runtime **0.9.27** enables CLI sandboxing by default. Follow the
 [sandboxed workflow walkthrough](examples/README.md#sandboxed-cli-workflow-harness-042)
 for installation, offline validation and live execution.
 The complete blueprint is [cli-tool-sandboxed.yml](examples/cli-tool-sandboxed.yml).
