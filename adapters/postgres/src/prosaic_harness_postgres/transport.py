@@ -22,6 +22,10 @@ def positive(value, name, *, integer=False):
     return value
 
 
+# One round trip; far above a healthy connection's and well inside the pool's own timeout.
+CHECK_TIMEOUT_S = 1.0
+
+
 class _PoolRedaction(logging.Filter):
     def __init__(self, prefix):
         super().__init__()
@@ -68,6 +72,8 @@ class PostgresTransport:
             raise StoreUnavailable('invalid database connection configuration') from None
         self.operation_timeout_s = operation_timeout_s
         self.pool_timeout_s = pool_timeout_s
+        # A pooled connection proves it is alive before it is handed out, within this bound.
+        self.check_timeout_s = min(CHECK_TIMEOUT_S, pool_timeout_s / 2)
         self.lock_timeout_s = lock_timeout_s
         self.statement_timeout_s = statement_timeout_s
         self._pid = os.getpid()
@@ -87,7 +93,7 @@ class PostgresTransport:
 
         async def open_pools():
             settings = dict(conninfo=conninfo, kwargs={'autocommit': True}, min_size=0,
-                            open=False, timeout=pool_timeout_s,
+                            open=False, timeout=pool_timeout_s, check=self._alive,
                             reconnect_timeout=connect_timeout_s, num_workers=1)
             self._ordinary = AsyncConnectionPool(**settings, max_size=pool_size,
                                                 max_waiting=pool_size, name=self._prefix + '-work')
@@ -128,6 +134,20 @@ class PostgresTransport:
                 raise StoreBusy('database operation capacity exhausted')
             self._pending.add(operation)
         return operation
+
+    async def _alive(self, conn):
+        """The pool's check before it hands a connection out. An idle connection whose network path died without a
+        reset (a NAT or firewall that forgot it) would otherwise hang the next operation until its deadline; a check
+        that does not answer within `check_timeout_s` raises, and the pool discards it and connects again."""
+        probe = asyncio.ensure_future(conn.execute(''))
+        probe.add_done_callback(lambda task: task.cancelled() or task.exception())  # never an unretrieved error
+        done, _ = await asyncio.wait({probe}, timeout=self.check_timeout_s)
+        if not done:
+            # Close before cancellation, as an expiring operation does: a cancel request would wait on the dead path.
+            await conn.close()
+            probe.cancel()
+            raise psycopg.OperationalError('pooled connection did not answer its check')
+        probe.result()
 
     @staticmethod
     def _check_deadline(operation):

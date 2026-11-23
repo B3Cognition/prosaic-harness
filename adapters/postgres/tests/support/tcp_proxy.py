@@ -17,6 +17,8 @@ class TcpProxy:
         self.commit_sent = threading.Event()
         self.sockets = []
         self.threads = []
+        # Pairs (client, backend) whose traffic is silently dropped: a path that died without a reset.
+        self.dead = set()
         self.listener = socket.socket()
         self.listener.bind(('127.0.0.1', 0))
         self.listener.listen(16)
@@ -37,6 +39,8 @@ class TcpProxy:
                     self.blocked.set()
                     self.commit_sent.set()
                     self.commit_armed.clear()
+                if self._dead(source, target):
+                    continue
                 if not (replies and self.blocked.is_set()):
                     target.sendall(data)
         except OSError:
@@ -65,6 +69,14 @@ class TcpProxy:
                 thread = threading.Thread(target=self._pipe, args=(source, target, replies), daemon=True)
                 self.threads.append(thread)
                 thread.start()
+
+    def _dead(self, source, target):
+        return (source, target) in self.dead or (target, source) in self.dead
+
+    def blackhole_open_connections(self):
+        """Drop every byte on the connections open now, in both directions, without closing them (a NAT or
+        firewall that forgot them); connections opened later pass."""
+        self.dead.update(zip(self.sockets[0::2], self.sockets[1::2]))
 
     def block_server_replies(self):
         self.blocked.set()

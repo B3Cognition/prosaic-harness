@@ -89,6 +89,19 @@ def test_network_blackhole_has_client_deadline(db_admin_dsn):
         assert not asyncio.all_tasks(t._loop), 'owned pool tasks survived store shutdown'
 
 
+def test_an_idle_connection_whose_path_died_is_replaced_before_use(db_admin_dsn):
+    from support.tcp_proxy import TcpProxy
+    with TcpProxy(db_admin_dsn) as proxy:
+        with transport(proxy.dsn, operation_timeout_s=4) as t:
+            t.call(lambda conn: conn.execute('SELECT 1'))  # leaves one idle pooled connection
+            proxy.blackhole_open_connections()
+            started = time.monotonic()
+            t.call(lambda conn: conn.execute('SELECT 1'))  # served by a new connection
+            assert time.monotonic() - started < 2
+            assert t.pending_operations == 0
+        assert not asyncio.all_tasks(t._loop), 'owned pool tasks survived store shutdown'
+
+
 def test_queued_request_prevents_close(db_admin_dsn, monkeypatch):
     t = transport(db_admin_dsn)
     blocked, release, submitted = threading.Event(), threading.Event(), threading.Event()
