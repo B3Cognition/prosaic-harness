@@ -1,5 +1,8 @@
 # Releases and compatibility
 
+PostgreSQL store 0.4.6 [checks pooled connections before use](release-postgres-0.4.6.md). It keeps the 0.4.5
+storage contract and needs no migration.
+
 Harness 0.9.20 [qualifies Runtime 0.9.27](release-0.9.20.md), preserves CLI-free
 checkpoint identities, and retains the PostgreSQL 0.4.5 storage contract.
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## PostgreSQL 0.4.6
+
+- Check each pooled connection with one bounded round trip before handing it out. An idle connection whose network
+  path died without a reset is replaced, instead of hanging the next operation until its deadline.
+- See the [store notes](docs/release-postgres-0.4.6.md).
+
 ## 0.9.20
 
 - Qualify Runtime 0.9.27 and retain historical CLI-free workflow and conversation identities.

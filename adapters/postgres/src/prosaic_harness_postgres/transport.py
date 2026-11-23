@@ -11,7 +11,7 @@ import uuid
 
 import psycopg
 from psycopg.conninfo import make_conninfo
-from psycopg_pool import AsyncConnectionPool
+from psycopg_pool import AsyncConnectionPool, PoolTimeout
 from prosaic_harness import StoreError, StoreBusy, StoreIncompatible, StoreUnavailable
 
 
@@ -20,6 +20,10 @@ def positive(value, name, *, integer=False):
             or (integer and type(value) is not int)):
         raise ValueError(f'{name} must be a finite positive {"integer" if integer else "number"}')
     return value
+
+
+# One round trip; far above a healthy connection's and well inside the pool's own timeout.
+CHECK_TIMEOUT_S = 1.0
 
 
 class _PoolRedaction(logging.Filter):
@@ -68,6 +72,8 @@ class PostgresTransport:
             raise StoreUnavailable('invalid database connection configuration') from None
         self.operation_timeout_s = operation_timeout_s
         self.pool_timeout_s = pool_timeout_s
+        # A pooled connection proves it is alive before it is handed out, within this bound.
+        self.check_timeout_s = min(CHECK_TIMEOUT_S, pool_timeout_s / 2)
         self.lock_timeout_s = lock_timeout_s
         self.statement_timeout_s = statement_timeout_s
         self._pid = os.getpid()
@@ -129,6 +135,37 @@ class PostgresTransport:
             self._pending.add(operation)
         return operation
 
+    async def _checkout(self, pool, budget):
+        """Check and replace stale connections within one acquisition budget."""
+        deadline = self._loop.time() + min(self.pool_timeout_s, budget)
+        while (remaining := deadline - self._loop.time()) > 0:
+            conn = await pool.getconn(timeout=remaining)
+            remaining = deadline - self._loop.time()
+            if remaining <= 0:
+                await pool.putconn(conn)
+                break
+            probe = asyncio.create_task(conn.execute(''))
+            usable = False
+            try:
+                done, _ = await asyncio.wait({probe}, timeout=min(self.check_timeout_s, remaining))
+                if done:
+                    probe.result()
+                    if self._loop.time() < deadline:
+                        usable = True
+                        return conn
+            except psycopg.OperationalError:
+                pass
+            finally:
+                if not usable:
+                    try:
+                        # A cancel request can itself hang on the broken path.
+                        await conn.close()
+                        probe.cancel()
+                        await asyncio.gather(probe, return_exceptions=True)
+                    finally:
+                        await pool.putconn(conn)
+        raise PoolTimeout('database pool acquisition deadline exceeded')
+
     @staticmethod
     def _check_deadline(operation):
         if operation.expired or time.monotonic() >= operation.work_deadline:
@@ -149,9 +186,10 @@ class PostgresTransport:
     async def _sql(self, operation, callback, renewal, budget):
         self._check_deadline(operation)
         pool = self._renewal if renewal else self._ordinary
-        conn = await pool.getconn(timeout=min(self.pool_timeout_s, budget))
+        conn = await self._checkout(pool, budget)
         operation.connection = conn
         try:
+            self._check_deadline(operation)
             await self._guard(conn)
             async with conn.transaction():
                 await conn.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
@@ -180,7 +218,7 @@ class PostgresTransport:
         # Close before cancellation, avoiding a blocking cancellation round trip.
         if operation.connection is not None:
             await operation.connection.close()
-        if operation.task is not None:
+        if operation.task is not None and not operation.task.cancelling():
             operation.task.cancel()
 
     def _retire(self, operation):

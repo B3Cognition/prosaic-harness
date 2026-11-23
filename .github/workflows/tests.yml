@@ -176,7 +176,7 @@ jobs:
       - name: Install local core wheel before adapter
         run: |
           python -m pip install dist/b3_prosaic_harness-0.9.20-py3-none-any.whl
-          python -m pip install adapters/postgres/dist/b3_prosaic_harness_postgres-0.4.5-py3-none-any.whl
+          python -m pip install adapters/postgres/dist/b3_prosaic_harness_postgres-0.4.6-py3-none-any.whl
           prosaic --version
       - name: Required real-database, owned crash/standby and clean-wheel gates
         env:

@@ -89,6 +89,51 @@ def test_network_blackhole_has_client_deadline(db_admin_dsn):
         assert not asyncio.all_tasks(t._loop), 'owned pool tasks survived store shutdown'
 
 
+def test_an_idle_connection_whose_path_died_is_replaced_before_use(db_admin_dsn):
+    from support.tcp_proxy import TcpProxy
+    with TcpProxy(db_admin_dsn) as proxy:
+        with transport(proxy.dsn, operation_timeout_s=4) as t:
+            t.call(lambda conn: conn.execute('SELECT 1'))  # leaves one idle pooled connection
+            proxy.blackhole_open_connections()
+            started = time.monotonic()
+            t.call(lambda conn: conn.execute('SELECT 1'))  # served by a new connection
+            assert time.monotonic() - started < 2
+            assert t.pending_operations == 0
+        assert not asyncio.all_tasks(t._loop), 'owned pool tasks survived store shutdown'
+
+
+@pytest.mark.parametrize('renewal', [False, True], ids=['ordinary', 'renewal'])
+def test_operation_deadline_drains_checkout_probe(db_admin_dsn, monkeypatch, renewal):
+    import psycopg
+    from support.tcp_proxy import TcpProxy
+
+    with TcpProxy(db_admin_dsn) as proxy:
+        with transport(proxy.dsn, pool_size=1, max_active_leases=1) as t:
+            t.call(lambda conn: conn.execute('SELECT 1'), renewal=renewal)
+            proxy.blackhole_open_connections()
+            probes = []
+            execute = psycopg.AsyncConnection.execute
+
+            async def track_probe(conn, query, *args, **kwargs):
+                if query == '':
+                    probes.append((conn, asyncio.current_task()))
+                return await execute(conn, query, *args, **kwargs)
+
+            async def unexpected_operation(conn):
+                pytest.fail('operation reached its callback after a failed checkout')
+
+            monkeypatch.setattr(psycopg.AsyncConnection, 'execute', track_probe)
+            with pytest.raises(StoreUnavailable) as error:
+                t.call(unexpected_operation, renewal=renewal, timeout_s=0.6)
+
+            assert not error.value.outcome_unknown
+            assert probes
+            assert all(conn.closed and task.done() for conn, task in probes)
+            assert t.pending_operations == 0
+            t.call(lambda conn: conn.execute('SELECT 1'), renewal=renewal)
+        assert not asyncio.all_tasks(t._loop), 'owned pool tasks survived store shutdown'
+
+
 def test_queued_request_prevents_close(db_admin_dsn, monkeypatch):
     t = transport(db_admin_dsn)
     blocked, release, submitted = threading.Event(), threading.Event(), threading.Event()

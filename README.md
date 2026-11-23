@@ -70,7 +70,7 @@ policies from one value for new sessions.
 
 The `b3-prosaic-harness` 0.9.19 distribution selects
 `b3-prosaic-runtime>=0.9.25,<0.10` and directly requires `b3-prosaic>=0.5.0,<0.6`. The optional `b3-prosaic-harness-postgres`
-**0.4.5** package supports shared workflow and conversation storage.
+**0.4.6** package supports shared workflow and conversation storage.
 Imports (`prosaic_harness`) and CLI commands (`prosaic-harness`) remain unchanged.
 Runtime **0.9.19** retains per-invocation headers, canonical `effort: none` and Gemma thinking controls.
 Install with `python -m pip install 'b3-prosaic-harness==0.9.19'`.

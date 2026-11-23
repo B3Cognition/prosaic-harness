@@ -100,3 +100,12 @@ def test_parallel_wheel_qualification_installs_the_qualified_postgres_adapter():
         install = next(line for line in command.splitlines()
                        if '.wheel-test/bin/python -m pip install' in line)
         assert adapter_wheel in install, name
+
+
+def test_postgres_ci_installs_the_adapter_version_it_builds():
+    root = Path(__file__).resolve().parents[1]
+    workflow = yaml.safe_load((root / '.github/workflows/tests.yml').read_text())
+    adapter = tomllib.loads((root / 'adapters/postgres/pyproject.toml').read_text())['project']
+    wheel = f"adapters/postgres/dist/{adapter['name'].replace('-', '_')}-{adapter['version']}-py3-none-any.whl"
+    installs = [step.get('run', '') for step in workflow['jobs']['postgres']['steps']]
+    assert any(f'pip install {wheel}' in command for command in installs)
