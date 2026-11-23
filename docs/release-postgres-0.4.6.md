@@ -1,8 +1,11 @@
 # Harness PostgreSQL 0.4.6 — pooled connection check
 
-The store's connection pools now check a connection before handing it out. The check is one empty statement, bounded
-by 1 second or half of `pool_timeout_s`, whichever is less. A connection that does not answer is closed and the pool
-connects again.
+The adapter checks connections from both the ordinary and lease-renewal pools
+before starting a database operation. The check is one empty statement, bounded
+by the smallest of one second, half of `pool_timeout_s`, and the remaining checkout
+budget. A failed check closes the connection and drains the probe before the
+adapter requests a replacement within that same budget. Cancellation performs
+the same cleanup and ends checkout before any operation is dispatched.
 
 Before this release, a pooled connection whose network path had died silently (a NAT, firewall or load balancer that
 forgot it, sending no reset) was handed to the next operation. That operation hung until its deadline and failed with

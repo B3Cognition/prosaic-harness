@@ -11,7 +11,7 @@ import uuid
 
 import psycopg
 from psycopg.conninfo import make_conninfo
-from psycopg_pool import AsyncConnectionPool
+from psycopg_pool import AsyncConnectionPool, PoolTimeout
 from prosaic_harness import StoreError, StoreBusy, StoreIncompatible, StoreUnavailable
 
 
@@ -93,7 +93,7 @@ class PostgresTransport:
 
         async def open_pools():
             settings = dict(conninfo=conninfo, kwargs={'autocommit': True}, min_size=0,
-                            open=False, timeout=pool_timeout_s, check=self._alive,
+                            open=False, timeout=pool_timeout_s,
                             reconnect_timeout=connect_timeout_s, num_workers=1)
             self._ordinary = AsyncConnectionPool(**settings, max_size=pool_size,
                                                 max_waiting=pool_size, name=self._prefix + '-work')
@@ -135,19 +135,36 @@ class PostgresTransport:
             self._pending.add(operation)
         return operation
 
-    async def _alive(self, conn):
-        """The pool's check before it hands a connection out. An idle connection whose network path died without a
-        reset (a NAT or firewall that forgot it) would otherwise hang the next operation until its deadline; a check
-        that does not answer within `check_timeout_s` raises, and the pool discards it and connects again."""
-        probe = asyncio.ensure_future(conn.execute(''))
-        probe.add_done_callback(lambda task: task.cancelled() or task.exception())  # never an unretrieved error
-        done, _ = await asyncio.wait({probe}, timeout=self.check_timeout_s)
-        if not done:
-            # Close before cancellation, as an expiring operation does: a cancel request would wait on the dead path.
-            await conn.close()
-            probe.cancel()
-            raise psycopg.OperationalError('pooled connection did not answer its check')
-        probe.result()
+    async def _checkout(self, pool, budget):
+        """Check and replace stale connections within one acquisition budget."""
+        deadline = self._loop.time() + min(self.pool_timeout_s, budget)
+        while (remaining := deadline - self._loop.time()) > 0:
+            conn = await pool.getconn(timeout=remaining)
+            remaining = deadline - self._loop.time()
+            if remaining <= 0:
+                await pool.putconn(conn)
+                break
+            probe = asyncio.create_task(conn.execute(''))
+            usable = False
+            try:
+                done, _ = await asyncio.wait({probe}, timeout=min(self.check_timeout_s, remaining))
+                if done:
+                    probe.result()
+                    if self._loop.time() < deadline:
+                        usable = True
+                        return conn
+            except psycopg.OperationalError:
+                pass
+            finally:
+                if not usable:
+                    try:
+                        # A cancel request can itself hang on the broken path.
+                        await conn.close()
+                        probe.cancel()
+                        await asyncio.gather(probe, return_exceptions=True)
+                    finally:
+                        await pool.putconn(conn)
+        raise PoolTimeout('database pool acquisition deadline exceeded')
 
     @staticmethod
     def _check_deadline(operation):
@@ -169,9 +186,10 @@ class PostgresTransport:
     async def _sql(self, operation, callback, renewal, budget):
         self._check_deadline(operation)
         pool = self._renewal if renewal else self._ordinary
-        conn = await pool.getconn(timeout=min(self.pool_timeout_s, budget))
+        conn = await self._checkout(pool, budget)
         operation.connection = conn
         try:
+            self._check_deadline(operation)
             await self._guard(conn)
             async with conn.transaction():
                 await conn.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
@@ -200,7 +218,7 @@ class PostgresTransport:
         # Close before cancellation, avoiding a blocking cancellation round trip.
         if operation.connection is not None:
             await operation.connection.close()
-        if operation.task is not None:
+        if operation.task is not None and not operation.task.cancelling():
             operation.task.cancel()
 
     def _retire(self, operation):
