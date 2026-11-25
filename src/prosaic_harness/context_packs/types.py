@@ -1,6 +1,7 @@
 """Owned, bounded context data. Construction has no source or permission effects."""
 from dataclasses import dataclass, fields
 import hashlib
+import json
 from pathlib import PurePosixPath
 from .codec import (ContextPackError, closed, decode, encode, integer,
                     locator as admit_locator, reference)
@@ -59,7 +60,9 @@ class _Record:
         object.__setattr__(self, '_encoded', encode(document, **limits))
 
     def to_dict(self):
-        return decode(self._encoded)
+        # `_encoded` is this record's own canonical encoding (`_own`): parsing it again yields the same owned
+        # document without re-walking it for admission on every read.
+        return json.loads(self._encoded)
 
     @property
     def identity(self):

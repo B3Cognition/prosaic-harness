@@ -3,6 +3,7 @@
 ALWAYS admit current declarations before effects. NEVER treat hashes or prose
 as authority, or discover executables during conversation admission.
 """
+import json
 from dataclasses import dataclass, fields
 from pathlib import Path
 from types import MappingProxyType
@@ -15,7 +16,7 @@ from .conversation_errors import ConversationError
 from .factory import (_config_payload, _config_from_json, _artifact_snapshot,
                       _artifact_data, admit_workflow, WorkflowPolicy)
 from .schema_validation import admit_schema
-from .session_codec import encode, decode, owned, digest, reference
+from .session_codec import encode, owned, digest, reference
 from .validation import Validator
 from .conversation_rules import registrations, descriptors, receipt_bound, source_options
 from .guarded_recovery import RecoveryOptions
@@ -108,6 +109,13 @@ class ConversationPolicy:
     def to_dict(self):
         self.__post_init__()
         return {f.name: getattr(self, f.name) for f in fields(self)}
+
+
+def _own_document(content):
+    """A fresh, caller-owned copy of a document these bindings encoded themselves. The bytes are canonical and were
+    admitted when they were written (`encode`), so reading them back does not walk them for admission again."""
+    return json.loads(content)
+
 
 
 def encoded_answer_bound(assistant_bytes,turn_bytes):
@@ -244,7 +252,7 @@ class WorkflowRegistration:
             if self._admitted is not _ADMITTED:
                 raise ValueError()
             admit_workflow(self._workflow, runtime=self._runtime, validators=dict(self._validators) or None)
-            data = decode(self._encoded)
+            data = _own_document(self._encoded)
             if (data['workflow'] != self._workflow.fingerprint
                     or data['storeNamespace'] != self._store.namespace
                     or data['authorizer'] != _rule(self._authorizer, RunAuthorizer)
@@ -452,48 +460,48 @@ class ConversationBindings:
             raise ConversationError('bindingMismatch') from None
     @property
     def version(self):
-        return decode(self._encoded)['version']
+        return _own_document(self._encoded)['version']
     @property
     def identity(self):
-        return digest(decode(self._encoded))
+        return digest(_own_document(self._encoded))
     @property
     def config(self):
         return _config_from_json(self._config.decode())
     @property
     def policy(self):
-        return ConversationPolicy(**decode(self._encoded)['policy'])
+        return ConversationPolicy(**_own_document(self._encoded)['policy'])
     @property
     def run_policy(self):
-        return _policy_from(decode(self._encoded)['runPolicy'])
+        return _policy_from(_own_document(self._encoded)['runPolicy'])
     @property
     def effective_max_input_bytes(self) -> int:
         """Encoded initial-request byte cap, without changing either policy."""
-        data = decode(self._encoded)
+        data = _own_document(self._encoded)
         return min(data['policy']['max_input_bytes'], data['runPolicy']['max_input_bytes'])
     @property
     def effective_interpretation_max_input_bytes(self) -> int | None:
         """Interpreter's encoded request cap, or None when none is registered."""
-        data = decode(self._encoded)
+        data = _own_document(self._encoded)
         interpreter = data['interpreter']
         if interpreter is None:
             return None
         return min(data['policy']['max_input_bytes'], interpreter['policy']['max_input_bytes'])
     @property
     def turn_limits(self):
-        return TurnLimits(**decode(self._encoded)['turnLimits'])
+        return TurnLimits(**_own_document(self._encoded)['turnLimits'])
     @property
     def agent(self):
-        return ProsaicArtifact.from_inspection(decode(self._encoded)['artifact'])
+        return ProsaicArtifact.from_inspection(_own_document(self._encoded)['artifact'])
     @property
     def tool_journal(self):
         return self._journal
     @property
     def interpretation_policy(self):
-        data = decode(self._encoded)['interpreter']
+        data = _own_document(self._encoded)['interpreter']
         return _policy_from(data['policy']) if data else None
     @property
     def context_enabled(self):
-        data = decode(self._encoded)
+        data = _own_document(self._encoded)
         return 'contextPolicy' in data or 'interpretationContextPolicy' in data
     @property
     def context_packs(self): return self._context_packs
@@ -503,13 +511,13 @@ class ConversationBindings:
     def sub_agents(self): return self._sub_agents
     @property
     def context_policy(self):
-        document = decode(self._encoded).get('contextPolicy')
+        document = _own_document(self._encoded).get('contextPolicy')
         if document is None: return None
         from prosaic_runtime import ContextPolicy
         return ContextPolicy.from_dict(document)
     @property
     def interpretation_context_policy(self):
-        document = decode(self._encoded).get('interpretationContextPolicy')
+        document = _own_document(self._encoded).get('interpretationContextPolicy')
         if document is None: return None
         from prosaic_runtime import ContextPolicy
         return ContextPolicy.from_dict(document)
@@ -524,7 +532,7 @@ class ConversationBindings:
                 raise ValueError()
             if self._guards and 'rule_admission_v1' not in ProsaicRuntime.capabilities:
                 raise ConversationError('capabilityMissing')
-            data = decode(self._encoded)
+            data = _own_document(self._encoded)
             if self._context_packs is not None:
                 if not {'frozen_turn_inputs_v1','guard_input_views_v1','context_input_variants_v1'}<=ProsaicRuntime.capabilities:
                     raise ConversationError('contextCapabilityMissing')

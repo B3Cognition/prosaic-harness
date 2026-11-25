@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Context-pack records and conversation bindings read back the canonical bytes they encoded themselves without
+  admitting them again on every read. Each read still returns a fresh, caller-owned copy. A record attribute access
+  and a binding property no longer walk the whole document, which a conversation did tens of thousands of times a turn.
+
 ## 0.9.21
 
 - Reuse full session verification for identical canonical bytes in a process-local
