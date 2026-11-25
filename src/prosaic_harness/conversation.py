@@ -1,6 +1,8 @@
 """Graph-free ordered conversations over public Runtime turns and SessionStore."""
 from prosaic_runtime.lifecycle import ExecutionLifecycle, tracked
 from dataclasses import dataclass, replace
+import math
+from time import monotonic
 from uuid import uuid4
 
 from prosaic_runtime import (ConversationMessage, ProsaicArtifact, InvocationScope,
@@ -29,9 +31,17 @@ class ConversationReply:
 
 class Conversation(ConversationWorkflow):
     """The embedding host authenticates and authorizes every operation first."""
-    def __init__(self, bindings, *, store, scope, context=None, accounting=None, observer=None, lifecycle=None):
+    def __init__(self, bindings, *, store, scope, context=None, accounting=None, observer=None, lifecycle=None,
+                 readmit_interval_s=0.0):
+        """`readmit_interval_s` spaces the binding readmission that cancellation polling runs during a turn (the
+        lease is still checked on every poll). 0, the default, readmits on every poll. A turn is readmitted in full
+        before dispatch and again before its receipt is saved whatever the interval, so drift is never adopted;
+        a positive interval only lets work in flight notice it up to that many seconds later."""
         if type(bindings) is not ConversationBindings or type(scope) is not ConversationScope:
             raise ConversationError('bindingMismatch')
+        if (type(readmit_interval_s) not in (int, float) or not math.isfinite(readmit_interval_s)
+                or not 0 <= readmit_interval_s <= 60):
+            raise ValueError('readmit_interval_s must be between 0 and 60 seconds')
         if store.namespace!=scope.namespace: raise ConversationError('identityMismatch')
         if context is not None and type(context) not in (ExecutionContext,ResolvedContext):
             raise ConversationError('identityMismatch')
@@ -47,6 +57,7 @@ class Conversation(ConversationWorkflow):
             raise TypeError("lifecycle must be an ExecutionLifecycle")
         self.bindings,self.store,self.scope=bindings,store,scope
         self.context,self.accounting,self.observer=context,accounting,observer
+        self.readmit_interval_s=float(readmit_interval_s)
         if bindings.sub_agents is not None and (
                 accounting is None or bindings.sub_agents.pack_bindings.scope.to_dict() != scope.to_dict()):
             raise ConversationError('identityMismatch')
@@ -381,10 +392,13 @@ class Conversation(ConversationWorkflow):
         def prior_grant():
             return proofs is not None and all(self.bindings.sub_agents.may_reuse(proof,self.scope,'modelUse')
                                               for proof in proofs)
+        readmitted=[monotonic()]
         def cancellation():
             try:
                 lease.check_valid()
-                self.bindings.readmit()
+                if monotonic()-readmitted[0]>=self.readmit_interval_s:
+                    self.bindings.readmit()
+                    readmitted[0]=monotonic()
             except Exception as exc:
                 ownership_error.append(exc)
                 return True
