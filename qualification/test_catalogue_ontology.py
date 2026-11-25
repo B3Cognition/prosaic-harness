@@ -61,7 +61,7 @@ def _graph():
 
 
 def test_exact_installed_ontology_sdk():
-    expected = [('b3-prosaic', '0.5.1', prosaic), ('b3-prosaic-harness', '0.9.20', harness),
+    expected = [('b3-prosaic', '0.5.1', prosaic), ('b3-prosaic-harness', '0.9.21', harness),
                 ('b3-prosaic-runtime', '0.9.27', runtime)]
     for name, version, module in expected:
         distribution = metadata.distribution(name)

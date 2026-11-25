@@ -1,5 +1,8 @@
 # Releases and compatibility
 
+Harness 0.9.21 [reuses verified conversation snapshots](release-0.9.21.md).
+Existing sessions can continue with the same bindings and stores.
+
 PostgreSQL store 0.4.6 [checks pooled connections before use](release-postgres-0.4.6.md). It keeps the 0.4.5
 storage contract and needs no migration.
 

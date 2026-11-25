@@ -1,11 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.9.21
 
 - Reuse full session verification for identical canonical bytes in a process-local
   cache bounded to 64 MiB of session content. Each lookup returns an owned copy.
   New snapshots still pass full validation, and a forked worker starts with an
   empty cache and a fresh lock.
+- See the [0.9.21 release notes](docs/release-0.9.21.md).
 
 ## PostgreSQL 0.4.6
 

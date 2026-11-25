@@ -14,7 +14,7 @@ from release_artifacts import (ReleaseError, digest, require_qualification, tar_
 
 
 CORE = 'b3_prosaic-0.5.1'
-HARNESS = 'b3_prosaic_harness-0.9.20'
+HARNESS = 'b3_prosaic_harness-0.9.21'
 RUNTIME = 'b3_prosaic_runtime-0.9.27-py3-none-any.whl'
 RUNTIME_SHA = '7889545eeaef8a92e08fc5669d07b72c33fdea7c191158a0d150e9798a0bf5df'
 RUNTIME_SOURCE = '9b7a285acd50a18a992c5ebb6bef409cb5a40345'

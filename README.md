@@ -1,5 +1,8 @@
 # Prosaic Harness
 
+Harness **0.9.21** speeds up repeated session verification in conversations.
+See the [0.9.21 release notes](docs/release-0.9.21.md).
+
 Harness **0.9.20** qualifies the default CLI sandbox in Runtime **0.9.27**.
 See [upgrade and checkpoint compatibility](docs/release-0.9.20.md).
 
@@ -108,7 +111,7 @@ native execution evidence. The current release selects the compatible Runtime 0.
 
 ## CLI permissions and sandboxing
 
-Harness **0.9.20** supports Runtime **0.9.25** through the compatible 0.9 series.
+Harness **0.9.21** supports Runtime **0.9.25** through the compatible 0.9 series.
 Runtime **0.9.27** enables CLI sandboxing by default. Follow the
 [sandboxed workflow walkthrough](examples/README.md#sandboxed-cli-workflow-harness-042)
 for installation, offline validation and live execution.
