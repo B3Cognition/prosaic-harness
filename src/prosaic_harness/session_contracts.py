@@ -3,6 +3,7 @@ from collections import OrderedDict
 from dataclasses import asdict, fields
 import hashlib
 import json
+import os
 import re
 import threading
 
@@ -146,6 +147,17 @@ def clear_verified_sessions():
         _verified_size = 0
 
 
+def _reset_verified_sessions_after_fork():
+    global _verified_lock
+    # A parent thread may have held the inherited lock when the process forked.
+    _verified_lock = threading.Lock()
+    clear_verified_sessions()
+
+
+if hasattr(os, 'register_at_fork'):
+    os.register_at_fork(after_in_child=_reset_verified_sessions_after_fork)
+
+
 def _remember(key, content):
     global _verified_size
     with _verified_lock:
@@ -173,14 +185,14 @@ def verify_session(document):
             _verified.move_to_end(key)
     if known is not None:
         return json.loads(known)
-    state = _verify_session_full(document)
+    state = _verify_session_full(content)
     _remember(key, content)
     return state
 
 
-def _verify_session_full(document):
+def _verify_session_full(content):
     try:
-        state=owned(document)
+        state=decode(content)
         context_fields = {'contextBindings'} if state.get('version') in (2,3,4,5,6) else set()
         if state.get('version') in (3,4,5,6): context_fields.add('contextPacks')
         if state.get('version') in (4,5,6): context_fields.add('toolContractV1')

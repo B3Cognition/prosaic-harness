@@ -71,6 +71,27 @@ def test_a_stale_seal_is_refused_after_the_original_was_verified(state):
         verify_session(hostile)
 
 
+def test_a_mutating_input_cannot_cache_unverified_bytes(state, monkeypatch):
+    stale = {**state, 'bindingVersion': 'v2'}
+    shared = dict(stale)
+    encode = session_contracts.encode
+
+    def encode_then_mutate(document, **limits):
+        content = encode(document, **limits)
+        if document is shared:
+            shared.update(state)
+        return content
+
+    with monkeypatch.context() as patch:
+        patch.setattr(session_contracts, 'encode', encode_then_mutate)
+        with pytest.raises(StoreCorrupt):
+            verify_session(shared)
+
+    with pytest.raises(StoreCorrupt):
+        verify_session(stale)
+    assert verify_session(shared) == state
+
+
 def test_failures_are_not_remembered(state, monkeypatch):
     document = running(state)
     hostile = {**document, 'bindingVersion': 'v2'}

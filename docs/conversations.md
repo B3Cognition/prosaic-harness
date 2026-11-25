@@ -361,15 +361,9 @@ references remain private recovery evidence, not fields in a public reply.
 
 ### Readmission while a turn runs
 
-While a turn runs, cancellation polling checks the session lease and readmits the
-conversation bindings (tools, guards, packs, delegations and a probe turn) to
-notice drift. Readmission is not cheap, and polling happens on every Runtime event.
-`Conversation(..., readmit_interval_s=0.5)` readmits at most every half second
-during polling; the lease is still checked on every poll. The default, `0`,
-readmits on every poll. Whatever the interval, the turn is readmitted in full
-before dispatch and again before its receipt is saved, so a drifted binding is
-never adopted: a positive interval only lets work in flight notice drift up to
-that many seconds later. Values outside 0-60 seconds are refused.
+During a turn, every Runtime cancellation poll checks the session lease and
+readmits the conversation bindings, including tools, guards, packs and
+delegations. Harness also readmits the bindings before saving the receipt.
 
 ## Reply to an existing workflow pause
 

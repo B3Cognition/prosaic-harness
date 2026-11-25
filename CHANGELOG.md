@@ -2,13 +2,10 @@
 
 ## Unreleased
 
-- Remember verified session content: `verify_session` keys a byte-bounded LRU (`VERIFIED_SESSION_BYTES`, 64 MiB) by the
-  sha256 of the document's canonical bytes and returns a fresh copy for content that passed before. Anything else, a
-  stale seal included, is checked in full; only successes are kept. A send no longer re-verifies the whole session
-  about 32 times, so later turns of a conversation no longer cost more and more.
-- Add `Conversation(readmit_interval_s=...)`: spaces the binding readmission that cancellation polling runs during a
-  turn (the lease is still checked on every poll). The default, 0, readmits on every poll as before; dispatch and
-  receipt are always readmitted, so drift is never adopted.
+- Reuse full session verification for identical canonical bytes in a process-local
+  cache bounded to 64 MiB of session content. Each lookup returns an owned copy.
+  New snapshots still pass full validation, and a forked worker starts with an
+  empty cache and a fresh lock.
 
 ## PostgreSQL 0.4.6
 
