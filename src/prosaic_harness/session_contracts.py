@@ -1,7 +1,10 @@
 """Closed version-1 session reducer. No callbacks, I/O or model execution."""
+from collections import OrderedDict
 from dataclasses import asdict, fields
 import hashlib
+import json
 import re
+import threading
 
 from prosaic_runtime import (ConversationMessage, CompletedTurn, TurnEvidence, TurnResult)
 from .conversation_bindings import ConversationScope, ConversationPolicy, ConversationBindings
@@ -127,7 +130,55 @@ def _bounds(state, *, admission=False):
         raise ValueError('attempt capacity')
 
 
+#: Bytes of canonical session encodings kept as verified (one process, every session). A content hash is the key,
+#: so the memo only ever skips work for a document identical to one that passed every check below.
+VERIFIED_SESSION_BYTES = 64 * 1024 * 1024
+_verified = OrderedDict()  # sha256 of canonical bytes -> those bytes, oldest first
+_verified_size = 0
+_verified_lock = threading.Lock()
+
+
+def clear_verified_sessions():
+    """Forget every remembered verification (tests; a host that wants a cold check)."""
+    global _verified_size
+    with _verified_lock:
+        _verified.clear()
+        _verified_size = 0
+
+
+def _remember(key, content):
+    global _verified_size
+    with _verified_lock:
+        if key in _verified or len(content) > VERIFIED_SESSION_BYTES:
+            return
+        _verified[key] = content
+        _verified_size += len(content)
+        while _verified_size > VERIFIED_SESSION_BYTES:
+            _, dropped = _verified.popitem(last=False)
+            _verified_size -= len(dropped)
+
+
 def verify_session(document):
+    """The owned, fully validated session. Identical canonical content that passed before is returned as a fresh
+    copy of the verified bytes without repeating the checks; anything else, a stale seal included, is checked in full.
+    Only successes are remembered."""
+    try:
+        content = encode(document)
+    except (ValueError,TypeError,KeyError,AttributeError,UnicodeError,RecursionError):
+        raise StoreCorrupt('invalid conversation snapshot') from None
+    key = hashlib.sha256(content).digest()
+    with _verified_lock:
+        known = _verified.get(key)
+        if known is not None:
+            _verified.move_to_end(key)
+    if known is not None:
+        return json.loads(known)
+    state = _verify_session_full(document)
+    _remember(key, content)
+    return state
+
+
+def _verify_session_full(document):
     try:
         state=owned(document)
         context_fields = {'contextBindings'} if state.get('version') in (2,3,4,5,6) else set()
