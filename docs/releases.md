@@ -1,5 +1,7 @@
 # Releases and compatibility
 
+Harness 0.9.22 [reduces repeated context-pack and binding validation](release-0.9.22.md).
+
 Harness 0.9.21 [reuses verified conversation snapshots](release-0.9.21.md).
 Existing sessions can continue with the same bindings and stores.
 

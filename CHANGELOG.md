@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.9.22
 
 - Context-pack records and conversation bindings read back the canonical bytes they encoded themselves without
   admitting them again on every read. Each read still returns a fresh, caller-owned copy. A record attribute access
   and a binding property no longer walk the whole document, which a conversation did tens of thousands of times a turn.
+- See the [0.9.22 release notes](docs/release-0.9.22.md).
 
 ## 0.9.21
 
