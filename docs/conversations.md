@@ -359,6 +359,12 @@ allocates a new attempt using the frozen original input. It cannot establish
 whether the earlier endpoint or effect completed. Original operation/journal
 references remain private recovery evidence, not fields in a public reply.
 
+### Readmission while a turn runs
+
+During a turn, every Runtime cancellation poll checks the session lease and
+readmits the conversation bindings, including tools, guards, packs and
+delegations. Harness also readmits the bindings before saving the receipt.
+
 ## Reply to an existing workflow pause
 
 Register an admitted workflow and its private store in `ConversationBindings`.

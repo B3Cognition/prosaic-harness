@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Reuse full session verification for identical canonical bytes in a process-local
+  cache bounded to 64 MiB of session content. Each lookup returns an owned copy.
+  New snapshots still pass full validation, and a forked worker starts with an
+  empty cache and a fresh lock.
+
 ## PostgreSQL 0.4.6
 
 - Check each pooled connection with one bounded round trip before handing it out. An idle connection whose network
